@@ -1,0 +1,26 @@
+<!doctype html>
+<html data-theme="vencos-light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+    <title>Vencos Property Management</title>
+    <meta name="description" content="Vencos Property Management System" />
+    <link rel="icon" type="image/png" sizes="96x96" href="/icons/icon-96x96.png" />
+    <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192x192.png" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/daisyui@5/themes.css" />
+    <link rel="stylesheet" href="/styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <script>
+      // Apply saved theme immediately to prevent flash
+      (function() {
+        var saved = localStorage.getItem('vencos-theme');
+        var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'vencos-dark' : 'vencos-light');
+        document.documentElement.setAttribute('data-theme', theme);
+      })();
+    </script>
+  </head>
+  <body class="bg-base-100 text-base-content">
+    <div id="root"></div>
+    <script type="module" src="/app.tsx"></script>
+  </body>
+</html>

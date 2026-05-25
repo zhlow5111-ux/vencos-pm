@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: vencos-pm
+    runtime: node
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATA_DIR
+        value: /opt/render/project/data
+    disk:
+      name: vencos-data
+      mountPath: /opt/render/project/data
+      sizeGB: 1
