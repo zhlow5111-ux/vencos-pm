@@ -511,7 +511,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
 
               <div className="form-control">
                 <label className="label"><span className="label-text text-xs">地址 Address</span></label>
-                <input className="input input-bordered input-sm w-full" placeholder="完整地址" value={address} onChange={(e) => setAddress(e.target.value)} />
+                <textarea className="textarea textarea-bordered textarea-sm w-full" rows={2} placeholder="完整地址" value={address} onChange={(e) => setAddress(e.target.value)} />
               </div>
 
               <div className="grid grid-cols-2 gap-2">
