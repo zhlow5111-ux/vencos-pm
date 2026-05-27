@@ -145,7 +145,7 @@ export const OwnerForm: React.FC<Props> = ({ owner, onClose, onSaved }) => {
             </div>
             <div className="form-control">
               <label className="label"><span className="label-text text-xs">邮箱</span></label>
-              <input className="input input-bordered input-sm w-full" value={email} onChange={(e) => setEmail(e.target.value)} />
+              <input type="email" autoCapitalize="none" className="input input-bordered input-sm w-full" value={email} onChange={(e) => setEmail(e.target.value)} />
             </div>
           </div>
 

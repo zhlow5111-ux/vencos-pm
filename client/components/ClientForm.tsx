@@ -112,7 +112,7 @@ export const ClientForm: React.FC<ClientFormProps> = ({ client, onClose, onSaved
                 </div>
                 <div className="form-control">
                   <label className="label py-0.5"><span className="label-text text-xs">电子邮箱</span></label>
-                  <input type="email" className="input input-bordered input-sm w-full" placeholder="email@example.com" value={form.email} onChange={(e) => updateField('email', e.target.value)} />
+                  <input type="email" autoCapitalize="none" className="input input-bordered input-sm w-full" placeholder="email@example.com" value={form.email} onChange={(e) => updateField('email', e.target.value)} />
                 </div>
               </div>
               <div className="form-control">
@@ -140,7 +140,7 @@ export const ClientForm: React.FC<ClientFormProps> = ({ client, onClose, onSaved
                   </div>
                   <div className="form-control">
                     <label className="label py-0.5"><span className="label-text text-xs">公司邮箱</span></label>
-                    <input type="email" className="input input-bordered input-sm w-full" placeholder="info@company.com" value={form.email} onChange={(e) => updateField('email', e.target.value)} />
+                    <input type="email" autoCapitalize="none" className="input input-bordered input-sm w-full" placeholder="info@company.com" value={form.email} onChange={(e) => updateField('email', e.target.value)} />
                   </div>
                 </div>
                 <div className="form-control">
@@ -167,7 +167,7 @@ export const ClientForm: React.FC<ClientFormProps> = ({ client, onClose, onSaved
                   </div>
                   <div className="form-control">
                     <label className="label py-0.5"><span className="label-text text-xs">董事邮箱</span></label>
-                    <input type="email" className="input input-bordered input-sm w-full" placeholder="director@company.com" value={form.director_email} onChange={(e) => updateField('director_email', e.target.value)} />
+                    <input type="email" autoCapitalize="none" className="input input-bordered input-sm w-full" placeholder="director@company.com" value={form.director_email} onChange={(e) => updateField('director_email', e.target.value)} />
                   </div>
                 </div>
               </div>

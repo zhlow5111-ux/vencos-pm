@@ -311,7 +311,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
                 <div className="form-control">
                   <label className="label py-0.5"><span className="label-text text-xs">邮箱</span></label>
-                  <input className="input input-bordered input-sm w-full" placeholder="选填" value={userForm.email}
+                  <input type="email" autoCapitalize="none" className="input input-bordered input-sm w-full" placeholder="选填" value={userForm.email}
                     onChange={e => setUserForm(f => ({ ...f, email: e.target.value }))} />
                 </div>
                 <div className="form-control">
