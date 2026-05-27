@@ -1296,12 +1296,12 @@ export async function getTickets(tenantId?: number, workerId?: number): Promise<
   if (workerId) where += ` AND t.assigned_worker_id = ${workerId}`;
   const rows = await window.tasklet.sqlQuery(`
     SELECT t.*, p.name as property_name,
-      COALESCE(NULLIF(t.tenant_phone,''), fu.phone, '') as tenant_phone,
+      COALESCE(NULLIF(t.tenant_phone,''), fu.tenant_phone, '') as tenant_phone,
       COALESCE(fu.tenant_name, '') as tenant_name,
       w.name as worker_name
     FROM vc_maintenance_tickets t
     LEFT JOIN vc_properties p ON t.property_id = p.id
-    LEFT JOIN vc_floor_units fu ON t.property_id = fu.property_id AND fu.phone = NULLIF(t.tenant_phone,'')
+    LEFT JOIN vc_floor_units fu ON t.property_id = fu.property_id AND fu.tenant_phone = NULLIF(t.tenant_phone,'')
     LEFT JOIN vc_workers w ON t.assigned_worker_id = w.id
     ${where}
     GROUP BY t.id

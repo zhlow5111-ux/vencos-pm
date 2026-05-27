@@ -23,11 +23,8 @@ export const MaintenanceTickets: React.FC<Props> = ({ refreshKey, onRefresh }) =
 
   async function load() {
     setLoading(true);
-    try {
-      const [t, w] = await Promise.all([getTickets(), getWorkers()]);
-      setTickets(t);
-      setWorkers(w);
-    } catch (e) { console.error(e); }
+    try { const t = await getTickets(); setTickets(t); } catch (e) { console.error('getTickets error:', e); }
+    try { const w = await getWorkers(); setWorkers(w); } catch (e) { console.error('getWorkers error:', e); }
     setLoading(false);
   }
 
