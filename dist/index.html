@@ -8,13 +8,14 @@
     <link rel="icon" type="image/png" sizes="96x96" href="/icons/icon-96x96.png" />
     <link rel="apple-touch-icon" sizes="192x192" href="/icons/icon-192x192.png" />
     <script>
+      // Apply saved theme immediately to prevent flash
       (function() {
         var saved = localStorage.getItem('vencos-theme');
         var theme = saved || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'vencos-dark' : 'vencos-light');
         document.documentElement.setAttribute('data-theme', theme);
       })();
     </script>
-    <script type="module" crossorigin src="/assets/index-BeQ71mRS.js"></script>
+    <script type="module" crossorigin src="/assets/index-AajwFyZO.js"></script>
     <link rel="stylesheet" crossorigin href="/assets/index-DgpybEov.css">
   </head>
   <body class="bg-base-100 text-base-content">

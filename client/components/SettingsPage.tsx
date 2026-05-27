@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Mail, MessageSquare, Calendar, Power, PowerOff, Trash2, Edit2, Wifi, WifiOff, Bell, Building2, User, Shield, Key, Users, UserPlus, Save, X, Eye, EyeOff, Send, CheckCircle, XCircle, Clock } from 'lucide-react';
 import { MessageTemplate, BillingSchedule, Owner, SystemUser, UserRole, CHANNEL_TYPES, REMINDER_OPTIONS, OWNER_TYPES, USER_ROLES, ACCESS_LEVELS } from '../types';
-import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog } from '../utils/db';
+import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog, getProperties, addUserAccess } from '../utils/db';
 import { ConfirmModal } from './ConfirmModal';
 
 type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions';
@@ -47,7 +47,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUser, setEditingUser] = useState<SystemUser | null>(null);
   const [userForm, setUserForm] = useState({
-    username: '', pin: '', role: 'stakeholder' as UserRole, phone: '', name: '', email: '', notes: '', must_change_pin: true, active: true,
+    username: '', pin: '', role: '' as UserRole | '', phone: '', name: '', email: '', notes: '', must_change_pin: true, active: true, defaultAccessLevel: '' as string,
   });
   const [userSaving, setUserSaving] = useState(false);
   const [userToast, setUserToast] = useState('');
@@ -113,11 +113,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       setEditingUser(u);
       setUserForm({
         username: u.username, pin: '', role: u.role, phone: u.phone,
-        name: u.name, email: u.email, notes: u.notes, must_change_pin: false, active: u.active === 1,
+        name: u.name, email: u.email, notes: u.notes, must_change_pin: false, active: u.active === 1, defaultAccessLevel: '',
       });
     } else {
       setEditingUser(null);
-      setUserForm({ username: '', pin: '', role: 'stakeholder', phone: '', name: '', email: '', notes: '', must_change_pin: true, active: true });
+      setUserForm({ username: '', pin: '', role: '', phone: '', name: '', email: '', notes: '', must_change_pin: true, active: true, defaultAccessLevel: '' });
     }
     setShowUserForm(true);
   }
@@ -128,18 +128,23 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       setTimeout(() => setUserToast(''), 2000);
       return;
     }
+    if (!userForm.role) {
+      setUserToast('请选择用户角色');
+      setTimeout(() => setUserToast(''), 2000);
+      return;
+    }
     if (!editingUser && !userForm.pin.trim()) {
-      setUserToast('新用户必须设置初始 PIN 密码');
+      setUserToast('新用户必须设置密码');
       setTimeout(() => setUserToast(''), 2000);
       return;
     }
     setUserSaving(true);
     try {
-      await saveSystemUser({
+      const savedId = await saveSystemUser({
         id: editingUser?.id,
         username: userForm.username.trim(),
         pin: userForm.pin.trim() || undefined,
-        role: userForm.role,
+        role: userForm.role as UserRole,
         phone: userForm.phone.trim(),
         name: userForm.name.trim(),
         email: userForm.email.trim(),
@@ -147,6 +152,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         must_change_pin: userForm.must_change_pin ? 1 : 0,
         active: userForm.active ? 1 : 0,
       });
+      // Auto-apply default access to all properties for new admin/stakeholder
+      if (!editingUser && userForm.defaultAccessLevel && (userForm.role === 'admin' || userForm.role === 'stakeholder')) {
+        try {
+          const allProperties = await getProperties();
+          for (const p of allProperties) {
+            await addUserAccess(savedId, p.id, userForm.defaultAccessLevel);
+          }
+        } catch (e) { console.error('Failed to apply default access:', e); }
+      }
       setShowUserForm(false);
       setEditingUser(null);
       setUserToast('');
@@ -254,7 +268,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         <div className="space-y-3">
           <div className="bg-secondary/5 border border-secondary/20 rounded-lg p-2.5">
             <p className="text-xs text-secondary">
-              👥 统一管理所有用户。每个用户一个账户，角色决定权限范围。新用户首次登录需修改 PIN。
+              👥 统一管理所有用户。每个用户一个账户，角色决定权限范围。新用户首次登录需修改密码。
             </p>
           </div>
 
@@ -278,6 +292,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <label className="label py-0.5"><span className="label-text text-xs">角色 *</span></label>
                   <select className="select select-bordered select-sm w-full" value={userForm.role}
                     onChange={e => setUserForm(f => ({ ...f, role: e.target.value as UserRole }))}>
+                    <option value="" disabled>请选择角色</option>
                     {USER_ROLES.map(r => (
                       <option key={r.value} value={r.value}>{r.label}</option>
                     ))}
@@ -286,6 +301,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 <div className="form-control">
                   <label className="label py-0.5"><span className="label-text text-xs">用户名</span></label>
                   <input className="input input-bordered input-sm w-full" placeholder="登录用户名" value={userForm.username}
+                    autoCapitalize="off" autoCorrect="off" autoComplete="off"
                     onChange={e => setUserForm(f => ({ ...f, username: e.target.value }))} />
                 </div>
                 <div className="form-control">
@@ -300,16 +316,34 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
                 <div className="form-control">
                   <label className="label py-0.5">
-                    <span className="label-text text-xs">PIN 密码 {editingUser ? '(留空不修改)' : '*'}</span>
+                    <span className="label-text text-xs">密码 {editingUser ? '(留空不修改)' : '*'}</span>
                   </label>
-                  <input type="password" className="input input-bordered input-sm w-full" placeholder="4-6位数字" maxLength={6}
-                    value={userForm.pin} onChange={e => setUserForm(f => ({ ...f, pin: e.target.value.replace(/\D/g, '') }))} />
+                  <input type="password" className="input input-bordered input-sm w-full" placeholder="支持数字和字母"
+                    value={userForm.pin} onChange={e => setUserForm(f => ({ ...f, pin: e.target.value }))} />
                 </div>
                 <div className="form-control col-span-2">
                   <label className="label py-0.5"><span className="label-text text-xs">备注</span></label>
                   <input className="input input-bordered input-sm w-full" placeholder="选填" value={userForm.notes}
                     onChange={e => setUserForm(f => ({ ...f, notes: e.target.value }))} />
                 </div>
+                {(userForm.role === 'admin' || userForm.role === 'stakeholder') && !editingUser && (
+                  <div className="form-control col-span-2">
+                    <label className="label py-0.5"><span className="label-text text-xs">默认物业权限</span></label>
+                    <select className="select select-bordered select-sm w-full" value={userForm.defaultAccessLevel}
+                      onChange={e => setUserForm(f => ({ ...f, defaultAccessLevel: e.target.value }))}>
+                      <option value="">不设置（稍后手动配置）</option>
+                      <option value="full">全部物业 - 完全权限</option>
+                      <option value="edit">全部物业 - 编辑物业</option>
+                      <option value="financial">全部物业 - 查看财务</option>
+                      <option value="readonly">全部物业 - 只读查看</option>
+                    </select>
+                    <label className="label py-0">
+                      <span className="label-text-alt text-xs text-base-content/50">
+                        {userForm.defaultAccessLevel ? '✅ 保存后将自动应用到所有现有物业' : '保存后可在权限按钮中逐个配置'}
+                      </span>
+                    </label>
+                  </div>
+                )}
               </div>
 
               {/* Toggles row */}
@@ -318,7 +352,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <input type="checkbox" className="checkbox checkbox-xs checkbox-primary"
                     checked={userForm.must_change_pin}
                     onChange={e => setUserForm(f => ({ ...f, must_change_pin: e.target.checked }))} />
-                  <span className="text-xs text-base-content/70">{editingUser ? '下次登录强制修改 PIN' : '首次登录强制修改 PIN'}</span>
+                  <span className="text-xs text-base-content/70">{editingUser ? '下次登录强制修改密码' : '首次登录强制修改密码'}</span>
                 </label>
                 {editingUser && editingUser.role !== 'super_admin' && (
                   <label className="flex items-center gap-2 cursor-pointer">
@@ -336,7 +370,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className="bg-base-200/50 rounded-lg p-2">
                 <p className="text-xs text-base-content/50">
                   {roleIcon(userForm.role)} {USER_ROLES.find(r => r.value === userForm.role)?.desc}
-                  {(userForm.role === 'stakeholder') && ' — 保存后可配置物业访问权限'}
+                  {(userForm.role === 'stakeholder' || userForm.role === 'admin') && !userForm.defaultAccessLevel && ' — 保存后可配置物业访问权限'}
                 </p>
               </div>
 

@@ -25,7 +25,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!username.trim() || !pin.trim()) {
-      setError('请输入用户名和PIN密码');
+      setError('请输入用户名和密码');
       return;
     }
     setLoading(true);
@@ -38,7 +38,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
       });
 
       if (!response.ok) {
-        setError('用户名或PIN密码错误');
+        setError('用户名或密码错误');
         setLoading(false);
         return;
       }
@@ -67,7 +67,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
     e.preventDefault();
     setPinError('');
     if (!newPin.trim() || newPin.length < 4) {
-      setPinError('PIN 密码至少 4 位数字');
+      setPinError('密码至少 4 位');
       return;
     }
     if (newPin !== confirmPin) {
@@ -118,15 +118,14 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
 
               <div className="form-control w-full">
                 <label className="label py-1">
-                  <span className="label-text text-xs">PIN 密码</span>
+                  <span className="label-text text-xs">密码</span>
                 </label>
                 <input
                   type="password"
                   className="input input-bordered input-sm w-full"
-                  placeholder="输入PIN密码"
-                  maxLength={6}
+                  placeholder="输入密码"
                   value={pin}
-                  onChange={(e) => { setPin(e.target.value.replace(/\D/g, '')); setError(''); setShowHint(false); }}
+                  onChange={(e) => { setPin(e.target.value); setError(''); setShowHint(false); }}
                 />
               </div>
 
@@ -152,10 +151,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
             <form onSubmit={handleChangePin} className="w-full space-y-3 mt-4">
               <div className="bg-warning/10 border border-warning/30 rounded-lg p-3">
                 <p className="text-xs text-warning font-medium flex items-center gap-1.5">
-                  <Key size={13} /> 首次登录，请修改您的 PIN 密码
+                  <Key size={13} /> 首次登录，请修改您的密码
                 </p>
                 <p className="text-xs text-base-content/50 mt-1">
-                  欢迎，{pendingUser?.name}！为了账户安全，请设置新的 PIN。
+                  欢迎，{pendingUser?.name}！为了账户安全，请设置新的密码。
                 </p>
               </div>
 
@@ -166,10 +165,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 <input
                   type="password"
                   className="input input-bordered input-sm w-full"
-                  placeholder="4-6位数字"
-                  maxLength={6}
+                  placeholder="至少4位，支持数字和字母" 
                   value={newPin}
-                  onChange={(e) => { setNewPin(e.target.value.replace(/\D/g, '')); setPinError(''); }}
+                  onChange={(e) => { setNewPin(e.target.value); setPinError(''); }}
                   autoFocus
                 />
               </div>
@@ -181,10 +179,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 <input
                   type="password"
                   className="input input-bordered input-sm w-full"
-                  placeholder="再次输入新PIN"
-                  maxLength={6}
+                  placeholder="再次输入新密码" 
                   value={confirmPin}
-                  onChange={(e) => { setConfirmPin(e.target.value.replace(/\D/g, '')); setPinError(''); }}
+                  onChange={(e) => { setConfirmPin(e.target.value); setPinError(''); }}
                 />
               </div>
 
@@ -202,7 +199,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                 ) : (
                   <Key size={14} />
                 )}
-                设置新 PIN 并登录
+                设置新密码并登录
               </button>
 
               <button type="button" className="btn btn-ghost btn-xs w-full" onClick={() => {
