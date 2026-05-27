@@ -152,8 +152,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         must_change_pin: userForm.must_change_pin ? 1 : 0,
         active: userForm.active ? 1 : 0,
       });
-      // Auto-apply default access to all properties for new admin/stakeholder
-      if (!editingUser && userForm.defaultAccessLevel && (userForm.role === 'admin' || userForm.role === 'stakeholder')) {
+      // Auto-apply default access to all properties for admin/stakeholder (new or edit)
+      if (userForm.defaultAccessLevel && (userForm.role === 'admin' || userForm.role === 'stakeholder')) {
         try {
           const allProperties = await getProperties();
           for (const p of allProperties) {
@@ -326,7 +326,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <input className="input input-bordered input-sm w-full" placeholder="选填" value={userForm.notes}
                     onChange={e => setUserForm(f => ({ ...f, notes: e.target.value }))} />
                 </div>
-                {(userForm.role === 'admin' || userForm.role === 'stakeholder') && !editingUser && (
+                {(userForm.role === 'admin' || userForm.role === 'stakeholder') && (
                   <div className="form-control col-span-2">
                     <label className="label py-0.5"><span className="label-text text-xs">默认物业权限</span></label>
                     <select className="select select-bordered select-sm w-full" value={userForm.defaultAccessLevel}
@@ -339,7 +339,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                     </select>
                     <label className="label py-0">
                       <span className="label-text-alt text-xs text-base-content/50">
-                        {userForm.defaultAccessLevel ? '✅ 保存后将自动应用到所有现有物业' : '保存后可在权限按钮中逐个配置'}
+                        {userForm.defaultAccessLevel ? (editingUser ? '✅ 保存后将重新应用到所有现有物业' : '✅ 保存后将自动应用到所有现有物业') : '保存后可在权限按钮中逐个配置'}
                       </span>
                     </label>
                   </div>
@@ -370,7 +370,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className="bg-base-200/50 rounded-lg p-2">
                 <p className="text-xs text-base-content/50">
                   {roleIcon(userForm.role)} {USER_ROLES.find(r => r.value === userForm.role)?.desc}
-                  {(userForm.role === 'stakeholder' || userForm.role === 'admin') && !userForm.defaultAccessLevel && ' — 保存后可配置物业访问权限'}
+                  {(userForm.role === 'stakeholder' || userForm.role === 'admin') && !userForm.defaultAccessLevel && (editingUser ? ' — 可在上方选择默认物业权限' : ' — 保存后可配置物业访问权限')}
                 </p>
               </div>
 
