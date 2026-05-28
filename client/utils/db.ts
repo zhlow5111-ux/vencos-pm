@@ -1612,16 +1612,25 @@ export async function getTotalPurchaseCosts(propertyId: number): Promise<number>
 
 // ========== Dashboard Stats ==========
 export async function getDashboardStats(): Promise<DashboardStats> {
-  // Consolidated into single query using subqueries to minimize SQL calls
+  // Monthly revenue calculation:
+  // 1. Sum floor-level rent_amount for properties that HAVE floor-level tenant data
+  // 2. For rented properties WITHOUT floor-level tenant data, use property-level rental_price
+  // This avoids double-counting while ensuring property-level data is reflected
   const rows = await window.tasklet.sqlQuery(`
     SELECT
       (SELECT COUNT(*) FROM vc_properties) as totalProperties,
       (SELECT COUNT(*) FROM vc_properties WHERE status='available') as availableProperties,
-      (SELECT COUNT(*) FROM vc_floor_units WHERE tenant_name != '' AND rent_amount > 0) as activeRentals,
+      (SELECT COUNT(*) FROM vc_floor_units WHERE tenant_name != '' AND rent_amount > 0) as floorActiveRentals,
+      (SELECT COUNT(*) FROM vc_properties WHERE status='rented' AND rental_price > 0
+        AND NOT EXISTS (SELECT 1 FROM vc_floor_units fu WHERE fu.property_id = vc_properties.id AND fu.tenant_name != '' AND fu.rent_amount > 0)
+      ) as propOnlyRentals,
       (SELECT COUNT(*) FROM vc_sales WHERE stage='completed') as completedSales,
       (SELECT COUNT(*) FROM vc_clients) as totalClients,
       (SELECT COUNT(*) FROM vc_sales WHERE stage != 'completed') as pendingDeals,
-      (SELECT COALESCE(SUM(rent_amount),0) FROM vc_floor_units WHERE tenant_name != '' AND rent_amount > 0) as monthlyRevenue,
+      (SELECT COALESCE(SUM(rent_amount),0) FROM vc_floor_units WHERE tenant_name != '' AND rent_amount > 0) as floorRevenue,
+      (SELECT COALESCE(SUM(rental_price),0) FROM vc_properties WHERE status='rented' AND rental_price > 0
+        AND NOT EXISTS (SELECT 1 FROM vc_floor_units fu WHERE fu.property_id = vc_properties.id AND fu.tenant_name != '' AND fu.rent_amount > 0)
+      ) as propRevenue,
       (SELECT COUNT(*) FROM vc_invoices WHERE status='pending') as pendingInvoices,
       (SELECT COUNT(*) FROM vc_invoices WHERE status='overdue') as overdueInvoices,
       (SELECT COALESCE(SUM(amount),0) FROM vc_invoices WHERE status='paid') as totalCollected,
@@ -1632,14 +1641,18 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       (SELECT COALESCE(SUM(amount),0) FROM vc_purchase_costs) as totalPurchaseCosts
   `);
   const r = (rows[0] || {}) as Record<string, unknown>;
+  const floorActiveRentals = Number(r.floorActiveRentals || 0);
+  const propOnlyRentals = Number(r.propOnlyRentals || 0);
+  const floorRevenue = Number(r.floorRevenue || 0);
+  const propRevenue = Number(r.propRevenue || 0);
   return {
     totalProperties: Number(r.totalProperties || 0),
     availableProperties: Number(r.availableProperties || 0),
-    activeRentals: Number(r.activeRentals || 0),
+    activeRentals: floorActiveRentals + propOnlyRentals,
     completedSales: Number(r.completedSales || 0),
     totalClients: Number(r.totalClients || 0),
     pendingDeals: Number(r.pendingDeals || 0),
-    monthlyRevenue: Number(r.monthlyRevenue || 0),
+    monthlyRevenue: floorRevenue + propRevenue,
     pendingInvoices: Number(r.pendingInvoices || 0),
     overdueInvoices: Number(r.overdueInvoices || 0),
     totalCollected: Number(r.totalCollected || 0),
