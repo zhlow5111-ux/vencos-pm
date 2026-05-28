@@ -374,6 +374,7 @@ export async function initDB(): Promise<void> {
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_users ADD COLUMN notes TEXT NOT NULL DEFAULT ''`); } catch {}
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_users ADD COLUMN must_change_pin INTEGER NOT NULL DEFAULT 0`); } catch {}
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_users ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`); } catch {}
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_users ADD COLUMN last_login TEXT NOT NULL DEFAULT ''`); } catch {}
     // Create vc_user_access table (replaces vc_stakeholder_access)
     try { await window.tasklet.sqlExec(`CREATE TABLE IF NOT EXISTS vc_user_access (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, property_id INTEGER NOT NULL, access_level TEXT NOT NULL DEFAULT 'readonly', UNIQUE(user_id, property_id))`); } catch {}
     // Migrate stakeholder data → users + user_access
@@ -654,7 +655,7 @@ export async function getSystemUsers(roleFilter?: string): Promise<SystemUser[]>
   let where = '';
   if (roleFilter) where = `WHERE u.role='${escapeSQL(roleFilter)}'`;
   const rows = await window.tasklet.sqlQuery(`
-    SELECT u.id, u.username, u.name, u.role, u.phone, u.email, u.notes, u.active, u.must_change_pin, u.created_at, u.updated_at,
+    SELECT u.id, u.username, u.name, u.role, u.phone, u.email, u.notes, u.active, u.must_change_pin, u.created_at, u.updated_at, u.last_login,
       (SELECT COUNT(*) FROM vc_user_access WHERE user_id = u.id) as access_count
     FROM vc_users u
     ${where}
@@ -667,6 +668,7 @@ export async function getSystemUsers(roleFilter?: string): Promise<SystemUser[]>
     active: Number(r.active ?? 1), must_change_pin: Number(r.must_change_pin ?? 0),
     created_at: String(r.created_at || ''), updated_at: String(r.updated_at || ''),
     access_count: Number(r.access_count ?? 0),
+    last_login: String(r.last_login || ''),
   }));
 }
 
@@ -2135,6 +2137,9 @@ export async function verifyLogin(username: string, pin: string): Promise<{id: n
   );
   if (rows.length === 0) return null;
   const r = rows[0] as Record<string, unknown>;
+  // Record last login time
+  const now = nowISO();
+  try { await window.tasklet.sqlExec(`UPDATE vc_users SET last_login='${now}' WHERE id=${Number(r.id)}`); } catch {}
   return { id: Number(r.id), name: String(r.name), role: String(r.role), phone: String(r.phone || ''), must_change_pin: Number(r.must_change_pin ?? 0) };
 }
 

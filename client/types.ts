@@ -147,6 +147,7 @@ export interface SystemUser {
   updated_at: string;
   // Virtual
   access_count?: number;
+  last_login?: string;
 }
 
 export type AccessLevel = 'full' | 'edit' | 'financial' | 'readonly';

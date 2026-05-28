@@ -185,6 +185,23 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     return REMINDER_OPTIONS.find((r) => r.value === String(days))?.label || `提前${days}天`;
   }
 
+  const formatLastLogin = (dt: string) => {
+    if (!dt) return '从未登录';
+    try {
+      const d = new Date(dt);
+      const now = new Date();
+      const diffMs = now.getTime() - d.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+      if (diffMins < 1) return '刚刚';
+      if (diffMins < 60) return diffMins + ' 分钟前';
+      if (diffHours < 24) return diffHours + ' 小时前';
+      if (diffDays < 7) return diffDays + ' 天前';
+      return d.toLocaleDateString('zh-CN', { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+    } catch { return dt; }
+  };
+
   const roleIcon = (r: string) => r === 'super_admin' ? '👑' : r === 'admin' ? '🛡️' : r === 'stakeholder' ? '📊' : r === 'tenant' ? '🏠' : r === 'worker' ? '🔧' : '👤';
   const roleLabel = (r: string) => USER_ROLES.find(ur => ur.value === r)?.label || r;
   const roleBadgeColor = (r: string) => r === 'super_admin' ? 'badge-warning' : r === 'admin' ? 'badge-success' : r === 'stakeholder' ? 'badge-info' : r === 'tenant' ? 'badge-primary' : 'badge-ghost';
@@ -407,6 +424,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         {u.username && <span>@{u.username}</span>}
                         {u.role === 'stakeholder' && <span>· {u.access_count ?? 0} 物业</span>}
                         {u.must_change_pin === 1 && <span className="badge badge-xs badge-outline badge-warning">待改密</span>}
+                        <span className="text-base-content/40">· 🕐 {formatLastLogin(u.last_login || '')}</span>
                       </div>
                     </div>
                   </div>
