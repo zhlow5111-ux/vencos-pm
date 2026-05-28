@@ -237,7 +237,15 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
 
   // ===== Computed Values =====
   const allFloors = properties.flatMap(p => (floorUnits[p.id] || []).map(f => ({ ...f, propertyName: p.name })));
-  const totalRent = Math.round(allFloors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0));
+  const floorRentTotal = Math.round(allFloors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0));
+  // Add property-level rental_price for rented properties without floor-level rent data
+  const propRentFallback = properties.reduce((s, p) => {
+    const propFloorRent = (floorUnits[p.id] || []).reduce((sum: number, f: Record<string, unknown>) => sum + (Number(f.rent_amount) || 0), 0);
+    if (propFloorRent > 0) return s;
+    if (p.status === 'rented' && Number(p.rental_price || 0) > 0) return s + Number(p.rental_price);
+    return s;
+  }, 0);
+  const totalRent = floorRentTotal + Math.round(propRentFallback);
 
   const now = new Date();
   const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
@@ -462,7 +470,8 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
 
 const PropertyCard: React.FC<{ property: PropertyRow; floors: FloorUnitRow[]; owner?: OwnerRow }> = ({ property, floors, owner }) => {
   const [expanded, setExpanded] = useState(false);
-  const totalRent = Math.round(floors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0));
+  const floorRent = Math.round(floors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0));
+  const totalRent = floorRent > 0 ? floorRent : (property.status === 'rented' && Number(property.rental_price || 0) > 0 ? Math.round(Number(property.rental_price)) : 0);
 
   return (
     <div className="bg-base-100 rounded-xl shadow-sm border border-base-200 overflow-hidden">
@@ -682,7 +691,8 @@ const ReportsTab: React.FC<{
   // ===== Per-Property P&L =====
   const propertyPL = properties.map(p => {
     const floors = floorUnits[p.id] || [];
-    const rentIncome = Math.round(floors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0));
+    const floorRentIncome = Math.round(floors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0));
+    const rentIncome = floorRentIncome > 0 ? floorRentIncome : (p.status === 'rented' && Number(p.rental_price || 0) > 0 ? Math.round(Number(p.rental_price)) : 0);
     const loanPayment = Math.round(Number(p.monthly_repayment) || 0);
     const net = rentIncome - loanPayment;
     return { id: p.id, name: p.name, rentIncome, loanPayment, net };

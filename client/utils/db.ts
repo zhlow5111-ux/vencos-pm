@@ -1814,7 +1814,7 @@ export async function getPropertyFinancials(): Promise<PropertyFinancial[]> {
       p.loan_interest_rate, p.loan_start, p.loan_tenure_months, p.loan_account_no,
       p.land_tax, p.assessment_tax, p.indah_water,
       p.mgmt_fee_type, p.mgmt_fee_amount, p.mgmt_fee_pct, p.service_charge,
-      p.price
+      p.price, p.rental_price, p.status
     FROM vc_properties p ORDER BY p.name
   `);
 
@@ -1853,7 +1853,11 @@ export async function getPropertyFinancials(): Promise<PropertyFinancial[]> {
   for (const row of props as Record<string, unknown>[]) {
     const id = Number(row.id);
     const rentData = rentMap.get(id) || { rent: 0, occupied: 0, total: 0 };
-    const monthlyRent = rentData.rent;
+    // Use floor-level rent if available; otherwise fallback to property-level rental_price for rented properties
+    const propStatus = String(row.status || 'available');
+    const propRentalPrice = Number(row.rental_price || 0);
+    const hasFloorRentData = rentData.rent > 0;
+    const monthlyRent = hasFloorRentData ? rentData.rent : (propStatus === 'rented' && propRentalPrice > 0 ? propRentalPrice : 0);
     const monthlyRepayment = Number(row.monthly_repayment || 0);
     const mgmtFeeType = String(row.mgmt_fee_type || 'percentage');
     const mgmtFee = mgmtFeeType === 'fixed' ? Number(row.mgmt_fee_amount || 0) : (monthlyRent * Number(row.mgmt_fee_pct || 0) / 100);

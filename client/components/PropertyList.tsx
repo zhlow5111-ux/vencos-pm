@@ -456,7 +456,12 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
   }
 
   function getTotalRent(propertyId: number): number {
-    return getPropertyFloors(propertyId).reduce((sum, f) => sum + (f.rent_amount || 0), 0);
+    const floorTotal = getPropertyFloors(propertyId).reduce((sum, f) => sum + (f.rent_amount || 0), 0);
+    if (floorTotal > 0) return floorTotal;
+    // Fallback: use property-level rental_price for rented properties without floor-level rent data
+    const prop = properties.find(p => p.id === propertyId);
+    if (prop && prop.status === 'rented' && prop.rental_price > 0) return prop.rental_price;
+    return 0;
   }
 
   function getTotalDeposit(propertyId: number): number {
@@ -1200,7 +1205,8 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
     const rows = allProps.map(p => {
       const floors = allFloors.filter(f => f.property_id === p.id);
       const occupied = floors.filter(f => f.tenant_name).length;
-      const totalRent = floors.reduce((s, f) => s + (f.rent_amount || 0), 0);
+      const floorRent = floors.reduce((s, f) => s + (f.rent_amount || 0), 0);
+      const totalRent = floorRent > 0 ? floorRent : (p.status === 'rented' && p.rental_price > 0 ? p.rental_price : 0);
       return [p.name, p.address || '', p.type, p.status, floors.length || p.floor_count, occupied, totalRent, p.loan_balance || 0, p.monthly_repayment || 0, p.owner_name || ''] as (string | number)[];
     });
     downloadCsv(`物业列表_${new Date().toISOString().slice(0, 10)}.csv`, headers, rows);
