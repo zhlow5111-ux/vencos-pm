@@ -72,6 +72,7 @@ export async function initDB(): Promise<void> {
         adjustments TEXT NOT NULL DEFAULT '[]',
         charges_detail TEXT NOT NULL DEFAULT '[]',
         auto_generated INTEGER NOT NULL DEFAULT 0,
+        merged_data TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       )`,
       `CREATE TABLE IF NOT EXISTS vc_message_templates (

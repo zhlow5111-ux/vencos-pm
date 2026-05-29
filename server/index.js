@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 20;
+  const SCHEMA_VERSION = 21;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -90,6 +90,7 @@ function initDatabase() {
         adjustments TEXT NOT NULL DEFAULT '[]',
         charges_detail TEXT NOT NULL DEFAULT '[]',
         auto_generated INTEGER NOT NULL DEFAULT 0,
+        merged_data TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       )`,
       `CREATE TABLE IF NOT EXISTS vc_message_templates (
@@ -366,14 +367,15 @@ function initDatabase() {
     safeExec(`ALTER TABLE vc_floor_units ADD COLUMN linked_lease_ref TEXT NOT NULL DEFAULT ''`);
     safeExec(`CREATE TABLE IF NOT EXISTS vc_agents (
       id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',
-
-  // V21: merged_data for invoices
-  safeExec(`ALTER TABLE vc_invoices ADD COLUMN merged_data TEXT NOT NULL DEFAULT ''`);
       whatsapp TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
       company TEXT NOT NULL DEFAULT '', areas TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'active', notes TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
     )`);
+  }
+  // V21: Add merged_data column to invoices for merged billing
+  if (currentVer < 21) {
+    safeExec(`ALTER TABLE vc_invoices ADD COLUMN merged_data TEXT NOT NULL DEFAULT ''`);
   }
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);
