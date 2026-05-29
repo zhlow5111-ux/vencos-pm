@@ -3,6 +3,7 @@ import { Plus, Mail, MessageSquare, Calendar, Power, PowerOff, Trash2, Edit2, Wi
 import { MessageTemplate, BillingSchedule, Owner, SystemUser, UserRole, Agent, CHANNEL_TYPES, REMINDER_OPTIONS, OWNER_TYPES, USER_ROLES, ACCESS_LEVELS } from '../types';
 import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog, getProperties, addUserAccess, forceLogoutUser, getAgents, saveAgent, deleteAgent, getAgentsByArea, getAllFloorUnits } from '../utils/db';
 import { ConfirmModal } from './ConfirmModal';
+import { sendWhatsAppMessage } from '../utils/whatsapp';
 
 type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions' | 'agents';
 
@@ -49,6 +50,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [agentToast, setAgentToast] = useState('');
   const [showVacantMatch, setShowVacantMatch] = useState(false);
   const [vacantMatches, setVacantMatches] = useState<Array<{property: any; matchedAgents: Agent[]; allAgents: Agent[]}>>([]);
+  const [agentSending, setAgentSending] = useState<Record<string, boolean>>({});
+  const [agentSendResult, setAgentSendResult] = useState<Record<string, 'success' | 'failed'>>({});
+  const [showSetupGuide, setShowSetupGuide] = useState(false);
 
   const showWaToast = useCallback((msg: string) => {
     setWaToast(msg);
@@ -313,7 +317,69 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     return <div className="flex justify-center py-12"><span className="loading loading-spinner loading-md" /></div>;
   }
 
-  const tabItems: { key: SettingsTab; label: string; icon: React.ReactNode }[] = [
+
+  // Build vacancy notification message for agents
+  function buildVacancyMessage(property: any, agent: Agent): string {
+    const lines = [
+      `🏢 空置物业通知`,
+      ``,
+      `物业: ${property.name}`,
+      `地址: ${property.address || '未填写'}`,
+    ];
+    if (property.size_sqft) lines.push(`面积: ${property.size_sqft} sqft`);
+    if (property.rental_price) lines.push(`参考月租: RM ${Number(property.rental_price).toLocaleString()}`);
+    if (property.property_type) lines.push(`类型: ${property.property_type === 'commercial' ? '商业' : property.property_type === 'residential' ? '住宅' : property.property_type}`);
+    lines.push(``, `如有合适租户请联系我们，谢谢！`, `— Vencos Property Management`);
+    return lines.join('\n');
+  }
+
+  async function handleSendToAgent(property: any, agent: Agent) {
+    const phone = agent.whatsapp || agent.phone;
+    if (!phone) { setAgentToast('该中介没有电话/WhatsApp号码'); setTimeout(() => setAgentToast(''), 2000); return; }
+    const key = `${property.id}-${agent.id}`;
+    setAgentSending(prev => ({ ...prev, [key]: true }));
+    const message = buildVacancyMessage(property, agent);
+    const result = await sendWhatsAppMessage(phone, message, {
+      recipientName: agent.name,
+      messageType: 'agent_vacancy',
+      propertyId: property.id,
+    });
+    setAgentSending(prev => ({ ...prev, [key]: false }));
+    setAgentSendResult(prev => ({ ...prev, [key]: result.success ? 'success' : 'failed' }));
+    setAgentToast(result.success ? `✅ 已发送给 ${agent.name}` : `❌ 发送失败: ${result.error}`);
+    setTimeout(() => setAgentToast(''), 3000);
+  }
+
+  async function handleBatchSendToAgents() {
+    const allTargets: Array<{property: any; agent: Agent}> = [];
+    for (const m of vacantMatches) {
+      const targetAgents = m.matchedAgents.length > 0 ? m.matchedAgents : m.allAgents.filter(a => a.status === 'active');
+      for (const a of targetAgents) {
+        if (a.whatsapp || a.phone) allTargets.push({ property: m.property, agent: a });
+      }
+    }
+    if (allTargets.length === 0) { setAgentToast('没有可发送的目标'); setTimeout(() => setAgentToast(''), 2000); return; }
+    
+    let success = 0, failed = 0;
+    for (const t of allTargets) {
+      const key = `${t.property.id}-${t.agent.id}`;
+      setAgentSending(prev => ({ ...prev, [key]: true }));
+      const phone = t.agent.whatsapp || t.agent.phone;
+      const message = buildVacancyMessage(t.property, t.agent);
+      const result = await sendWhatsAppMessage(phone, message, {
+        recipientName: t.agent.name,
+        messageType: 'agent_vacancy',
+        propertyId: t.property.id,
+      });
+      setAgentSending(prev => ({ ...prev, [key]: false }));
+      setAgentSendResult(prev => ({ ...prev, [key]: result.success ? 'success' : 'failed' }));
+      if (result.success) success++; else failed++;
+    }
+    setAgentToast(`群发完成: ✅ ${success} 成功 / ❌ ${failed} 失败`);
+    setTimeout(() => setAgentToast(''), 5000);
+  }
+
+    const tabItems: { key: SettingsTab; label: string; icon: React.ReactNode }[] = [
     { key: 'owners', label: '持有人', icon: <Building2 size={13} /> },
     { key: 'users_permissions', label: '用户与权限', icon: <Shield size={13} /> },
     { key: 'templates', label: '模板', icon: <Mail size={13} /> },
@@ -731,25 +797,70 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         <div>
                           <p className="text-xs text-success font-medium mb-1">✅ 匹配到 {m.matchedAgents.length} 位中介:</p>
                           <div className="space-y-1">
-                            {m.matchedAgents.map(a => (
+                            {m.matchedAgents.map(a => {
+                              const key = `${m.property.id}-${a.id}`;
+                              return (
                               <div key={a.id} className="flex items-center justify-between bg-success/5 rounded px-2 py-1">
                                 <span className="text-xs font-medium">{a.name}{a.company ? ` · ${a.company}` : ''}</span>
-                                <span className="text-xs text-base-content/50">{a.whatsapp || a.phone}</span>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-xs text-base-content/50">{a.whatsapp || a.phone}</span>
+                                  {(a.whatsapp || a.phone) && (
+                                    agentSendResult[key] === 'success' ? (
+                                      <span className="badge badge-xs badge-success gap-0.5"><CheckCircle size={8} /> 已发</span>
+                                    ) : agentSendResult[key] === 'failed' ? (
+                                      <button className="btn btn-xs btn-error gap-0.5" onClick={() => handleSendToAgent(m.property, a)} disabled={agentSending[key]}>
+                                        <Send size={10} /> 重试
+                                      </button>
+                                    ) : (
+                                      <button className="btn btn-xs btn-success btn-outline gap-0.5" onClick={() => handleSendToAgent(m.property, a)} disabled={agentSending[key]}>
+                                        {agentSending[key] ? <span className="loading loading-spinner loading-xs" /> : <><MessageSquare size={10} /> 发送</>}
+                                      </button>
+                                    )
+                                  )}
+                                </div>
                               </div>
-                            ))}
+                              );
+                            })}
                           </div>
                         </div>
                       ) : (
                         <div>
                           <p className="text-xs text-warning font-medium">⚠️ 未匹配到区域中介</p>
                           <p className="text-[10px] text-base-content/50">可发送给全部 {m.allAgents.filter(a => a.status === 'active').length} 位活跃中介</p>
+                          <div className="space-y-1 mt-1">
+                            {m.allAgents.filter(a => a.status === 'active').map(a => {
+                              const key = `${m.property.id}-${a.id}`;
+                              return (
+                              <div key={a.id} className="flex items-center justify-between bg-warning/5 rounded px-2 py-1">
+                                <span className="text-xs font-medium">{a.name}</span>
+                                <div className="flex items-center gap-1">
+                                  <span className="text-xs text-base-content/50">{a.whatsapp || a.phone}</span>
+                                  {(a.whatsapp || a.phone) && (
+                                    agentSendResult[key] === 'success' ? (
+                                      <span className="badge badge-xs badge-success gap-0.5"><CheckCircle size={8} /> 已发</span>
+                                    ) : (
+                                      <button className="btn btn-xs btn-success btn-outline gap-0.5" onClick={() => handleSendToAgent(m.property, a)} disabled={agentSending[key]}>
+                                        {agentSending[key] ? <span className="loading loading-spinner loading-xs" /> : <><MessageSquare size={10} /> 发送</>}
+                                      </button>
+                                    )
+                                  )}
+                                </div>
+                              </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       )}
                     </div>
                   ))}
+                  <div className="flex gap-2">
+                    <button className="btn btn-success btn-sm flex-1 gap-1" onClick={handleBatchSendToAgents}>
+                      <MessageSquare size={14} /> 📱 一键群发所有中介
+                    </button>
+                  </div>
                   <div className="bg-info/10 rounded-lg p-2">
                     <p className="text-xs text-info">
-                      💡 WhatsApp API 接入后，可直接一键群发空置物业详情给匹配的中介。
+                      💡 请先在「集成」标签页中配置 WhatsApp Cloud API，才能发送消息。
                     </p>
                   </div>
                 </div>
@@ -848,6 +959,62 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       {/* ===== INTEGRATIONS TAB ===== */}
       {tab === 'integrations' && (
         <div className="space-y-3">
+          {/* Meta Business Setup Guide */}
+          <div className="bg-base-100 rounded-xl shadow-sm border border-base-200 overflow-hidden">
+            <button className="w-full flex items-center justify-between p-3" onClick={() => setShowSetupGuide(!showSetupGuide)}>
+              <div className="flex items-center gap-2">
+                <span className="text-lg">📋</span>
+                <div className="text-left">
+                  <h4 className="font-semibold text-sm">WhatsApp 设置指南</h4>
+                  <p className="text-xs text-base-content/60">首次使用？按步骤设置 Meta Business 账号</p>
+                </div>
+              </div>
+              <span className={`text-xs transition-transform ${showSetupGuide ? 'rotate-180' : ''}`}>▼</span>
+            </button>
+            {showSetupGuide && (
+              <div className="px-4 pb-4 space-y-2 border-t border-base-200 pt-3">
+                <div className="flex gap-3">
+                  <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center shrink-0"><span className="text-xs font-bold text-primary">1</span></div>
+                  <div>
+                    <p className="text-sm font-medium">注册 Meta Business 账号</p>
+                    <p className="text-xs text-base-content/60">前往 <a href="https://business.facebook.com" target="_blank" rel="noopener" className="link link-primary">business.facebook.com</a> 注册企业账号</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center shrink-0"><span className="text-xs font-bold text-primary">2</span></div>
+                  <div>
+                    <p className="text-sm font-medium">创建 Meta 应用</p>
+                    <p className="text-xs text-base-content/60">前往 <a href="https://developers.facebook.com" target="_blank" rel="noopener" className="link link-primary">developers.facebook.com</a> → 我的应用 → 创建应用 → 选择「商务」类型</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center shrink-0"><span className="text-xs font-bold text-primary">3</span></div>
+                  <div>
+                    <p className="text-sm font-medium">添加 WhatsApp 产品</p>
+                    <p className="text-xs text-base-content/60">在应用面板左侧 → 添加产品 → WhatsApp → 设置</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center shrink-0"><span className="text-xs font-bold text-primary">4</span></div>
+                  <div>
+                    <p className="text-sm font-medium">注册电话号码</p>
+                    <p className="text-xs text-base-content/60">WhatsApp → 开始使用 → 添加电话号码 → 输入你的 WhatsApp Business 专用号码 → 验证</p>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <div className="w-6 h-6 rounded-full bg-primary/20 flex items-center justify-center shrink-0"><span className="text-xs font-bold text-primary">5</span></div>
+                  <div>
+                    <p className="text-sm font-medium">获取凭证填入下方</p>
+                    <p className="text-xs text-base-content/60">在 WhatsApp → API 设置中找到 <strong>Phone Number ID</strong>、<strong>Access Token</strong> 和 <strong>Business ID</strong></p>
+                  </div>
+                </div>
+                <div className="bg-warning/10 rounded-lg p-2 mt-1">
+                  <p className="text-xs text-warning">⚠️ 临时 Token 仅 24 小时有效。建议在 Business Settings → 系统用户 → 生成令牌 → 选择 WhatsApp 权限，生成<strong>永久令牌</strong>。</p>
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* WhatsApp Cloud API Configuration */}
           <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200 space-y-3">
             <div className="flex items-center justify-between">
