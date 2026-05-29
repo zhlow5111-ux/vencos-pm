@@ -1,8 +1,8 @@
-import { Property, FloorUnit, Client, SaleDeal, RentalDeal, DashboardStats, Invoice, MessageTemplate, BillingSchedule, PropertyDocument, Owner, SystemUser, UserAccess, LoanPayment, MaintenanceTicket, Worker, ChangeLog, RenovationExpense, PurchaseCost, RecurringCharge, TenantHistory, ArrearsPayment, Meter } from '../types';
+import { Property, FloorUnit, Client, SaleDeal, RentalDeal, DashboardStats, Invoice, MessageTemplate, BillingSchedule, PropertyDocument, Owner, SystemUser, UserAccess, LoanPayment, MaintenanceTicket, Worker, ChangeLog, RenovationExpense, PurchaseCost, RecurringCharge, TenantHistory, ArrearsPayment, Meter, Agent } from '../types';
 import { escapeSQL, nowISO, generateId } from './helpers';
 
 // ========== Init DB ==========
-const SCHEMA_VERSION = 18;
+const SCHEMA_VERSION = 19;
 
 export async function initDB(): Promise<void> {
   // Step 1: Check schema version (2 SQL calls)
@@ -149,6 +149,7 @@ export async function initDB(): Promise<void> {
         tenant_bank_name TEXT NOT NULL DEFAULT '', tenant_bank_account TEXT NOT NULL DEFAULT '',
         agent_name TEXT NOT NULL DEFAULT '', agent_phone TEXT NOT NULL DEFAULT '',
         agent_company TEXT NOT NULL DEFAULT '',
+        linked_lease_ref TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       )`,
       `CREATE TABLE IF NOT EXISTS vc_renovation_expenses (
@@ -203,6 +204,13 @@ export async function initDB(): Promise<void> {
         payment_method TEXT NOT NULL DEFAULT 'bank_transfer',
         notes TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL DEFAULT ''
+      )`,
+      `CREATE TABLE IF NOT EXISTS vc_agents (
+        id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',
+        whatsapp TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
+        company TEXT NOT NULL DEFAULT '', areas TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active', notes TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
       )`,
       `CREATE TABLE IF NOT EXISTS vc_meters (
         id INTEGER PRIMARY KEY, property_id INTEGER NOT NULL,
@@ -406,6 +414,18 @@ export async function initDB(): Promise<void> {
     try {
       await window.tasklet.sqlExec(`UPDATE vc_maintenance_tickets SET tenant_phone = COALESCE((SELECT phone FROM vc_clients WHERE id = vc_maintenance_tickets.tenant_id), '') WHERE tenant_phone = ''`);
     } catch {}
+  }
+
+  // === V19: Add linked_lease_ref to floor_units + agents table ===
+  if (currentVer < 19) {
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_floor_units ADD COLUMN linked_lease_ref TEXT NOT NULL DEFAULT ''`); } catch {}
+    try { await window.tasklet.sqlExec(`CREATE TABLE IF NOT EXISTS vc_agents (
+      id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',
+      whatsapp TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
+      company TEXT NOT NULL DEFAULT '', areas TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active', notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+    )`); } catch {}
   }
 
   // Mark schema as current version
@@ -1497,13 +1517,14 @@ export async function saveFloorUnit(f: Partial<FloorUnit> & { property_id: numbe
         lease_end='${f.lease_end || ''}',
         status='${status}',
         notes='${escapeSQL(f.notes || '')}',
+        linked_lease_ref='${escapeSQL(f.linked_lease_ref || '')}',
         updated_at='${now}'
       WHERE id=${f.id}
     `);
   } else {
     await window.tasklet.sqlExec(`
-      INSERT INTO vc_floor_units (id, property_id, floor_label, tenant_name, tenant_phone, tenant_company_reg, tenant_address, director_name, director_ic, director_phone, director_notes, tenant_bank_name, tenant_bank_account, agent_name, agent_phone, agent_company, rent_amount, deposit, utility_deposit, lease_start, lease_end, status, notes, created_at, updated_at)
-      VALUES (${id}, ${f.property_id}, '${escapeSQL(f.floor_label)}', '${escapeSQL(f.tenant_name || '')}', '${escapeSQL(f.tenant_phone || '')}', '${escapeSQL(f.tenant_company_reg || '')}', '${escapeSQL(f.tenant_address || '')}', '${escapeSQL(f.director_name || '')}', '${escapeSQL(f.director_ic || '')}', '${escapeSQL(f.director_phone || '')}', '${escapeSQL(f.director_notes || '')}', '${escapeSQL(f.tenant_bank_name || '')}', '${escapeSQL(f.tenant_bank_account || '')}', '${escapeSQL(f.agent_name || '')}', '${escapeSQL(f.agent_phone || '')}', '${escapeSQL(f.agent_company || '')}', ${Math.round(f.rent_amount || 0)}, ${Math.round(f.deposit || 0)}, ${Math.round(f.utility_deposit || 0)}, '${f.lease_start || ''}', '${f.lease_end || ''}', '${status}', '${escapeSQL(f.notes || '')}', '${now}', '${now}')
+      INSERT INTO vc_floor_units (id, property_id, floor_label, tenant_name, tenant_phone, tenant_company_reg, tenant_address, director_name, director_ic, director_phone, director_notes, tenant_bank_name, tenant_bank_account, agent_name, agent_phone, agent_company, linked_lease_ref, rent_amount, deposit, utility_deposit, lease_start, lease_end, status, notes, created_at, updated_at)
+      VALUES (${id}, ${f.property_id}, '${escapeSQL(f.floor_label)}', '${escapeSQL(f.tenant_name || '')}', '${escapeSQL(f.tenant_phone || '')}', '${escapeSQL(f.tenant_company_reg || '')}', '${escapeSQL(f.tenant_address || '')}', '${escapeSQL(f.director_name || '')}', '${escapeSQL(f.director_ic || '')}', '${escapeSQL(f.director_phone || '')}', '${escapeSQL(f.director_notes || '')}', '${escapeSQL(f.tenant_bank_name || '')}', '${escapeSQL(f.tenant_bank_account || '')}', '${escapeSQL(f.agent_name || '')}', '${escapeSQL(f.agent_phone || '')}', '${escapeSQL(f.agent_company || '')}', '${escapeSQL(f.linked_lease_ref || '')}', ${Math.round(f.rent_amount || 0)}, ${Math.round(f.deposit || 0)}, ${Math.round(f.utility_deposit || 0)}, '${f.lease_start || ''}', '${f.lease_end || ''}', '${status}', '${escapeSQL(f.notes || '')}', '${now}', '${now}')
     `);
   }
   return id;
@@ -1524,8 +1545,8 @@ export async function ensureFloorUnits(propertyId: number, floorCount: number): 
   for (let i = existing.length + 1; i <= floorCount; i++) {
     const id = Date.now() + i;
     await window.tasklet.sqlExec(`
-      INSERT INTO vc_floor_units (id, property_id, floor_label, tenant_name, tenant_phone, tenant_company_reg, tenant_address, director_name, director_ic, director_phone, director_notes, tenant_bank_name, tenant_bank_account, agent_name, agent_phone, agent_company, rent_amount, deposit, utility_deposit, lease_start, lease_end, status, notes, created_at, updated_at)
-      VALUES (${id}, ${propertyId}, '${i === 1 ? "G" : String(i - 1)}', '', '', '', '', '', '', '', '', '', '', '', '', '', 0, 0, 0, '', '', 'vacant', '', '${now}', '${now}')
+      INSERT INTO vc_floor_units (id, property_id, floor_label, tenant_name, tenant_phone, tenant_company_reg, tenant_address, director_name, director_ic, director_phone, director_notes, tenant_bank_name, tenant_bank_account, agent_name, agent_phone, agent_company, linked_lease_ref, rent_amount, deposit, utility_deposit, lease_start, lease_end, status, notes, created_at, updated_at)
+      VALUES (${id}, ${propertyId}, '${i === 1 ? "G" : String(i - 1)}', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 0, 0, 0, '', '', 'vacant', '', '${now}', '${now}')
     `);
   }
   // Remove excess floors (only if vacant)
@@ -2217,4 +2238,54 @@ export async function getMessageLog(limit?: number): Promise<Array<{id: number; 
     error_message: String(r.error_message || ''),
     created_at: String(r.created_at || ''),
   }));
+}
+
+
+// ========== Agent (中介) CRUD ==========
+export async function getAgents(): Promise<Agent[]> {
+  const rows = await window.tasklet.sqlQuery(`SELECT * FROM vc_agents ORDER BY name ASC`);
+  return rows as unknown as Agent[];
+}
+
+export async function saveAgent(a: Partial<Agent>): Promise<number> {
+  const now = nowISO();
+  const id = a.id || Date.now() + Math.floor(Math.random() * 1000);
+  if (a.id) {
+    await window.tasklet.sqlExec(`
+      UPDATE vc_agents SET
+        name='${escapeSQL(a.name || '')}',
+        phone='${escapeSQL(a.phone || '')}',
+        whatsapp='${escapeSQL(a.whatsapp || '')}',
+        email='${escapeSQL(a.email || '')}',
+        company='${escapeSQL(a.company || '')}',
+        areas='${escapeSQL(a.areas || '')}',
+        status='${escapeSQL(a.status || 'active')}',
+        notes='${escapeSQL(a.notes || '')}',
+        updated_at='${now}'
+      WHERE id=${a.id}
+    `);
+    return a.id;
+  } else {
+    await window.tasklet.sqlExec(`
+      INSERT INTO vc_agents (id, name, phone, whatsapp, email, company, areas, status, notes, created_at, updated_at)
+      VALUES (${id}, '${escapeSQL(a.name || '')}', '${escapeSQL(a.phone || '')}', '${escapeSQL(a.whatsapp || '')}', '${escapeSQL(a.email || '')}', '${escapeSQL(a.company || '')}', '${escapeSQL(a.areas || '')}', '${escapeSQL(a.status || 'active')}', '${escapeSQL(a.notes || '')}', '${now}', '${now}')
+    `);
+    return id;
+  }
+}
+
+export async function deleteAgent(id: number): Promise<void> {
+  await window.tasklet.sqlExec(`DELETE FROM vc_agents WHERE id=${id}`);
+}
+
+export async function getAgentsByArea(address: string): Promise<Agent[]> {
+  const allAgents = await getAgents();
+  if (!address) return allAgents;
+  const addrLower = address.toLowerCase();
+  const matched = allAgents.filter(agent => {
+    if (!agent.areas || agent.status !== 'active') return false;
+    const areas = agent.areas.split(',').map(a => a.trim().toLowerCase());
+    return areas.some(area => area && addrLower.includes(area));
+  });
+  return matched;
 }

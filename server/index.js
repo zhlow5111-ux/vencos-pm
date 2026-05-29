@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 19;
+  const SCHEMA_VERSION = 20;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -169,6 +169,7 @@ function initDatabase() {
         tenant_bank_name TEXT NOT NULL DEFAULT '', tenant_bank_account TEXT NOT NULL DEFAULT '',
         agent_name TEXT NOT NULL DEFAULT '', agent_phone TEXT NOT NULL DEFAULT '',
         agent_company TEXT NOT NULL DEFAULT '',
+        linked_lease_ref TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       )`,
       `CREATE TABLE IF NOT EXISTS vc_renovation_expenses (
@@ -214,6 +215,13 @@ function initDatabase() {
         amount REAL NOT NULL DEFAULT 0, payment_date TEXT NOT NULL DEFAULT '',
         payment_method TEXT NOT NULL DEFAULT 'bank_transfer',
         notes TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT ''
+      )`,
+      `CREATE TABLE IF NOT EXISTS vc_agents (
+        id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',
+        whatsapp TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
+        company TEXT NOT NULL DEFAULT '', areas TEXT NOT NULL DEFAULT '',
+        status TEXT NOT NULL DEFAULT 'active', notes TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
       )`,
       `CREATE TABLE IF NOT EXISTS vc_meters (
         id INTEGER PRIMARY KEY, property_id INTEGER NOT NULL,
@@ -353,6 +361,16 @@ function initDatabase() {
   if (currentVer < 19) {
     safeExec(`ALTER TABLE vc_users ADD COLUMN last_login TEXT NOT NULL DEFAULT ''`);
     safeExec(`ALTER TABLE vc_users ADD COLUMN session_revoked_at TEXT NOT NULL DEFAULT ''`);
+  }
+  if (currentVer < 20) {
+    safeExec(`ALTER TABLE vc_floor_units ADD COLUMN linked_lease_ref TEXT NOT NULL DEFAULT ''`);
+    safeExec(`CREATE TABLE IF NOT EXISTS vc_agents (
+      id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',
+      whatsapp TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
+      company TEXT NOT NULL DEFAULT '', areas TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active', notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+    )`);
   }
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);

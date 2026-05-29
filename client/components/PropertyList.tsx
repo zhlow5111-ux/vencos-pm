@@ -31,6 +31,7 @@ interface TenantFormData {
   agent_name: string;
   agent_phone: string;
   agent_company: string;
+  linked_lease_ref: string;
   rent_amount: number;
   deposit: number;
   utility_deposit: number;
@@ -105,6 +106,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
         director_name: '', director_ic: '', director_phone: '', director_notes: '',
         tenant_bank_name: '', tenant_bank_account: '',
         agent_name: '', agent_phone: '', agent_company: '',
+        linked_lease_ref: '',
         rent_amount: 0, deposit: 0, utility_deposit: 0,
         lease_start: '', lease_end: '',
       });
@@ -142,6 +144,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
       agent_name: '',
       agent_phone: '',
       agent_company: '',
+      linked_lease_ref: '',
       rent_amount: 0,
       deposit: 0,
       utility_deposit: 0,
@@ -180,6 +183,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
       agent_name: first.agent_name || '',
       agent_phone: first.agent_phone || '',
       agent_company: first.agent_company || '',
+      linked_lease_ref: first.linked_lease_ref || '',
       rent_amount: totalRent,
       deposit: totalDeposit,
       utility_deposit: totalUtility,
@@ -259,6 +263,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
           agent_name: tenantForm.agent_name,
           agent_phone: tenantForm.agent_phone,
           agent_company: tenantForm.agent_company,
+          linked_lease_ref: tenantForm.linked_lease_ref,
           rent_amount: isFirst ? tenantForm.rent_amount : 0,
           deposit: isFirst ? tenantForm.deposit : 0,
           utility_deposit: isFirst ? tenantForm.utility_deposit : 0,
@@ -293,6 +298,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
             agent_name: '',
             agent_phone: '',
             agent_company: '',
+            linked_lease_ref: '',
             rent_amount: 0,
             deposit: 0,
             utility_deposit: 0,
@@ -848,6 +854,18 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                 />
               </div>
 
+              {/* 合并租约标记 */}
+              <div className="bg-info/5 border border-info/20 rounded-lg p-2.5">
+                <label className="text-xs font-semibold text-base-content mb-1 block flex items-center gap-1">🔗 关联租约编号</label>
+                <input
+                  className="input input-bordered input-sm w-full"
+                  placeholder="如有合并租约，填入相同编号 (如: LEASE-2024-001)"
+                  value={tenantForm.linked_lease_ref}
+                  onChange={(e) => setTenantForm({ ...tenantForm, linked_lease_ref: e.target.value })}
+                />
+                <p className="text-[10px] text-base-content/50 mt-1">多个物业共享同一租约时，填入相同编号方便对账</p>
+              </div>
+
               {/* Recurring Charges per tenant */}
               {tenantForm.propertyId > 0 && (
                 <div className="bg-base-100 rounded-xl p-3 border border-base-300 space-y-3">
@@ -1031,6 +1049,9 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                       )}
                       {first.agent_name && (
                         <div className="text-[10px] text-base-content">🤝 中介: {first.agent_name}{first.agent_company ? ` · ${first.agent_company}` : ''}{first.agent_phone ? ` · ${first.agent_phone}` : ''}</div>
+                      )}
+                      {first.linked_lease_ref && (
+                        <div className="text-[10px] text-info font-medium">🔗 合并租约: {first.linked_lease_ref}</div>
                       )}
                     </div>
                     <div className="text-right shrink-0 ml-2">

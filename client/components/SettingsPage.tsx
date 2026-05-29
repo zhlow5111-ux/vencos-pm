@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Mail, MessageSquare, Calendar, Power, PowerOff, Trash2, Edit2, Wifi, WifiOff, Bell, Building2, User, Shield, Key, Users, UserPlus, Save, X, Eye, EyeOff, Send, CheckCircle, XCircle, Clock, LogOut } from 'lucide-react';
-import { MessageTemplate, BillingSchedule, Owner, SystemUser, UserRole, CHANNEL_TYPES, REMINDER_OPTIONS, OWNER_TYPES, USER_ROLES, ACCESS_LEVELS } from '../types';
-import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog, getProperties, addUserAccess, forceLogoutUser } from '../utils/db';
+import { Plus, Mail, MessageSquare, Calendar, Power, PowerOff, Trash2, Edit2, Wifi, WifiOff, Bell, Building2, User, Shield, Key, Users, UserPlus, Save, X, Eye, EyeOff, Send, CheckCircle, XCircle, Clock, LogOut, MapPin, Briefcase, Phone, Navigation } from 'lucide-react';
+import { MessageTemplate, BillingSchedule, Owner, SystemUser, UserRole, Agent, CHANNEL_TYPES, REMINDER_OPTIONS, OWNER_TYPES, USER_ROLES, ACCESS_LEVELS } from '../types';
+import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog, getProperties, addUserAccess, forceLogoutUser, getAgents, saveAgent, deleteAgent, getAgentsByArea, getAllFloorUnits } from '../utils/db';
 import { ConfirmModal } from './ConfirmModal';
 
-type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions';
+type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions' | 'agents';
 
 interface SettingsPageProps {
   onAddTemplate: () => void;
@@ -38,6 +38,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [waToast, setWaToast] = useState('');
   const [msgLog, setMsgLog] = useState<Array<{id: number; recipient_phone: string; recipient_name: string; message_type: string; content: string; status: string; error_message: string; created_at: string}>>([]);
 
+  // Agent state
+  const [agents, setAgents] = useState<Agent[]>([]);
+  const [showAgentForm, setShowAgentForm] = useState(false);
+  const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
+  const [agentForm, setAgentForm] = useState({
+    name: '', phone: '', whatsapp: '', email: '', company: '', areas: '', status: 'active', notes: '',
+  });
+  const [agentSaving, setAgentSaving] = useState(false);
+  const [agentToast, setAgentToast] = useState('');
+  const [showVacantMatch, setShowVacantMatch] = useState(false);
+  const [vacantMatches, setVacantMatches] = useState<Array<{property: any; matchedAgents: Agent[]; allAgents: Agent[]}>>([]);
+
   const showWaToast = useCallback((msg: string) => {
     setWaToast(msg);
     setTimeout(() => setWaToast(''), 3000);
@@ -59,9 +71,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   async function loadData() {
     setLoading(true);
     try {
-      const [t, s, o, u, waCfg, logs] = await Promise.all([
+      const [t, s, o, u, waCfg, logs, ag] = await Promise.all([
         getTemplates(), getSchedules(), getOwners(), getSystemUsers(),
-        getWhatsAppConfig(), getMessageLog(20),
+        getWhatsAppConfig(), getMessageLog(20), getAgents(),
       ]);
       setTemplates(t);
       setSchedules(s);
@@ -73,6 +85,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       }
       setWaLoaded(true);
       setMsgLog(logs);
+      setAgents(ag);
     } catch (e) {
       console.error(e);
     }
@@ -89,6 +102,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     else if (type === 'schedule') await deleteSchedule(id);
     else if (type === 'owner') await deleteOwner(id);
     else if (type === 'user') await deleteSystemUser(id);
+    else if (type === 'agent') await deleteAgent(id);
     await loadData();
   }
 
@@ -117,6 +131,83 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     } else {
       setUserToast('操作失败，请重试');
       setTimeout(() => setUserToast(''), 3000);
+    }
+  }
+
+
+  // Agent handlers
+  function openAgentForm(a?: Agent) {
+    if (a) {
+      setEditingAgent(a);
+      setAgentForm({
+        name: a.name, phone: a.phone, whatsapp: a.whatsapp, email: a.email,
+        company: a.company, areas: a.areas, status: a.status, notes: a.notes,
+      });
+    } else {
+      setEditingAgent(null);
+      setAgentForm({ name: '', phone: '', whatsapp: '', email: '', company: '', areas: '', status: 'active', notes: '' });
+    }
+    setShowAgentForm(true);
+  }
+
+  async function handleSaveAgent() {
+    if (!agentForm.name.trim()) {
+      setAgentToast('请输入中介名称');
+      setTimeout(() => setAgentToast(''), 2000);
+      return;
+    }
+    setAgentSaving(true);
+    try {
+      await saveAgent({
+        id: editingAgent?.id,
+        name: agentForm.name.trim(),
+        phone: agentForm.phone.trim(),
+        whatsapp: agentForm.whatsapp.trim(),
+        email: agentForm.email.trim(),
+        company: agentForm.company.trim(),
+        areas: agentForm.areas.trim(),
+        status: agentForm.status,
+        notes: agentForm.notes.trim(),
+      });
+      setShowAgentForm(false);
+      setEditingAgent(null);
+      setAgentToast('');
+      await loadData();
+    } catch (e) {
+      console.error(e);
+      setAgentToast('保存失败');
+      setTimeout(() => setAgentToast(''), 2000);
+    }
+    setAgentSaving(false);
+  }
+
+  function handleDeleteAgent(id: number) {
+    setDeleteModal({ type: 'agent', id, msg: '确定删除此中介？' });
+  }
+
+  async function handleMatchVacant() {
+    setShowVacantMatch(true);
+    try {
+      const allProps = await getProperties();
+      const allFloors = await getAllFloorUnits();
+      const allAg = await getAgents();
+      // Find properties with at least one vacant floor
+      const vacantProps = allProps.filter(p => {
+        const floors = allFloors.filter(f => f.property_id === p.id);
+        return floors.some(f => f.status === 'vacant') || (p.status === 'available' && floors.length === 0);
+      });
+      const matches = vacantProps.map(p => {
+        const addrLower = p.address.toLowerCase();
+        const matched = allAg.filter(a => {
+          if (!a.areas || a.status !== 'active') return false;
+          const areas = a.areas.split(',').map(x => x.trim().toLowerCase());
+          return areas.some(area => area && addrLower.includes(area));
+        });
+        return { property: p, matchedAgents: matched, allAgents: allAg };
+      });
+      setVacantMatches(matches);
+    } catch (e) {
+      console.error(e);
     }
   }
 
@@ -227,6 +318,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     { key: 'users_permissions', label: '用户与权限', icon: <Shield size={13} /> },
     { key: 'templates', label: '模板', icon: <Mail size={13} /> },
     { key: 'schedules', label: '排程', icon: <Calendar size={13} /> },
+    { key: 'agents', label: '中介', icon: <Briefcase size={13} /> },
     { key: 'integrations', label: '集成', icon: <Wifi size={13} /> },
   ];
 
@@ -467,6 +559,202 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <button className="btn btn-primary btn-sm w-full gap-1" onClick={() => openUserForm()}>
               <UserPlus size={14} /> 新增用户
             </button>
+          )}
+        </div>
+      )}
+
+
+      {/* ===== AGENTS TAB ===== */}
+      {tab === 'agents' && (
+        <div className="space-y-3">
+          <div className="bg-primary/5 border border-primary/20 rounded-lg p-2.5">
+            <p className="text-xs text-primary">
+              🤝 管理物业中介，设置负责区域。系统会自动匹配空置物业给对应区域的中介。
+            </p>
+          </div>
+
+          {/* Agent Form */}
+          {showAgentForm && (
+            <div className="bg-base-100 rounded-xl p-4 shadow-sm border-2 border-primary/30 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-sm">{editingAgent ? '编辑中介' : '新增中介'}</h4>
+                <button className="btn btn-xs btn-ghost" onClick={() => { setShowAgentForm(false); setEditingAgent(null); }}>
+                  <X size={14} />
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="form-control">
+                  <label className="label py-0.5"><span className="label-text text-xs">名称 *</span></label>
+                  <input className="input input-bordered input-sm w-full" placeholder="中介姓名" value={agentForm.name}
+                    onChange={e => setAgentForm(f => ({ ...f, name: e.target.value }))} />
+                </div>
+                <div className="form-control">
+                  <label className="label py-0.5"><span className="label-text text-xs">公司</span></label>
+                  <input className="input input-bordered input-sm w-full" placeholder="中介公司" value={agentForm.company}
+                    onChange={e => setAgentForm(f => ({ ...f, company: e.target.value }))} />
+                </div>
+                <div className="form-control">
+                  <label className="label py-0.5"><span className="label-text text-xs">电话</span></label>
+                  <input className="input input-bordered input-sm w-full" placeholder="手机号码" value={agentForm.phone}
+                    onChange={e => setAgentForm(f => ({ ...f, phone: e.target.value }))} />
+                </div>
+                <div className="form-control">
+                  <label className="label py-0.5"><span className="label-text text-xs">WhatsApp</span></label>
+                  <input className="input input-bordered input-sm w-full" placeholder="WhatsApp 号码" value={agentForm.whatsapp}
+                    onChange={e => setAgentForm(f => ({ ...f, whatsapp: e.target.value }))} />
+                </div>
+                <div className="form-control col-span-2">
+                  <label className="label py-0.5"><span className="label-text text-xs">邮箱</span></label>
+                  <input type="email" autoCapitalize="none" className="input input-bordered input-sm w-full" placeholder="选填" value={agentForm.email}
+                    onChange={e => setAgentForm(f => ({ ...f, email: e.target.value }))} />
+                </div>
+                <div className="form-control col-span-2">
+                  <label className="label py-0.5"><span className="label-text text-xs">📍 负责区域 (用逗号分隔)</span></label>
+                  <input className="input input-bordered input-sm w-full" placeholder="如: Jenjarom, Nilai, Klang, Eco Santuari" value={agentForm.areas}
+                    onChange={e => setAgentForm(f => ({ ...f, areas: e.target.value }))} />
+                  <label className="label py-0"><span className="label-text-alt text-xs text-base-content/50">
+                    系统会根据物业地址自动匹配含有这些关键词的区域
+                  </span></label>
+                </div>
+                <div className="form-control col-span-2">
+                  <label className="label py-0.5"><span className="label-text text-xs">备注</span></label>
+                  <input className="input input-bordered input-sm w-full" placeholder="选填" value={agentForm.notes}
+                    onChange={e => setAgentForm(f => ({ ...f, notes: e.target.value }))} />
+                </div>
+              </div>
+              {editingAgent && (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" className={`toggle toggle-sm ${agentForm.status === 'active' ? 'toggle-success' : 'toggle-error'}`}
+                    checked={agentForm.status === 'active'}
+                    onChange={e => setAgentForm(f => ({ ...f, status: e.target.checked ? 'active' : 'inactive' }))} />
+                  <span className={`text-xs font-medium ${agentForm.status === 'active' ? 'text-success' : 'text-error'}`}>
+                    {agentForm.status === 'active' ? '✅ 活跃' : '🚫 停用'}
+                  </span>
+                </label>
+              )}
+              {agentToast && <div className="text-error text-xs">{agentToast}</div>}
+              <div className="flex gap-2 justify-end">
+                <button className="btn btn-ghost btn-sm" onClick={() => { setShowAgentForm(false); setEditingAgent(null); }}>取消</button>
+                <button className="btn btn-primary btn-sm gap-1" onClick={handleSaveAgent} disabled={agentSaving}>
+                  {agentSaving ? <span className="loading loading-spinner loading-xs" /> : <Save size={12} />}
+                  保存
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Agent List */}
+          {agents.length === 0 ? (
+            <div className="text-center py-8 text-base-content/40">
+              <Briefcase size={32} className="mx-auto mb-2" />
+              <p className="text-sm">暂无中介</p>
+              <p className="text-xs mt-1">添加中介并设置负责区域</p>
+            </div>
+          ) : (
+            agents.map((a) => (
+              <div key={a.id} className={`bg-base-100 rounded-xl p-3 shadow-sm border border-base-200 space-y-1.5 ${a.status !== 'active' ? 'opacity-50' : ''}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className="text-lg">🤝</span>
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm truncate">{a.name}</p>
+                      <div className="flex items-center gap-2 text-xs text-base-content/60 flex-wrap">
+                        {a.company && <span>{a.company}</span>}
+                        {a.status !== 'active' && <span className="badge badge-xs badge-error">停用</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex gap-1 shrink-0">
+                    <button className="btn btn-xs btn-ghost" onClick={() => openAgentForm(a)}><Edit2 size={12} /></button>
+                    <button className="btn btn-xs btn-ghost text-error" onClick={() => handleDeleteAgent(a.id)}><Trash2 size={12} /></button>
+                  </div>
+                </div>
+                {(a.phone || a.whatsapp || a.email) && (
+                  <div className="flex gap-3 text-xs text-base-content/50 flex-wrap">
+                    {a.phone && <span>📞 {a.phone}</span>}
+                    {a.whatsapp && <span className="text-success">💬 {a.whatsapp}</span>}
+                    {a.email && <span>✉️ {a.email}</span>}
+                  </div>
+                )}
+                {a.areas && (
+                  <div className="flex flex-wrap gap-1 mt-1">
+                    {a.areas.split(',').map((area, i) => (
+                      <span key={i} className="badge badge-xs badge-outline badge-primary">
+                        <MapPin size={8} className="mr-0.5" /> {area.trim()}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {a.notes && <p className="text-xs text-base-content/40 truncate">📝 {a.notes}</p>}
+              </div>
+            ))
+          )}
+
+          {!showAgentForm && (
+            <div className="flex gap-2">
+              <button className="btn btn-primary btn-sm flex-1 gap-1" onClick={() => openAgentForm()}>
+                <Plus size={14} /> 新增中介
+              </button>
+              {agents.length > 0 && (
+                <button className="btn btn-outline btn-sm flex-1 gap-1" onClick={handleMatchVacant}>
+                  <Navigation size={14} /> AI 匹配空置物业
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Vacant Property Matching Results */}
+          {showVacantMatch && (
+            <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200 space-y-3">
+              <div className="flex items-center justify-between">
+                <h4 className="font-semibold text-sm flex items-center gap-2">
+                  <Navigation size={14} className="text-primary" /> 空置物业 → 中介匹配
+                </h4>
+                <button className="btn btn-xs btn-ghost" onClick={() => setShowVacantMatch(false)}>
+                  <X size={14} />
+                </button>
+              </div>
+              {vacantMatches.length === 0 ? (
+                <p className="text-xs text-base-content/60 text-center py-4">🎉 目前没有空置物业</p>
+              ) : (
+                <div className="space-y-3">
+                  {vacantMatches.map((m, i) => (
+                    <div key={i} className="border border-base-300 rounded-lg p-3 space-y-2">
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <p className="font-medium text-sm">{m.property.name}</p>
+                          <p className="text-xs text-base-content/60">{m.property.address}</p>
+                        </div>
+                        <span className="badge badge-sm badge-warning">空置</span>
+                      </div>
+                      {m.matchedAgents.length > 0 ? (
+                        <div>
+                          <p className="text-xs text-success font-medium mb-1">✅ 匹配到 {m.matchedAgents.length} 位中介:</p>
+                          <div className="space-y-1">
+                            {m.matchedAgents.map(a => (
+                              <div key={a.id} className="flex items-center justify-between bg-success/5 rounded px-2 py-1">
+                                <span className="text-xs font-medium">{a.name}{a.company ? ` · ${a.company}` : ''}</span>
+                                <span className="text-xs text-base-content/50">{a.whatsapp || a.phone}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <div>
+                          <p className="text-xs text-warning font-medium">⚠️ 未匹配到区域中介</p>
+                          <p className="text-[10px] text-base-content/50">可发送给全部 {m.allAgents.filter(a => a.status === 'active').length} 位活跃中介</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                  <div className="bg-info/10 rounded-lg p-2">
+                    <p className="text-xs text-info">
+                      💡 WhatsApp API 接入后，可直接一键群发空置物业详情给匹配的中介。
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}

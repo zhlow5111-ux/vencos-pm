@@ -96,6 +96,7 @@ export interface FloorUnit {
   agent_name: string;       // Referring property agent name
   agent_phone: string;      // Agent phone
   agent_company: string;    // Agent company
+  linked_lease_ref: string;  // 关联租约编号 (合并租约标记)
   rent_amount: number;
   deposit: number;
   utility_deposit: number;
@@ -127,6 +128,22 @@ export interface Owner {
   updated_at: string;
   // Virtual
   property_count?: number;
+}
+
+
+// ========== Agent (Property Agent / 中介) ==========
+export interface Agent {
+  id: number;
+  name: string;
+  phone: string;
+  whatsapp: string;
+  email: string;
+  company: string;
+  areas: string;       // Comma-separated area names (e.g. "Jenjarom, Nilai, Klang")
+  status: string;      // active | inactive
+  notes: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // ========== Unified User System ==========
