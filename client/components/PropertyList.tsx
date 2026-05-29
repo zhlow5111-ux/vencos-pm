@@ -70,6 +70,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
   const [vacateReason, setVacateReason] = useState('contract_expired');
   const [vacateNotes, setVacateNotes] = useState('');
   const [vacateArrears, setVacateArrears] = useState('');
+  const [showLeaseLinker, setShowLeaseLinker] = useState(false);
 
   // Purchase costs totals per property
   const [purchaseCostTotals, setPurchaseCostTotals] = useState<Record<number, number>>({});
@@ -854,16 +855,105 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                 />
               </div>
 
-              {/* 合并租约标记 */}
+              {/* 合并租约标记 — 智能选择模式 */}
               <div className="bg-info/5 border border-info/20 rounded-lg p-2.5">
-                <label className="text-xs font-semibold text-base-content mb-1 block flex items-center gap-1">🔗 关联租约编号</label>
-                <input
-                  className="input input-bordered input-sm w-full"
-                  placeholder="如有合并租约，填入相同编号 (如: LEASE-2024-001)"
-                  value={tenantForm.linked_lease_ref}
-                  onChange={(e) => setTenantForm({ ...tenantForm, linked_lease_ref: e.target.value })}
-                />
-                <p className="text-[10px] text-base-content/50 mt-1">多个物业共享同一租约时，填入相同编号方便对账</p>
+                <label className="text-xs font-semibold text-base-content mb-1 block flex items-center gap-1">🔗 合并租约</label>
+                {tenantForm.linked_lease_ref ? (() => {
+                  // Find all other floor units sharing this lease ref
+                  const linkedFloors = floorUnits.filter(f => f.linked_lease_ref === tenantForm.linked_lease_ref && f.property_id !== tenantForm.propertyId && f.tenant_name);
+                  const linkedPropertyIds = [...new Set(linkedFloors.map(f => f.property_id))];
+                  const linkedProps = linkedPropertyIds.map(pid => properties.find(p => p.id === pid)).filter(Boolean);
+                  return (
+                    <div className="space-y-1.5">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs text-info font-medium">租约编号: {tenantForm.linked_lease_ref}</span>
+                        <button type="button" className="btn btn-xs btn-ghost text-error" onClick={() => setTenantForm({...tenantForm, linked_lease_ref: ''})}>取消关联</button>
+                      </div>
+                      {linkedProps.length > 0 ? linkedProps.map(lp => (
+                        <div key={lp!.id} className="flex items-center gap-1.5 bg-info/10 rounded px-2 py-1">
+                          <span className="text-xs">🏠</span>
+                          <span className="text-xs font-medium">{lp!.name}</span>
+                          <span className="text-[10px] text-base-content/60">({linkedFloors.filter(f => f.property_id === lp!.id).map(f => f.floor_label + '楼').join(', ')})</span>
+                        </div>
+                      )) : (
+                        <p className="text-[10px] text-base-content/50">保存后，在另一物业的租户表单选择关联即可配对</p>
+                      )}
+                    </div>
+                  );
+                })() : (
+                  <div>
+                    {!showLeaseLinker ? (
+                      <button type="button" className="btn btn-sm btn-outline btn-info w-full gap-1" onClick={() => setShowLeaseLinker(true)}>
+                        🔗 关联其他物业租约
+                      </button>
+                    ) : (() => {
+                      // Build list of other properties that have tenants with or without lease refs
+                      const otherTenants: Array<{propertyId: number; propertyName: string; tenantName: string; floors: string; leaseRef: string}> = [];
+                      const seenKeys = new Set<string>();
+                      for (const f of floorUnits) {
+                        if (f.property_id === tenantForm.propertyId || !f.tenant_name) continue;
+                        const key = f.property_id + ':' + f.tenant_name;
+                        if (seenKeys.has(key)) continue;
+                        seenKeys.add(key);
+                        const relatedFloors = floorUnits.filter(ff => ff.property_id === f.property_id && ff.tenant_name === f.tenant_name);
+                        const prop = properties.find(p => p.id === f.property_id);
+                        otherTenants.push({
+                          propertyId: f.property_id,
+                          propertyName: prop?.name || '物业 #' + f.property_id,
+                          tenantName: f.tenant_name,
+                          floors: relatedFloors.map(ff => ff.floor_label + '楼').join(', '),
+                          leaseRef: f.linked_lease_ref || '',
+                        });
+                      }
+                      return (
+                        <div className="space-y-1.5">
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[10px] text-base-content/60">选择要关联的物业租户：</span>
+                            <button type="button" className="btn btn-xs btn-ghost" onClick={() => setShowLeaseLinker(false)}>✕</button>
+                          </div>
+                          {otherTenants.length === 0 ? (
+                            <p className="text-xs text-base-content/50 text-center py-2">暂无其他物业的租户可关联</p>
+                          ) : (
+                            <div className="max-h-40 overflow-y-auto space-y-1">
+                              {otherTenants.map((ot, idx) => (
+                                <button
+                                  key={idx}
+                                  type="button"
+                                  className="w-full text-left bg-base-100 hover:bg-info/10 border border-base-300 rounded-lg px-2.5 py-1.5 transition-colors"
+                                  onClick={async () => {
+                                    // Generate or reuse lease ref
+                                    const ref = ot.leaseRef || ('LG-' + Date.now().toString(36).toUpperCase());
+                                    setTenantForm({...tenantForm, linked_lease_ref: ref});
+                                    setShowLeaseLinker(false);
+                                    // If the other side doesn't have a ref yet, update it
+                                    if (!ot.leaseRef) {
+                                      const otherFloors = floorUnits.filter(f => f.property_id === ot.propertyId && f.tenant_name === ot.tenantName);
+                                      for (const of2 of otherFloors) {
+                                        await saveFloorUnit({...of2, linked_lease_ref: ref});
+                                      }
+                                      // Refresh floor units
+                                      const updated = await getAllFloorUnits();
+                                      setFloorUnits(updated);
+                                    }
+                                  }}
+                                >
+                                  <div className="flex items-center justify-between">
+                                    <div>
+                                      <p className="text-xs font-medium">{ot.propertyName}</p>
+                                      <p className="text-[10px] text-base-content/60">{ot.tenantName} · {ot.floors}</p>
+                                    </div>
+                                    {ot.leaseRef && <span className="text-[9px] bg-info/20 text-info px-1.5 py-0.5 rounded">已有租约组</span>}
+                                  </div>
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                    <p className="text-[10px] text-base-content/50 mt-1">两个物业共享同一租约时，点击关联即可自动配对</p>
+                  </div>
+                )}
               </div>
 
               {/* Recurring Charges per tenant */}
@@ -1050,9 +1140,14 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                       {first.agent_name && (
                         <div className="text-[10px] text-base-content">🤝 中介: {first.agent_name}{first.agent_company ? ` · ${first.agent_company}` : ''}{first.agent_phone ? ` · ${first.agent_phone}` : ''}</div>
                       )}
-                      {first.linked_lease_ref && (
-                        <div className="text-[10px] text-info font-medium">🔗 合并租约: {first.linked_lease_ref}</div>
-                      )}
+                      {first.linked_lease_ref && (() => {
+                        const linkedFloors = floorUnits.filter(f => f.linked_lease_ref === first.linked_lease_ref && f.property_id !== property.id && f.tenant_name);
+                        const linkedPropIds = [...new Set(linkedFloors.map(f => f.property_id))];
+                        const linkedPropNames = linkedPropIds.map(pid => properties.find(p => p.id === pid)?.name).filter(Boolean);
+                        return (
+                          <div className="text-[10px] text-info font-medium">🔗 合并租约{linkedPropNames.length > 0 ? ` · 关联: ${linkedPropNames.join(', ')}` : `: ${first.linked_lease_ref}`}</div>
+                        );
+                      })()}
                     </div>
                     <div className="text-right shrink-0 ml-2">
                       <p className="font-bold text-primary">RM {groupRent.toLocaleString()}</p>
