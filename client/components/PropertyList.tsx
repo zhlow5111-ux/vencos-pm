@@ -869,11 +869,11 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                         <span className="text-xs text-info font-medium">租约编号: {tenantForm.linked_lease_ref}</span>
                         <button type="button" className="btn btn-xs btn-ghost text-error" onClick={() => setTenantForm({...tenantForm, linked_lease_ref: ''})}>取消关联</button>
                       </div>
-                      {linkedProps.length > 0 ? linkedProps.map(lp => (
-                        <div key={lp!.id} className="flex items-center gap-1.5 bg-info/10 rounded px-2 py-1">
+                      {linkedProps.length > 0 ? linkedProps.map((lp: any) => (
+                        <div key={lp.id} className="flex items-center gap-1.5 bg-info/10 rounded px-2 py-1">
                           <span className="text-xs">🏠</span>
-                          <span className="text-xs font-medium">{lp!.name}</span>
-                          <span className="text-[10px] text-base-content/60">({linkedFloors.filter(f => f.property_id === lp!.id).map(f => f.floor_label + '楼').join(', ')})</span>
+                          <span className="text-xs font-medium">{lp.name}</span>
+                          <span className="text-[10px] text-base-content/60">({linkedFloors.filter(f => f.property_id === lp.id).map(f => f.floor_label + '楼').join(', ')})</span>
                         </div>
                       )) : (
                         <p className="text-[10px] text-base-content/50">保存后，在另一物业的租户表单选择关联即可配对</p>
@@ -921,19 +921,23 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                                   type="button"
                                   className="w-full text-left bg-base-100 hover:bg-info/10 border border-base-300 rounded-lg px-2.5 py-1.5 transition-colors"
                                   onClick={async () => {
-                                    // Generate or reuse lease ref
-                                    const ref = ot.leaseRef || ('LG-' + Date.now().toString(36).toUpperCase());
-                                    setTenantForm({...tenantForm, linked_lease_ref: ref});
-                                    setShowLeaseLinker(false);
-                                    // If the other side doesn't have a ref yet, update it
-                                    if (!ot.leaseRef) {
-                                      const otherFloors = floorUnits.filter(f => f.property_id === ot.propertyId && f.tenant_name === ot.tenantName);
-                                      for (const of2 of otherFloors) {
-                                        await saveFloorUnit({...of2, linked_lease_ref: ref});
+                                    try {
+                                      // Generate or reuse lease ref
+                                      const ref = ot.leaseRef || ('LG-' + Date.now().toString(36).toUpperCase());
+                                      setTenantForm({...tenantForm!, linked_lease_ref: ref});
+                                      setShowLeaseLinker(false);
+                                      // If the other side doesn't have a ref yet, update it
+                                      if (!ot.leaseRef) {
+                                        const otherFloors = floorUnits.filter(f => f.property_id === ot.propertyId && f.tenant_name === ot.tenantName);
+                                        for (const of2 of otherFloors) {
+                                          await saveFloorUnit({...of2, linked_lease_ref: ref});
+                                        }
+                                        // Refresh floor units
+                                        const updated = await getAllFloorUnits();
+                                        setFloorUnits(updated);
                                       }
-                                      // Refresh floor units
-                                      const updated = await getAllFloorUnits();
-                                      setFloorUnits(updated);
+                                    } catch (err) {
+                                      console.error('Link lease error:', err);
                                     }
                                   }}
                                 >
@@ -1141,7 +1145,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                         <div className="text-[10px] text-base-content">🤝 中介: {first.agent_name}{first.agent_company ? ` · ${first.agent_company}` : ''}{first.agent_phone ? ` · ${first.agent_phone}` : ''}</div>
                       )}
                       {first.linked_lease_ref && (() => {
-                        const linkedFloors = floorUnits.filter(f => f.linked_lease_ref === first.linked_lease_ref && f.property_id !== property.id && f.tenant_name);
+                        const linkedFloors = floorUnits.filter(f => f.linked_lease_ref === first.linked_lease_ref && f.property_id !== p.id && f.tenant_name);
                         const linkedPropIds = [...new Set(linkedFloors.map(f => f.property_id))];
                         const linkedPropNames = linkedPropIds.map(pid => properties.find(p => p.id === pid)?.name).filter(Boolean);
                         return (
