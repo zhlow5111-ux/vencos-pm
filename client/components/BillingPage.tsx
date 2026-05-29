@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, CheckCircle, AlertTriangle, Clock, FileText, Trash2, Zap, Calendar, Download, Printer, MessageCircle, Send, Smartphone, Eye } from 'lucide-react';
 import { Invoice, InvoiceStatus, INVOICE_STATUSES } from '../types';
-import { getInvoices, markInvoicePaid, markInvoiceOverdue, deleteInvoice, generateMonthlyInvoices, previewMonthlyInvoices, getInvoiceSummaryByMonth, getFloorUnits, getTemplates } from '../utils/db';
+import { getInvoices, markInvoicePaid, markInvoiceOverdue, deleteInvoice, generateMonthlyInvoices, previewMonthlyInvoices, getInvoiceSummaryByMonth, getFloorUnits, getTemplates, MergedPreviewItem } from '../utils/db';
 import { downloadCsv } from '../utils/export';
 import { ConfirmModal } from './ConfirmModal';
 import { printInvoice } from './PrintableInvoice';
@@ -46,15 +46,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
 
   // Preview step state
   const [genStep, setGenStep] = useState<1 | 2>(1);
-  const [previewData, setPreviewData] = useState<Array<{
-    propertyId: number;
-    propertyName: string;
-    floorLabel: string;
-    tenantName: string;
-    rent: number;
-    charges: Array<{ id: number; name: string; amount: number; floorLabel: string }>;
-    alreadyExists: boolean;
-  }>>([]);
+  const [previewData, setPreviewData] = useState<MergedPreviewItem[]>([]);
   const [excludedCharges, setExcludedCharges] = useState<Set<string>>(new Set());
   const [previewLoading, setPreviewLoading] = useState(false);
 
@@ -155,8 +147,8 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
     setPreviewLoading(false);
   }
 
-  function toggleCharge(propId: number, floorLabel: string, chargeId: number) {
-    const key = `${propId}-${floorLabel}-${chargeId}`;
+  function toggleCharge(mergeKey: string, chargeId: number) {
+    const key = `${mergeKey}-${chargeId}`;
     setExcludedCharges(prev => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
@@ -170,6 +162,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
     try {
       const result = await generateMonthlyInvoices(
         genYear, genMonth, genDueDay,
+        previewData,
         excludedCharges.size > 0 ? excludedCharges : undefined,
         Object.keys(previewAdjustments).length > 0 ? previewAdjustments : undefined
       );
@@ -504,9 +497,9 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
                   ) : (
                     previewData.map((item, idx) => {
                       if (item.alreadyExists) return null;
-                      const activeCharges = item.charges.filter(c => !excludedCharges.has(`${item.propertyId}-${item.floorLabel}-${c.id}`));
+                      const activeCharges = item.charges.filter(c => !excludedCharges.has(`${item.mergeKey}-${c.id}`));
                       const chargesTotal = activeCharges.reduce((s, c) => s + c.amount, 0);
-                      const adjKey = `${item.propertyId}-${item.floorLabel}`;
+                      const adjKey = item.mergeKey;
                       const adjs = previewAdjustments[adjKey] || [];
                       const adjTotal = adjs.reduce((s, a) => s + a.amount, 0);
                       const total = Math.round(item.rent + chargesTotal + adjTotal);
@@ -515,13 +508,39 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
                       return (
                         <div key={idx} className="border border-base-300 rounded-lg p-3">
                           <div className="flex items-center justify-between">
-                            <div>
-                              <span className="font-semibold text-sm">{item.propertyName}</span>
-                              <span className="badge badge-sm badge-primary ml-2">{item.floorLabel}</span>
+                            <div className="flex items-center gap-1 flex-wrap">
+                              <span className="font-semibold text-sm">{item.tenantName}</span>
+                              {item.isMerged && <span className="badge badge-sm badge-info">🔗 合并</span>}
                             </div>
                             <span className="font-bold text-primary">RM {total.toLocaleString()}</span>
                           </div>
-                          <div className="text-xs text-base-content/60 mt-1">{item.tenantName}</div>
+                          {item.isMerged && item.components.length > 1 ? (
+                            <div className="mt-1 space-y-0.5">
+                              {item.components.map((comp, ci) => (
+                                <div key={ci} className="flex items-center justify-between text-xs text-base-content/60">
+                                  <div className="flex items-center gap-1">
+                                    <span>{comp.propertyName}</span>
+                                    {comp.floorLabel.split(',').map((fl, fi) => (
+                                      <span key={fi} className="badge badge-xs badge-primary">{fl}</span>
+                                    ))}
+                                  </div>
+                                  <span>RM {comp.rent.toLocaleString()}</span>
+                                </div>
+                              ))}
+                            </div>
+                          ) : item.isMerged && item.components.length === 1 ? (
+                            <div className="flex items-center gap-1 text-xs text-base-content/60 mt-1">
+                              <span>{item.propertyName}</span>
+                              {item.floorLabel.split(',').map((fl, fi) => (
+                                <span key={fi} className="badge badge-xs badge-primary">{fl}</span>
+                              ))}
+                            </div>
+                          ) : (
+                            <div className="flex items-center gap-1 text-xs text-base-content/60 mt-1">
+                              <span>{item.propertyName}</span>
+                              <span className="badge badge-xs badge-primary">{item.floorLabel}</span>
+                            </div>
+                          )}
                           
                           <div className="mt-2 space-y-1">
                             {/* Rent - always included, no checkbox */}
@@ -532,7 +551,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
                             
                             {/* Charges - each with checkbox */}
                             {item.charges.map(c => {
-                              const exKey = `${item.propertyId}-${item.floorLabel}-${c.id}`;
+                              const exKey = `${item.mergeKey}-${c.id}`;
                               const isExcluded = excludedCharges.has(exKey);
                               return (
                                 <label key={c.id} className={`flex items-center justify-between text-sm rounded px-2 py-1 cursor-pointer hover:bg-base-200/30 ${isExcluded ? 'opacity-40 line-through' : ''}`}>
@@ -541,7 +560,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
                                       type="checkbox"
                                       className="checkbox checkbox-xs checkbox-primary"
                                       checked={!isExcluded}
-                                      onChange={() => toggleCharge(item.propertyId, item.floorLabel, c.id)}
+                                      onChange={() => toggleCharge(item.mergeKey, c.id)}
                                     />
                                     <span>{c.name}</span>
                                     {c.floorLabel === '' && <span className="badge badge-ghost badge-xs">整栋</span>}
@@ -632,8 +651,8 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
                     </span>
                     <span className="font-bold">
                       总计 RM {previewData.filter(d => !d.alreadyExists).reduce((s, item) => {
-                        const activeCharges = item.charges.filter(c => !excludedCharges.has(`${item.propertyId}-${item.floorLabel}-${c.id}`));
-                        const adjKey = `${item.propertyId}-${item.floorLabel}`;
+                        const activeCharges = item.charges.filter(c => !excludedCharges.has(`${item.mergeKey}-${c.id}`));
+                        const adjKey = item.mergeKey;
                         const adjs = previewAdjustments[adjKey] || [];
                         const adjTotal = adjs.reduce((as2, a) => as2 + a.amount, 0);
                         return s + item.rent + activeCharges.reduce((cs, c) => cs + c.amount, 0) + adjTotal;

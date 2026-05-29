@@ -366,6 +366,9 @@ function initDatabase() {
     safeExec(`ALTER TABLE vc_floor_units ADD COLUMN linked_lease_ref TEXT NOT NULL DEFAULT ''`);
     safeExec(`CREATE TABLE IF NOT EXISTS vc_agents (
       id INTEGER PRIMARY KEY, name TEXT NOT NULL DEFAULT '', phone TEXT NOT NULL DEFAULT '',
+
+  // V21: merged_data for invoices
+  safeExec(`ALTER TABLE vc_invoices ADD COLUMN merged_data TEXT NOT NULL DEFAULT ''`);
       whatsapp TEXT NOT NULL DEFAULT '', email TEXT NOT NULL DEFAULT '',
       company TEXT NOT NULL DEFAULT '', areas TEXT NOT NULL DEFAULT '',
       status TEXT NOT NULL DEFAULT 'active', notes TEXT NOT NULL DEFAULT '',

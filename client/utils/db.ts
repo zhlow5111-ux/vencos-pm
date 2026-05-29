@@ -426,6 +426,9 @@ export async function initDB(): Promise<void> {
       status TEXT NOT NULL DEFAULT 'active', notes TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
     )`); } catch {}
+
+  // === V21: Add merged_data column to invoices for merged billing ===
+  try { await window.tasklet.sqlExec(`ALTER TABLE vc_invoices ADD COLUMN merged_data TEXT NOT NULL DEFAULT ''`); } catch {}
   }
 
   // Mark schema as current version
@@ -1974,7 +1977,15 @@ export async function getFinancialSummary(): Promise<{
 }
 
 // ========== Auto Billing ==========
-export async function previewMonthlyInvoices(year: number, month: number): Promise<Array<{
+export interface PreviewComponent {
+  propertyId: number;
+  propertyName: string;
+  floorLabel: string;
+  rent: number;
+}
+
+export interface MergedPreviewItem {
+  mergeKey: string;
   propertyId: number;
   propertyName: string;
   floorLabel: string;
@@ -1982,160 +1993,246 @@ export async function previewMonthlyInvoices(year: number, month: number): Promi
   rent: number;
   charges: Array<{ id: number; name: string; amount: number; floorLabel: string }>;
   alreadyExists: boolean;
-}>> {
+  isMerged: boolean;
+  linkedLeaseRef: string;
+  components: PreviewComponent[];
+}
+
+export async function previewMonthlyInvoices(year: number, month: number): Promise<MergedPreviewItem[]> {
   const billingMonth = `${year}-${String(month).padStart(2, '0')}`;
-  
-  // Check existing
+
+  // Get existing invoices for this month (check both individual and merged floor_labels)
   const existing = await window.tasklet.sqlQuery(
-    `SELECT property_id, floor_label FROM vc_invoices WHERE billing_month='${billingMonth}'`
+    `SELECT property_id, floor_label, merged_data FROM vc_invoices WHERE billing_month='${billingMonth}'`
   );
-  const existingKeys = new Set(
-    (existing as Record<string, unknown>[]).map(r => `${r.property_id}-${r.floor_label}`)
-  );
-  
-  // Get all occupied floors
+  const existingPropFloors = new Set<string>();
+  for (const r of existing as Record<string, unknown>[]) {
+    const pid = Number(r.property_id);
+    const fl = String(r.floor_label || '');
+    // Expand comma-separated floor labels
+    for (const f of fl.split(',')) {
+      if (f.trim()) existingPropFloors.add(`${pid}-${f.trim()}`);
+    }
+    // Also expand merged_data
+    try {
+      const md = JSON.parse(String(r.merged_data || '[]'));
+      if (Array.isArray(md)) {
+        for (const comp of md) {
+          const cpid = Number(comp.propertyId || comp.property_id || 0);
+          const cfl = String(comp.floorLabel || comp.floor_label || '');
+          for (const f of cfl.split(',')) {
+            if (f.trim() && cpid) existingPropFloors.add(`${cpid}-${f.trim()}`);
+          }
+        }
+      }
+    } catch {}
+  }
+
+  // Get ALL occupied floors (including rent=0 for grouping with same tenant)
   const floors = await window.tasklet.sqlQuery(`
     SELECT f.property_id, f.floor_label, f.tenant_name, f.rent_amount,
-      p.name as property_name
+      f.linked_lease_ref, p.name as property_name
     FROM vc_floor_units f
     JOIN vc_properties p ON f.property_id = p.id
-    WHERE f.tenant_name != '' AND f.rent_amount > 0
+    WHERE f.tenant_name != ''
     ORDER BY p.name, f.floor_label
   `);
-  
-  // Get ALL recurring charges with individual records
-  const allCharges = await window.tasklet.sqlQuery(`
+
+  // Get ALL recurring charges
+  const allChargesRaw = await window.tasklet.sqlQuery(`
     SELECT id, property_id, charge_name, amount, floor_label
-    FROM vc_recurring_charges
-    ORDER BY charge_name
+    FROM vc_recurring_charges ORDER BY charge_name
   `);
-  
-  const result: Array<{
-    propertyId: number;
-    propertyName: string;
-    floorLabel: string;
-    tenantName: string;
-    rent: number;
-    charges: Array<{ id: number; name: string; amount: number; floorLabel: string }>;
-    alreadyExists: boolean;
-  }> = [];
-  
+
+  // Step 1: Group floors by (property_id, tenant_name)
+  const propTenantMap = new Map<string, Array<Record<string, unknown>>>();
   for (const f of floors as Record<string, unknown>[]) {
-    const propId = Number(f.property_id);
-    const fl = String(f.floor_label);
-    const key = `${propId}-${fl}`;
-    
-    // Find charges: floor-specific + property-wide (empty floor_label)
-    const applicableCharges = (allCharges as Record<string, unknown>[])
-      .filter(c => {
-        const cPropId = Number(c.property_id);
-        const cFl = String(c.floor_label || '');
-        return cPropId === propId && (cFl === '' || cFl === fl);
-      })
-      .map(c => ({
-        id: Number(c.id),
-        name: String(c.charge_name),
-        amount: Number(c.amount || 0),
-        floorLabel: String(c.floor_label || ''),
-      }));
-    
-    result.push({
-      propertyId: propId,
-      propertyName: String(f.property_name || ''),
-      floorLabel: fl,
-      tenantName: String(f.tenant_name || ''),
-      rent: Number(f.rent_amount || 0),
-      charges: applicableCharges,
-      alreadyExists: existingKeys.has(key),
+    const key = `${f.property_id}|||${f.tenant_name}`;
+    if (!propTenantMap.has(key)) propTenantMap.set(key, []);
+    propTenantMap.get(key)!.push(f);
+  }
+
+  // Step 2: Build intermediate grouped items
+  interface IntItem {
+    propertyId: number; propertyName: string; floorLabels: string[];
+    tenantName: string; rent: number; linkedLeaseRef: string;
+    charges: Array<{ id: number; name: string; amount: number; floorLabel: string }>;
+    constituentKeys: string[];
+  }
+  const intermediates: IntItem[] = [];
+
+  for (const [, groupFloors] of propTenantMap) {
+    const first = groupFloors[0];
+    const propId = Number(first.property_id);
+    const floorLabels = groupFloors.map(f => String(f.floor_label));
+    const totalRent = groupFloors.reduce((s, f) => s + Number(f.rent_amount || 0), 0);
+    if (totalRent <= 0) continue; // Skip if no rent at all for this tenant group
+    const ref = String(first.linked_lease_ref || '');
+
+    // Collect charges for all floors in this group (deduplicated)
+    const charges: Array<{ id: number; name: string; amount: number; floorLabel: string }> = [];
+    const seenIds = new Set<number>();
+    for (const c of allChargesRaw as Record<string, unknown>[]) {
+      const cPid = Number(c.property_id);
+      const cFl = String(c.floor_label || '');
+      const cId = Number(c.id);
+      if (cPid !== propId || seenIds.has(cId)) continue;
+      if (cFl === '' || floorLabels.includes(cFl)) {
+        seenIds.add(cId);
+        charges.push({ id: cId, name: String(c.charge_name), amount: Number(c.amount || 0), floorLabel: cFl });
+      }
+    }
+
+    intermediates.push({
+      propertyId: propId, propertyName: String(first.property_name || ''),
+      floorLabels, tenantName: String(first.tenant_name || ''), rent: totalRent,
+      linkedLeaseRef: ref, charges,
+      constituentKeys: floorLabels.map(fl => `${propId}-${fl}`),
     });
   }
-  
+
+  // Step 3: Merge by linked_lease_ref across properties
+  const leaseGroups = new Map<string, IntItem[]>();
+  const ungrouped: IntItem[] = [];
+  for (const item of intermediates) {
+    if (item.linkedLeaseRef) {
+      if (!leaseGroups.has(item.linkedLeaseRef)) leaseGroups.set(item.linkedLeaseRef, []);
+      leaseGroups.get(item.linkedLeaseRef)!.push(item);
+    } else {
+      ungrouped.push(item);
+    }
+  }
+
+  const result: MergedPreviewItem[] = [];
+
+  // Helper: check if any constituent already has an invoice
+  function anyExists(keys: string[]): boolean {
+    return keys.some(k => existingPropFloors.has(k));
+  }
+
+  // Process linked lease groups
+  for (const [ref, items] of leaseGroups) {
+    if (items.length === 1 && items[0].floorLabels.length === 1) {
+      // Single property, single floor - not merged
+      const it = items[0];
+      const fl = it.floorLabels[0];
+      result.push({
+        mergeKey: `${it.propertyId}-${fl}`, propertyId: it.propertyId,
+        propertyName: it.propertyName, floorLabel: fl, tenantName: it.tenantName,
+        rent: it.rent, charges: it.charges, alreadyExists: anyExists(it.constituentKeys),
+        isMerged: false, linkedLeaseRef: ref,
+        components: [{ propertyId: it.propertyId, propertyName: it.propertyName, floorLabel: fl, rent: it.rent }],
+      });
+    } else {
+      // Merged across properties or multiple floors
+      const allKeys = items.flatMap(i => i.constituentKeys);
+      const totalRent = items.reduce((s, i) => s + i.rent, 0);
+      const allCharges = items.flatMap(i => i.charges);
+      const components = items.map(i => ({
+        propertyId: i.propertyId, propertyName: i.propertyName,
+        floorLabel: i.floorLabels.join(','), rent: i.rent,
+      }));
+      const primaryName = items.length === 1
+        ? items[0].propertyName
+        : items.map(i => i.propertyName).join(' + ');
+      const floorLabelCombined = items.length === 1
+        ? items[0].floorLabels.join(',')
+        : items.map(i => `${i.floorLabels.join(',')}`).join(',');
+
+      result.push({
+        mergeKey: `linked-${ref}`, propertyId: items[0].propertyId,
+        propertyName: primaryName, floorLabel: floorLabelCombined,
+        tenantName: items[0].tenantName, rent: totalRent, charges: allCharges,
+        alreadyExists: anyExists(allKeys), isMerged: true, linkedLeaseRef: ref, components,
+      });
+    }
+  }
+
+  // Process ungrouped items
+  for (const item of ungrouped) {
+    if (item.floorLabels.length === 1) {
+      const fl = item.floorLabels[0];
+      result.push({
+        mergeKey: `${item.propertyId}-${fl}`, propertyId: item.propertyId,
+        propertyName: item.propertyName, floorLabel: fl, tenantName: item.tenantName,
+        rent: item.rent, charges: item.charges, alreadyExists: anyExists(item.constituentKeys),
+        isMerged: false, linkedLeaseRef: '',
+        components: [{ propertyId: item.propertyId, propertyName: item.propertyName, floorLabel: fl, rent: item.rent }],
+      });
+    } else {
+      // Multiple floors, same tenant, same property - merged within property
+      result.push({
+        mergeKey: `${item.propertyId}-${item.floorLabels.join(',')}`, propertyId: item.propertyId,
+        propertyName: item.propertyName, floorLabel: item.floorLabels.join(','),
+        tenantName: item.tenantName, rent: item.rent, charges: item.charges,
+        alreadyExists: anyExists(item.constituentKeys), isMerged: true, linkedLeaseRef: '',
+        components: [{ propertyId: item.propertyId, propertyName: item.propertyName, floorLabel: item.floorLabels.join(','), rent: item.rent }],
+      });
+    }
+  }
+
   return result;
 }
 
 export async function generateMonthlyInvoices(
-  year: number, 
-  month: number, 
+  year: number,
+  month: number,
   dueDay: number = 7,
+  previewItems?: MergedPreviewItem[],
   excludedChargeKeys?: Set<string>,
   adjustmentsMap?: Record<string, Array<{name: string; amount: number}>>
 ): Promise<{created: number; skipped: number; total: number}> {
   const billingMonth = `${year}-${String(month).padStart(2, '0')}`;
-
-  // Check which property+floor combos already have invoices for this month
-  const existing = await window.tasklet.sqlQuery(
-    `SELECT property_id, tenant_id, floor_label FROM vc_invoices WHERE billing_month='${billingMonth}'`
-  );
-  const existingKeys = new Set(
-    (existing as Record<string, unknown>[]).map(r => `${r.property_id}-${r.floor_label}`)
-  );
-
-  // Get all occupied floors with rent
-  const floors = await window.tasklet.sqlQuery(`
-    SELECT f.property_id, f.floor_label, f.tenant_name, f.rent_amount,
-      p.name as property_name
-    FROM vc_floor_units f
-    JOIN vc_properties p ON f.property_id = p.id
-    WHERE f.tenant_name != '' AND f.rent_amount > 0
-    ORDER BY f.property_id, f.floor_label
-  `);
-
-  // Get individual recurring charges for filtering
-  const allCharges = await window.tasklet.sqlQuery(`
-    SELECT id, property_id, charge_name, amount, floor_label
-    FROM vc_recurring_charges
-  `);
-
-  let created = 0;
-  let skipped = 0;
   const now = nowISO();
   const daysInMonth = new Date(year, month, 0).getDate();
   const safeDueDay = Math.min(dueDay, daysInMonth);
   const dueDate = `${billingMonth}-${String(safeDueDay).padStart(2, '0')}`;
 
-  for (const f of floors as Record<string, unknown>[]) {
-    const key = `${f.property_id}-${f.floor_label}`;
-    if (existingKeys.has(key)) {
-      skipped++;
-      continue;
-    }
+  // Get preview data if not provided
+  const items = previewItems || await previewMonthlyInvoices(year, month);
 
-    const rent = Number(f.rent_amount || 0);
-    
-    // Calculate charges excluding waived ones, and build charges detail
+  let created = 0;
+  let skipped = 0;
+
+  for (const item of items) {
+    if (item.alreadyExists) { skipped++; continue; }
+
+    // Calculate charges (excluding waived ones)
     let chargesTotal = 0;
     const chargesDetailArr: Array<{name: string; amount: number}> = [];
-    for (const c of allCharges as Record<string, unknown>[]) {
-      const cPropId = Number(c.property_id);
-      const cFl = String(c.floor_label || '');
-      const cId = Number(c.id);
-      if (cPropId !== Number(f.property_id)) continue;
-      if (cFl !== '' && cFl !== String(f.floor_label)) continue;
-      
-      // Check if excluded
-      const exKey = `${cPropId}-${f.floor_label}-${cId}`;
+    for (const c of item.charges) {
+      const exKey = `${item.mergeKey}-${c.id}`;
       if (excludedChargeKeys && excludedChargeKeys.has(exKey)) continue;
-      
-      chargesTotal += Number(c.amount || 0);
-      chargesDetailArr.push({ name: String(c.charge_name || ''), amount: Number(c.amount || 0) });
+      chargesTotal += c.amount;
+      chargesDetailArr.push({ name: c.name, amount: c.amount });
     }
 
-    // Calculate adjustments for this item
-    const adjKey = `${f.property_id}-${f.floor_label}`;
-    const adjs = adjustmentsMap?.[adjKey] || [];
-    const adjTotal = adjs.reduce((s: number, a: {name: string; amount: number}) => s + a.amount, 0);
+    // Adjustments
+    const adjs = adjustmentsMap?.[item.mergeKey] || [];
+    const adjTotal = adjs.reduce((s, a) => s + a.amount, 0);
     const adjJson = escapeSQL(JSON.stringify(adjs));
     const cdJson = escapeSQL(JSON.stringify(chargesDetailArr));
 
-    const totalAmount = Math.round(rent + chargesTotal + adjTotal);
+    const totalAmount = Math.round(item.rent + chargesTotal + adjTotal);
     const invNo = 'INV-' + Date.now().toString().slice(-8) + '-' + created;
-    let desc = `${billingMonth} 租金 - ${f.property_name} ${f.floor_label}楼`;
+
+    // Build description
+    let desc = `${billingMonth} 租金`;
+    if (item.isMerged && item.components.length > 1) {
+      desc += ' - 合并账单: ' + item.components.map(c => `${c.propertyName} (${c.floorLabel}楼 RM${c.rent.toLocaleString()})`).join(' + ');
+    } else {
+      desc += ` - ${item.propertyName} ${item.floorLabel}楼`;
+    }
     if (chargesTotal > 0) desc += ` (含附加费 RM${chargesTotal})`;
     if (adjs.length > 0) desc += ` | 调整: ${adjs.map(a => `${a.name} ${a.amount > 0 ? '+' : ''}${a.amount}`).join(', ')}`;
 
+    // Build merged_data JSON
+    const mergedDataJson = escapeSQL(JSON.stringify(item.components));
+
+    // Use primary property_id, combined floor_label
     await window.tasklet.sqlExec(`
-      INSERT INTO vc_invoices (id, invoice_no, property_id, tenant_id, amount, due_date, paid_date, status, description, floor_label, billing_month, rent_amount, charges_amount, adjustments, charges_detail, auto_generated, created_at, updated_at)
-      VALUES (${generateId() + created}, '${escapeSQL(invNo)}', ${f.property_id}, 0, ${totalAmount}, '${dueDate}', '', 'pending', '${escapeSQL(desc)}', '${escapeSQL(String(f.floor_label))}', '${billingMonth}', ${rent}, ${chargesTotal}, '${adjJson}', '${cdJson}', 1, '${now}', '${now}')
+      INSERT INTO vc_invoices (id, invoice_no, property_id, tenant_id, amount, due_date, paid_date, status, description, floor_label, billing_month, rent_amount, charges_amount, adjustments, charges_detail, auto_generated, merged_data, created_at, updated_at)
+      VALUES (${generateId() + created}, '${escapeSQL(invNo)}', ${item.propertyId}, 0, ${totalAmount}, '${dueDate}', '', 'pending', '${escapeSQL(desc)}', '${escapeSQL(item.floorLabel)}', '${billingMonth}', ${item.rent}, ${chargesTotal}, '${adjJson}', '${cdJson}', 1, '${mergedDataJson}', '${now}', '${now}')
     `);
     created++;
   }
