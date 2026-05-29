@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Building2, Layers } from 'lucide-react';
 import { Invoice, Property, FloorUnit, RecurringCharge, INVOICE_STATUSES } from '../types';
-import { saveInvoice, getProperties, getFloorUnits, getRecurringCharges } from '../utils/db';
+import { saveInvoice, getProperties, getFloorUnits, getRecurringCharges, getFloorUnitsByLeaseRef } from '../utils/db';
 
 interface InvoiceFormProps {
   invoice?: Invoice;
@@ -20,6 +20,9 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onClose, onSa
   const [chargeToggles, setChargeToggles] = useState<Record<number, boolean>>({});
   const [adjustments, setAdjustments] = useState<Array<{name: string; amount: number}>>([]);
   const [adjName, setAdjName] = useState('');
+  // Linked lease state
+  const [linkedFloors, setLinkedFloors] = useState<Array<{property_id: number; property_name: string; floor_label: string; tenant_name: string; rent_amount: number}>>([]);
+  const [linkedLeaseRef, setLinkedLeaseRef] = useState('');
   const [adjAmount, setAdjAmount] = useState<number>(0);
 
   const now = new Date();
@@ -49,6 +52,32 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onClose, onSa
       setCharges([]);
     }
   }, [form.property_id]);
+
+  // Check for linked leases when floor is selected
+  useEffect(() => {
+    if (selectedFloor && floors.length > 0) {
+      const fl = floors.find(f => f.floor_label === selectedFloor);
+      if (fl && fl.linked_lease_ref) {
+        getFloorUnitsByLeaseRef(fl.linked_lease_ref).then(linked => {
+          const others = linked.filter(lf => lf.property_id !== form.property_id);
+          setLinkedFloors(others.map(lf => ({
+            property_id: lf.property_id,
+            property_name: (lf as any).property_name || '',
+            floor_label: lf.floor_label,
+            tenant_name: lf.tenant_name,
+            rent_amount: lf.rent_amount || 0,
+          })));
+          setLinkedLeaseRef(fl.linked_lease_ref);
+        }).catch(() => { setLinkedFloors([]); setLinkedLeaseRef(''); });
+      } else {
+        setLinkedFloors([]);
+        setLinkedLeaseRef('');
+      }
+    } else {
+      setLinkedFloors([]);
+      setLinkedLeaseRef('');
+    }
+  }, [selectedFloor, floors, form.property_id]);
 
   // Initialize adjustments from existing invoice
   useEffect(() => {
@@ -121,15 +150,21 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onClose, onSa
     });
   }, [charges, selectedFloor]);
 
-  // Computed total
+  // Linked rent total
+  const linkedRentTotal = useMemo(() => {
+    return linkedFloors.reduce((s, lf) => s + (lf.rent_amount || 0), 0);
+  }, [linkedFloors]);
+
+  // Computed total (includes linked rent)
   const computedTotal = useMemo(() => {
     const rent = form.rent_amount || 0;
+    const linked = linkedRentTotal;
     const enabledCharges = applicableCharges
       .filter(c => chargeToggles[c.id] !== false)
       .reduce((s, c) => s + c.amount, 0);
     const adjTotal = adjustments.reduce((s, a) => s + a.amount, 0);
-    return Math.round(rent + enabledCharges + adjTotal);
-  }, [form.rent_amount, applicableCharges, chargeToggles, adjustments]);
+    return Math.round(rent + linked + enabledCharges + adjTotal);
+  }, [form.rent_amount, linkedRentTotal, applicableCharges, chargeToggles, adjustments]);
 
   const enabledChargesTotal = useMemo(() => {
     return applicableCharges
@@ -148,7 +183,9 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onClose, onSa
       const prop = properties.find((p) => p.id === form.property_id);
       let desc = form.description;
       if (!desc && form.billing_month && selectedFloor) {
-        desc = `${form.billing_month} 租金 - ${prop?.name || ''} ${selectedFloor}楼`;
+        desc = linkedFloors.length > 0
+          ? `${form.billing_month} 租金 - ${prop?.name || ''} + ${linkedFloors.map(lf => lf.property_name).join(' + ')} (合并租约)`
+          : `${form.billing_month} 租金 - ${prop?.name || ''} ${selectedFloor}楼`;
         if (enabledChargesTotal > 0) desc += ` (含附加费 RM${enabledChargesTotal})`;
         if (adjustments.length > 0) desc += ` | 调整: ${adjustments.map(a => `${a.name} ${a.amount > 0 ? '+' : ''}${a.amount}`).join(', ')}`;
       }
@@ -157,6 +194,20 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onClose, onSa
       const chargesDetail = applicableCharges
         .filter(c => chargeToggles[c.id] !== false)
         .map(c => ({ name: c.charge_name, amount: c.amount }));
+
+      // Build merged_data if linked lease exists
+      const mergedData = linkedFloors.length > 0 ? JSON.stringify([
+        { property_id: form.property_id, property_name: prop?.name || '', floor_label: selectedFloor, tenant_name: floors.find(f => f.floor_label === selectedFloor)?.tenant_name || '', rent: form.rent_amount },
+        ...linkedFloors.map(lf => ({ property_id: lf.property_id, property_name: lf.property_name, floor_label: lf.floor_label, tenant_name: lf.tenant_name, rent: lf.rent_amount }))
+      ]) : '';
+
+      // For merged bills, combine floor labels
+      const mergedFloorLabel = linkedFloors.length > 0
+        ? `${selectedFloor}(${prop?.name || ''})` + linkedFloors.map(lf => `+${lf.floor_label}(${lf.property_name})`).join('')
+        : form.floor_label;
+
+      // Combined rent for storage
+      const totalRent = (form.rent_amount || 0) + linkedRentTotal;
 
       await saveInvoice({
         ...(invoice?.id ? { id: invoice.id, invoice_no: invoice.invoice_no } : {}),
@@ -167,11 +218,12 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onClose, onSa
         status: form.status as any,
         description: desc,
         billing_month: form.billing_month,
-        floor_label: form.floor_label,
-        rent_amount: form.rent_amount,
+        floor_label: mergedFloorLabel,
+        rent_amount: totalRent,
         charges_amount: enabledChargesTotal,
         adjustments: JSON.stringify(adjustments),
         charges_detail: JSON.stringify(chargesDetail),
+        merged_data: mergedData,
       });
       onSaved();
     } catch (err) {
@@ -205,6 +257,8 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onClose, onSa
                 setSelectedFloor('');
                 setChargeToggles({});
                 setAdjustments([]);
+                setLinkedFloors([]);
+                setLinkedLeaseRef('');
               }}
               required
             >
@@ -329,6 +383,33 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onClose, onSa
                   {adjTotal !== 0 && (
                     <div className="text-[10px] text-base-content/50 text-right">
                       (租金 {form.rent_amount.toLocaleString()} + 附加费 {enabledChargesTotal.toLocaleString()}{adjTotal !== 0 ? ` ${adjTotal > 0 ? '+' : ''}${adjTotal.toLocaleString()} 调整` : ''})
+                    </div>
+                  )}
+
+                  {/* Linked lease info */}
+                  {linkedFloors.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-info/30">
+                      <div className="flex items-center gap-1 text-xs font-bold text-info mb-1">
+                        <span>🔗</span>
+                        <span>合并租约</span>
+                        <span className="badge badge-info badge-xs">{linkedLeaseRef}</span>
+                      </div>
+                      <div className="space-y-0.5">
+                        <div className="flex justify-between text-xs text-base-content/70">
+                          <span>📍 {properties.find(p => p.id === form.property_id)?.name || ''} {selectedFloor}楼</span>
+                          <span>RM {(form.rent_amount || 0).toLocaleString()}</span>
+                        </div>
+                        {linkedFloors.map((lf, i) => (
+                          <div key={i} className="flex justify-between text-xs text-base-content/70">
+                            <span>📍 {lf.property_name} {lf.floor_label}楼</span>
+                            <span>RM {lf.rent_amount.toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex justify-between text-xs font-bold mt-1 pt-1 border-t border-info/20 text-info">
+                        <span>🔗 合并总租金</span>
+                        <span>RM {((form.rent_amount || 0) + linkedRentTotal).toLocaleString()}</span>
+                      </div>
                     </div>
                   )}
                 </div>

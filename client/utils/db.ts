@@ -1170,14 +1170,15 @@ export async function saveInvoice(inv: Partial<Invoice>): Promise<void> {
         charges_amount=${chargesAmt},
         adjustments='${adjStr}',
         charges_detail='${cdStr}',
+        merged_data='${escapeSQL(inv.merged_data || '')}',
         updated_at='${now}'
       WHERE id=${inv.id}
     `);
   } else {
     const invNo = 'INV-' + Date.now().toString().slice(-8);
     await window.tasklet.sqlExec(`
-      INSERT INTO vc_invoices (id, invoice_no, property_id, tenant_id, amount, due_date, paid_date, status, description, floor_label, billing_month, rent_amount, charges_amount, adjustments, charges_detail, auto_generated, created_at, updated_at)
-      VALUES (${Date.now()}, '${invNo}', ${inv.property_id || 0}, ${inv.tenant_id || 0}, ${amt}, '${inv.due_date || ''}', '', 'pending', '${escapeSQL(inv.description || '')}', '${escapeSQL(inv.floor_label || '')}', '${escapeSQL(inv.billing_month || '')}', ${rentAmt}, ${chargesAmt}, '${adjStr}', '${cdStr}', 0, '${now}', '${now}')
+      INSERT INTO vc_invoices (id, invoice_no, property_id, tenant_id, amount, due_date, paid_date, status, description, floor_label, billing_month, rent_amount, charges_amount, adjustments, charges_detail, auto_generated, merged_data, created_at, updated_at)
+      VALUES (${Date.now()}, '${invNo}', ${inv.property_id || 0}, ${inv.tenant_id || 0}, ${amt}, '${inv.due_date || ''}', '', 'pending', '${escapeSQL(inv.description || '')}', '${escapeSQL(inv.floor_label || '')}', '${escapeSQL(inv.billing_month || '')}', ${rentAmt}, ${chargesAmt}, '${adjStr}', '${cdStr}', 0, '${escapeSQL(inv.merged_data || '')}', '${now}', '${now}')
     `);
   }
 }
@@ -1491,6 +1492,20 @@ export async function getFloorUnits(propertyId: number): Promise<FloorUnit[]> {
 export async function getAllFloorUnits(): Promise<FloorUnit[]> {
   const rows = await window.tasklet.sqlQuery(`SELECT * FROM vc_floor_units ORDER BY property_id, CASE WHEN floor_label='G' THEN 0 ELSE CAST(floor_label AS INTEGER) + 1 END ASC`);
   return rows as unknown as FloorUnit[];
+}
+
+
+
+export async function getFloorUnitsByLeaseRef(leaseRef: string): Promise<Array<FloorUnit & { property_name: string }>> {
+  if (!leaseRef) return [];
+  const rows = await window.tasklet.sqlQuery(`
+    SELECT f.*, p.name as property_name
+    FROM vc_floor_units f
+    JOIN vc_properties p ON f.property_id = p.id
+    WHERE f.linked_lease_ref='${escapeSQL(leaseRef)}' AND f.tenant_name != ''
+    ORDER BY p.name, CASE WHEN f.floor_label='G' THEN 0 ELSE CAST(f.floor_label AS INTEGER)+1 END
+  `);
+  return rows as unknown as Array<FloorUnit & { property_name: string }>;
 }
 
 export async function saveFloorUnit(f: Partial<FloorUnit> & { property_id: number; floor_label: string }): Promise<number> {
