@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 18;
+  const SCHEMA_VERSION = 19;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -350,6 +350,10 @@ function initDatabase() {
     safeExec(`ALTER TABLE vc_maintenance_tickets ADD COLUMN tenant_phone TEXT NOT NULL DEFAULT ''`);
     safeExec(`UPDATE vc_maintenance_tickets SET tenant_phone = COALESCE((SELECT phone FROM vc_clients WHERE id = vc_maintenance_tickets.tenant_id), '') WHERE tenant_phone = ''`);
   }
+  if (currentVer < 19) {
+    safeExec(`ALTER TABLE vc_users ADD COLUMN last_login TEXT NOT NULL DEFAULT ''`);
+    safeExec(`ALTER TABLE vc_users ADD COLUMN session_revoked_at TEXT NOT NULL DEFAULT ''`);
+  }
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);
   console.log(`DB migration to v${SCHEMA_VERSION} complete.`);
@@ -369,7 +373,18 @@ function authMiddleware(req, res, next) {
   }
   try {
     const token = authHeader.split(' ')[1];
-    req.user = jwt.verify(token, JWT_SECRET);
+    const decoded = jwt.verify(token, JWT_SECRET);
+    // Check if session has been force-revoked
+    try {
+      const user = db.prepare('SELECT session_revoked_at FROM vc_users WHERE id=?').get(decoded.id);
+      if (user && user.session_revoked_at) {
+        const revokedAt = Math.floor(new Date(user.session_revoked_at).getTime() / 1000);
+        if (decoded.iat && decoded.iat < revokedAt) {
+          return res.status(401).json({ error: 'Session revoked' });
+        }
+      }
+    } catch (e) { /* column may not exist yet, skip check */ }
+    req.user = decoded;
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
@@ -386,6 +401,9 @@ app.post('/api/auth/login', (req, res) => {
   ).get(username, username, pin);
 
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
+
+  // Record last login time
+  try { db.prepare('UPDATE vc_users SET last_login=? WHERE id=?').run(new Date().toISOString(), user.id); } catch(e) {}
 
   const token = jwt.sign(
     { id: user.id, name: user.name, role: user.role, phone: user.phone || '' },
@@ -407,6 +425,22 @@ app.post('/api/auth/login', (req, res) => {
 
 app.get('/api/auth/me', authMiddleware, (req, res) => {
   res.json(req.user);
+});
+
+// Force logout a user (admin/super_admin only)
+app.post('/api/auth/force-logout', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const { userId } = req.body;
+  if (!userId) return res.status(400).json({ error: 'Missing userId' });
+  try {
+    const now = new Date().toISOString();
+    db.prepare('UPDATE vc_users SET session_revoked_at=? WHERE id=?').run(now, userId);
+    res.json({ ok: true, message: 'User session revoked' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to revoke session' });
+  }
 });
 
 // ========== SQL Proxy Routes ==========

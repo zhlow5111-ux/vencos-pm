@@ -331,7 +331,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onQuickAdd, us
           {/* Day grid */}
           <div className="grid grid-cols-7 gap-0.5 px-1">
             {cells.map((day, idx) => {
-              if (day === null) return <div key={idx} className="aspect-square" />;
+              if (day === null) return <div key={idx} className="py-3" />;
               const dayEvents = grouped.get(day) || [];
               const isToday = isCurrentMonth && day === now.getDate();
               const isSelected = selectedCalDay === day;
@@ -339,10 +339,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onQuickAdd, us
               return (
                 <div
                   key={idx}
-                  className="aspect-square flex flex-col items-center justify-start pt-1.5 cursor-pointer rounded-xl transition-all duration-150 hover:bg-base-200/60"
+                  className="flex flex-col items-center justify-start py-1.5 cursor-pointer rounded-xl transition-all duration-150 hover:bg-base-200/60"
                   onClick={() => setSelectedCalDay(isSelected ? null : day)}
                 >
-                  <div className={`w-8 h-8 flex items-center justify-center rounded-full text-sm font-medium transition-all duration-150 ${
+                  <div className={`w-7 h-7 flex items-center justify-center rounded-full text-xs font-medium transition-all duration-150 ${
                     isToday
                       ? 'bg-primary text-primary-content font-bold shadow-sm'
                       : isSelected
@@ -354,7 +354,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onQuickAdd, us
                   {dayEvents.length > 0 && (
                     <div className="flex gap-[3px] mt-1">
                       {dayEvents.slice(0, 3).map((ev, i) => (
-                        <span key={i} className={`w-[5px] h-[5px] rounded-full ${getDotColor(ev.type)}`} />
+                        <span key={i} className={`w-1 h-1 rounded-full ${getDotColor(ev.type)}`} />
                       ))}
                     </div>
                   )}
@@ -442,7 +442,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onQuickAdd, us
                   {dayEvs.length > 0 && (
                     <div className="flex gap-[3px] mt-1">
                       {dayEvs.slice(0, 3).map((ev, j) => (
-                        <span key={j} className={`w-[5px] h-[5px] rounded-full ${getDotColor(ev.type)}`} />
+                        <span key={j} className={`w-1 h-1 rounded-full ${getDotColor(ev.type)}`} />
                       ))}
                     </div>
                   )}
@@ -598,7 +598,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onQuickAdd, us
                   </div>
                   <div className="grid grid-cols-7 gap-px">
                     {miniCells.map((day, idx) => {
-                      if (day === null) return <div key={idx} className="aspect-square" />;
+                      if (day === null) return <div key={idx} className="py-3" />;
                       const isToday = isThisMonth && day === now.getDate();
                       const hasEvents = isLoadedMonth && grouped.has(day);
 

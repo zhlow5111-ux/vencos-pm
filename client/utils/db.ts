@@ -375,6 +375,7 @@ export async function initDB(): Promise<void> {
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_users ADD COLUMN must_change_pin INTEGER NOT NULL DEFAULT 0`); } catch {}
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_users ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''`); } catch {}
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_users ADD COLUMN last_login TEXT NOT NULL DEFAULT ''`); } catch {}
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_users ADD COLUMN session_revoked_at TEXT NOT NULL DEFAULT ''`); } catch {}
     // Create vc_user_access table (replaces vc_stakeholder_access)
     try { await window.tasklet.sqlExec(`CREATE TABLE IF NOT EXISTS vc_user_access (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, property_id INTEGER NOT NULL, access_level TEXT NOT NULL DEFAULT 'readonly', UNIQUE(user_id, property_id))`); } catch {}
     // Migrate stakeholder data → users + user_access
@@ -2162,6 +2163,22 @@ export async function verifyLogin(username: string, pin: string): Promise<{id: n
 
 export async function changePin(userId: number, newPin: string): Promise<void> {
   await window.tasklet.sqlExec(`UPDATE vc_users SET pin='${escapeSQL(newPin)}', must_change_pin=0, updated_at='${nowISO()}' WHERE id=${userId}`);
+}
+
+export async function forceLogoutUser(userId: number): Promise<boolean> {
+  try {
+    const res = await fetch('/api/auth/force-logout', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('vencos_token') || ''}`,
+      },
+      body: JSON.stringify({ userId }),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
 
 // ========== WhatsApp Config ==========

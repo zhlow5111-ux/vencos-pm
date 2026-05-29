@@ -118,8 +118,9 @@ export const OwnerForm: React.FC<Props> = ({ owner, onClose, onSaved }) => {
               {ownerType === 'company' ? '公司名称 *' : '个人姓名 *'}
             </span></label>
             <input className="input input-bordered input-sm w-full"
-              placeholder={ownerType === 'company' ? '如: ABC Properties Sdn Bhd' : '如: Tan Ah Kow'}
-              value={name} onChange={(e) => setName(e.target.value)} />
+              placeholder={ownerType === 'company' ? '如: ABC PROPERTIES SDN BHD' : '如: Tan Ah Kow'}
+              value={name} onChange={(e) => setName(ownerType === 'company' ? e.target.value.toUpperCase() : e.target.value)}
+              autoCapitalize={ownerType === 'company' ? 'characters' : 'words'} />
           </div>
 
           <div className="form-control">

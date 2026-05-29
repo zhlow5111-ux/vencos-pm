@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Mail, MessageSquare, Calendar, Power, PowerOff, Trash2, Edit2, Wifi, WifiOff, Bell, Building2, User, Shield, Key, Users, UserPlus, Save, X, Eye, EyeOff, Send, CheckCircle, XCircle, Clock } from 'lucide-react';
+import { Plus, Mail, MessageSquare, Calendar, Power, PowerOff, Trash2, Edit2, Wifi, WifiOff, Bell, Building2, User, Shield, Key, Users, UserPlus, Save, X, Eye, EyeOff, Send, CheckCircle, XCircle, Clock, LogOut } from 'lucide-react';
 import { MessageTemplate, BillingSchedule, Owner, SystemUser, UserRole, CHANNEL_TYPES, REMINDER_OPTIONS, OWNER_TYPES, USER_ROLES, ACCESS_LEVELS } from '../types';
-import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog, getProperties, addUserAccess } from '../utils/db';
+import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog, getProperties, addUserAccess, forceLogoutUser } from '../utils/db';
 import { ConfirmModal } from './ConfirmModal';
 
 type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions';
@@ -106,6 +106,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   }
   function handleDeleteUser(id: number) {
     setDeleteModal({ type: 'user', id, msg: '确定删除此用户？其物业访问权限也会被清除。' });
+  }
+
+  async function handleForceLogout(userId: number, userName: string) {
+    if (!confirm(`确定要强制登出「${userName}」吗？该用户需要重新登录。`)) return;
+    const ok = await forceLogoutUser(userId);
+    if (ok) {
+      setUserToast(`已强制登出「${userName}」`);
+      setTimeout(() => setUserToast(''), 3000);
+    } else {
+      setUserToast('操作失败，请重试');
+      setTimeout(() => setUserToast(''), 3000);
+    }
   }
 
   function openUserForm(u?: SystemUser) {
@@ -434,6 +446,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         <Key size={11} /> 权限
                       </button>
                     )}
+                    <button className="btn btn-xs btn-ghost text-warning" onClick={() => handleForceLogout(u.id, u.name)} title="强制登出"><LogOut size={12} /></button>
                     <button className="btn btn-xs btn-ghost" onClick={() => openUserForm(u)}><Edit2 size={12} /></button>
                     {u.id !== 1 && (
                       <button className="btn btn-xs btn-ghost text-error" onClick={() => handleDeleteUser(u.id)}><Trash2 size={12} /></button>

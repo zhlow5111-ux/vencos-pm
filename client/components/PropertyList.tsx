@@ -980,12 +980,12 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
         {/* All vacant → big CTA */}
         {allVacant ? (
           <div
-            className="border-2 border-dashed border-primary/20 rounded-xl p-5 text-center cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all"
+            className="border-2 border-dashed border-primary/20 rounded-xl p-3 text-center cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all"
             onClick={() => openNewTenantForm(p.id)}
           >
-            <Plus size={24} className="mx-auto text-primary/50 mb-1" />
-            <span className="text-sm text-primary font-semibold">填写租户资料</span>
-            <p className="text-[10px] text-base-content mt-0.5">
+            <Plus size={16} className="mx-auto text-primary/50 mb-0.5" />
+            <span className="text-xs text-primary font-semibold">填写租户资料</span>
+            <p className="text-[10px] text-base-content/50 mt-0.5">
               选择楼层 → 输入租户、租金、押金、租期
             </p>
           </div>
