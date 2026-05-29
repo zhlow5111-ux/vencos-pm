@@ -71,6 +71,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
   const [vacateNotes, setVacateNotes] = useState('');
   const [vacateArrears, setVacateArrears] = useState('');
   const [showLeaseLinker, setShowLeaseLinker] = useState(false);
+  const [leaseLinkerTarget, setLeaseLinkerTarget] = useState<{propertyId: number; tenantName: string} | null>(null);
 
   // Purchase costs totals per property
   const [purchaseCostTotals, setPurchaseCostTotals] = useState<Record<number, number>>({});
@@ -310,10 +311,32 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
         }
       }
 
+      // Update linked lease on the other side
+      if (tenantForm.linked_lease_ref && leaseLinkerTarget) {
+        const otherFloors = floorUnits.filter(f => f.property_id === leaseLinkerTarget.propertyId && f.tenant_name === leaseLinkerTarget.tenantName);
+        for (const of2 of otherFloors) {
+          await saveFloorUnit({...of2, linked_lease_ref: tenantForm.linked_lease_ref});
+        }
+        setLeaseLinkerTarget(null);
+      }
+      // Also ensure: if linked_lease_ref was set, update any other floors that already have this ref
+      if (tenantForm.linked_lease_ref) {
+        const allCurrent = await getAllFloorUnits();
+        const linkedOthers = allCurrent.filter(f => f.linked_lease_ref === tenantForm.linked_lease_ref && f.property_id !== tenantForm.propertyId);
+        if (linkedOthers.length === 0 && leaseLinkerTarget) {
+          // The target floors may have been refreshed - refetch and retry
+          const target = allCurrent.filter(f => f.property_id === leaseLinkerTarget.propertyId && f.tenant_name);
+          for (const tf of target) {
+            await saveFloorUnit({...tf, linked_lease_ref: tenantForm.linked_lease_ref});
+          }
+        }
+      }
+
       // Refresh
       const updatedFloors = await getAllFloorUnits();
       setFloorUnits(updatedFloors);
       setTenantForm(null);
+      setLeaseLinkerTarget(null);
     } catch (e) {
       console.error('Save tenant failed:', e);
     } finally {
@@ -920,25 +943,11 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                                   key={idx}
                                   type="button"
                                   className="w-full text-left bg-base-100 hover:bg-info/10 border border-base-300 rounded-lg px-2.5 py-1.5 transition-colors"
-                                  onClick={async () => {
-                                    try {
-                                      // Generate or reuse lease ref
-                                      const ref = ot.leaseRef || ('LG-' + Date.now().toString(36).toUpperCase());
-                                      setTenantForm({...tenantForm!, linked_lease_ref: ref});
-                                      setShowLeaseLinker(false);
-                                      // If the other side doesn't have a ref yet, update it
-                                      if (!ot.leaseRef) {
-                                        const otherFloors = floorUnits.filter(f => f.property_id === ot.propertyId && f.tenant_name === ot.tenantName);
-                                        for (const of2 of otherFloors) {
-                                          await saveFloorUnit({...of2, linked_lease_ref: ref});
-                                        }
-                                        // Refresh floor units
-                                        const updated = await getAllFloorUnits();
-                                        setFloorUnits(updated);
-                                      }
-                                    } catch (err) {
-                                      console.error('Link lease error:', err);
-                                    }
+                                  onClick={() => {
+                                    const ref = ot.leaseRef || ('LG-' + Date.now().toString(36).toUpperCase());
+                                    setTenantForm({...tenantForm!, linked_lease_ref: ref});
+                                    setLeaseLinkerTarget({propertyId: ot.propertyId, tenantName: ot.tenantName});
+                                    setShowLeaseLinker(false);
                                   }}
                                 >
                                   <div className="flex items-center justify-between">
