@@ -19,6 +19,7 @@ import { DealForm } from './components/DealForm';
 import { BillingPage } from './components/BillingPage';
 import { InvoiceForm } from './components/InvoiceForm';
 import { SettingsPage } from './components/SettingsPage';
+import { AgentPage } from './components/AgentPage';
 import { TemplateForm } from './components/TemplateForm';
 import { ScheduleForm } from './components/ScheduleForm';
 import { OwnerForm } from './components/OwnerForm';
@@ -110,6 +111,7 @@ const PAGE_TITLES: Record<Page, string> = {
   billing: '账单管理',
   maintenance: '维修工单',
   settings: '系统设置',
+  agents: '中介管理',
 };
 
 const App: React.FC = () => {
@@ -316,6 +318,9 @@ const App: React.FC = () => {
         )}
         {currentPage === 'maintenance' && (
           <MaintenanceTickets refreshKey={refreshKey} onRefresh={refresh} />
+        )}
+        {currentPage === 'agents' && (
+          <AgentPage refreshKey={refreshKey} />
         )}
         {currentPage === 'settings' && (
           <SettingsPage

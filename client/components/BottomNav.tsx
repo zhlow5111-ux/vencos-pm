@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Building2, Receipt, Wrench, MoreHorizontal, TrendingUp, Key, Users, Settings, X } from 'lucide-react';
+import { LayoutDashboard, Building2, Receipt, Wrench, MoreHorizontal, TrendingUp, Key, Users, Settings, X, Briefcase } from 'lucide-react';
 import { Page } from '../types';
 
 interface BottomNavProps {
@@ -19,10 +19,11 @@ const MORE_NAV: { page: Page; label: string; desc: string; Icon: React.FC<{ size
   { page: 'sales', label: '买卖管道', desc: '物业买卖流程追踪', Icon: TrendingUp },
   { page: 'rentals', label: '租赁管道', desc: '租赁流程追踪', Icon: Key },
   { page: 'maintenance', label: '维修工单', desc: '租户维修请求管理', Icon: Wrench },
+  { page: 'agents', label: '中介管理', desc: '中介列表 / 空置物业匹配 / 群发通知', Icon: Briefcase },
   { page: 'settings', label: '系统设置', desc: '模板 / 排程 / 集成 / 用户', Icon: Settings },
 ];
 
-const MORE_PAGES = new Set<Page>(['sales', 'rentals', 'maintenance', 'settings']);
+const MORE_PAGES = new Set<Page>(['sales', 'rentals', 'maintenance', 'settings', 'agents']);
 
 export const BottomNav: React.FC<BottomNavProps> = ({ currentPage, onNavigate, userRole }) => {
   const [showMore, setShowMore] = useState(false);

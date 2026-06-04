@@ -5,7 +5,7 @@ import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSched
 import { ConfirmModal } from './ConfirmModal';
 import { sendWhatsAppMessage } from '../utils/whatsapp';
 
-type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions' | 'agents';
+type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions';
 
 interface SettingsPageProps {
   onAddTemplate: () => void;
@@ -384,7 +384,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     { key: 'users_permissions', label: '用户与权限', icon: <Shield size={13} /> },
     { key: 'templates', label: '模板', icon: <Mail size={13} /> },
     { key: 'schedules', label: '排程', icon: <Calendar size={13} /> },
-    { key: 'agents', label: '中介', icon: <Briefcase size={13} /> },
     { key: 'integrations', label: '集成', icon: <Wifi size={13} /> },
   ];
 
