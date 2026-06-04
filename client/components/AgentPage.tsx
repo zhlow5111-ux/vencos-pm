@@ -67,6 +67,9 @@ export const AgentPage: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
   const [searchTerm, setSearchTerm] = useState('');
   const [vacantCount, setVacantCount] = useState(0);
 
+  // Send queue state (for mass send)
+  const [sendQueue, setSendQueue] = useState<{ agents: Agent[]; message: string; title: string; sent: Set<number> } | null>(null);
+
   const loadData = useCallback(async () => {
     try {
       const ag = await getAgents();
@@ -258,12 +261,7 @@ export const AgentPage: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
     const msg = buildAreaMessage(group);
     const targets = group.allMatchedAgents.filter(a => a.whatsapp || a.phone);
     if (targets.length === 0) { showToast('该区域没有可发送的中介'); return; }
-    // Open each agent in new tab
-    for (const a of targets) {
-      const phone = a.whatsapp || a.phone;
-      openWhatsApp(phone, msg);
-    }
-    showToast(`已打开 ${targets.length} 个 WhatsApp 窗口`);
+    setSendQueue({ agents: targets, message: msg, title: `📍 ${group.area}`, sent: new Set() });
   }
 
   function handleSendAll() {
@@ -275,10 +273,7 @@ export const AgentPage: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
       }
     }
     if (allTargets.size === 0) { showToast('没有可发送的中介'); return; }
-    for (const a of allTargets.values()) {
-      openWhatsApp(a.whatsapp || a.phone, msg);
-    }
-    showToast(`已打开 ${allTargets.size} 个 WhatsApp 窗口`);
+    setSendQueue({ agents: Array.from(allTargets.values()), message: msg, title: '📢 全部空置物业', sent: new Set() });
   }
 
   // Filter area groups by search
@@ -330,9 +325,10 @@ export const AgentPage: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
       {/* ===== AGENT LIST TAB ===== */}
       {tab === 'list' && (
         <div className="space-y-3">
-          {/* Agent Form */}
+          {/* Agent Form Modal */}
           {showForm && (
-            <div className="bg-base-100 rounded-xl p-4 shadow-sm border-2 border-primary/30 space-y-3">
+            <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40" onClick={() => { setShowForm(false); setEditing(null); }}>
+            <div className="bg-base-100 rounded-xl p-4 shadow-xl max-w-lg w-full mx-4 space-y-3 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
               <div className="flex items-center justify-between">
                 <h4 className="font-bold text-sm">{editing ? '编辑中介' : '新增中介'}</h4>
                 <button className="btn btn-xs btn-ghost" onClick={() => { setShowForm(false); setEditing(null); }}>
@@ -396,6 +392,7 @@ export const AgentPage: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
                   保存
                 </button>
               </div>
+            </div>
             </div>
           )}
 
@@ -607,6 +604,52 @@ export const AgentPage: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* Send Queue Modal */}
+      {sendQueue && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40" onClick={() => setSendQueue(null)}>
+          <div className="bg-base-100 rounded-xl p-4 shadow-xl max-w-md w-full mx-4 space-y-3 max-h-[80vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h4 className="font-bold text-sm">{sendQueue.title} — 发送列表</h4>
+              <button className="btn btn-xs btn-ghost" onClick={() => setSendQueue(null)}>
+                <X size={14} />
+              </button>
+            </div>
+            <p className="text-xs text-base-content/60">
+              逐个点击发送，每次会打开一个 WhatsApp 窗口。发送完毕后点关闭。
+            </p>
+            <div className="space-y-1.5">
+              {sendQueue.agents.map(a => (
+                <div key={a.id} className={`flex items-center justify-between px-3 py-2 rounded-lg border ${sendQueue.sent.has(a.id) ? 'bg-success/10 border-success/30' : 'bg-base-200/30 border-base-200'}`}>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{a.name}</p>
+                    <p className="text-xs text-base-content/50">{a.company ? `${a.company} · ` : ''}{a.whatsapp || a.phone}</p>
+                  </div>
+                  <div className="shrink-0 ml-2">
+                    {sendQueue.sent.has(a.id) ? (
+                      <span className="badge badge-sm badge-success gap-0.5">✓ 已发送</span>
+                    ) : (
+                      <button className="btn btn-xs btn-success gap-0.5"
+                        onClick={() => {
+                          openWhatsApp(a.whatsapp || a.phone, sendQueue.message);
+                          setSendQueue(prev => prev ? { ...prev, sent: new Set([...prev.sent, a.id]) } : null);
+                        }}>
+                        <Send size={10} /> 发送
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between pt-2 border-t border-base-200">
+              <span className="text-xs text-base-content/50">
+                {sendQueue.sent.size} / {sendQueue.agents.length} 已发送
+              </span>
+              <button className="btn btn-sm btn-ghost" onClick={() => setSendQueue(null)}>关闭</button>
+            </div>
+          </div>
         </div>
       )}
 
