@@ -420,7 +420,7 @@ app.post('/api/auth/login', (req, res) => {
   if (!username || !pin) return res.status(400).json({ error: 'Missing credentials' });
 
   const user = db.prepare(
-    `SELECT id, name, role, phone, must_change_pin FROM vc_users WHERE (username=? OR phone=?) AND pin=? AND active=1`
+    `SELECT id, name, role, phone, must_change_pin FROM vc_users WHERE (LOWER(username)=LOWER(?) OR phone=?) AND pin=? AND active=1`
   ).get(username, username, pin);
 
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });

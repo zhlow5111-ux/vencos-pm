@@ -94,7 +94,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           {/* Logo / Brand */}
           <div className="mb-2">
             <h1 className="text-3xl font-bold tracking-widest mt-2">
-              <span className="text-primary">V</span><span className="text-accent">E</span><span className="text-secondary">NCOS</span>
+              <span style={{ color: '#BE5F28' }}>V</span><span style={{ color: '#D29B61' }}>E</span><span className="text-base-content">NCOS</span>
             </h1>
             <p className="text-xs text-base-content/50 mt-1 tracking-wider">PROPERTY MANAGEMENT</p>
           </div>
@@ -113,6 +113,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
                   value={username}
                   onChange={(e) => { setUsername(e.target.value); setError(''); setShowHint(false); }}
                   autoFocus
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  autoComplete="username"
+                  spellCheck={false}
                 />
               </div>
 
