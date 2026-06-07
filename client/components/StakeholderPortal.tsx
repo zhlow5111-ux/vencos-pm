@@ -194,7 +194,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
     try {
       // Load properties
       const props = (await window.tasklet.sqlQuery(
-        `SELECT p.* FROM vc_properties p WHERE p.id IN (SELECT property_id FROM vc_user_access WHERE user_id = ${user.id}) ORDER BY p.name ASC`
+        `SELECT p.* FROM vc_properties p WHERE (p.id IN (SELECT property_id FROM vc_user_access WHERE user_id = ${user.id}) OR p.owner_id IN (SELECT owner_id FROM vc_user_owner_access WHERE user_id = ${user.id})) ORDER BY p.name ASC`
       )) as PropertyRow[];
       setProperties(props);
 
@@ -210,7 +210,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
 
       // Load invoices
       const invs = (await window.tasklet.sqlQuery(
-        `SELECT i.*, f.tenant_name FROM vc_invoices i LEFT JOIN vc_floor_units f ON i.property_id = f.property_id AND i.floor_label = f.floor_label WHERE i.property_id IN (SELECT property_id FROM vc_user_access WHERE user_id = ${user.id}) ORDER BY i.created_at DESC`
+        `SELECT i.*, f.tenant_name FROM vc_invoices i LEFT JOIN vc_floor_units f ON i.property_id = f.property_id AND i.floor_label = f.floor_label WHERE (i.property_id IN (SELECT property_id FROM vc_user_access WHERE user_id = ${user.id}) OR i.property_id IN (SELECT p.id FROM vc_properties p WHERE p.owner_id IN (SELECT owner_id FROM vc_user_owner_access WHERE user_id = ${user.id}))) ORDER BY i.created_at DESC`
       )) as InvoiceRow[];
       setInvoices(invs);
 

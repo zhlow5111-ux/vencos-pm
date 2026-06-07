@@ -1,22 +1,24 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, Shield, CheckSquare, Square, ChevronDown, ChevronUp } from 'lucide-react';
-import { SystemUser, UserAccess, Property, ACCESS_LEVELS, USER_ROLES } from '../types';
-import { getUserAccess, addUserAccess, removeUserAccess, getProperties } from '../utils/db';
+import { X, Check, Shield, CheckSquare, Square, ChevronDown, ChevronUp, Building2 } from 'lucide-react';
+import { SystemUser, UserOwnerAccess, Owner, Property, ACCESS_LEVELS, USER_ROLES } from '../types';
+import { getUserOwnerAccess, addUserOwnerAccess, removeUserOwnerAccess, getOwners, getProperties } from '../utils/db';
 
 interface Props {
   user: SystemUser;
   onClose: () => void;
 }
 
-interface PropertyRow {
-  property: Property;
-  access?: UserAccess;
+interface OwnerRow {
+  owner: Owner;
+  access?: UserOwnerAccess;
   level: string;
   originalLevel: string;
+  properties: Property[];
+  expanded: boolean;
 }
 
 export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
-  const [rows, setRows] = useState<PropertyRow[]>([]);
+  const [rows, setRows] = useState<OwnerRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -28,17 +30,36 @@ export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
   async function loadData() {
     setLoading(true);
     try {
-      const [accessList, properties] = await Promise.all([
-        getUserAccess(user.id),
+      const [accessList, owners, properties] = await Promise.all([
+        getUserOwnerAccess(user.id),
+        getOwners(),
         getProperties(),
       ]);
-      const accessMap = new Map<number, UserAccess>();
-      for (const a of accessList) accessMap.set(a.property_id, a);
-      const list: PropertyRow[] = properties.map(p => {
-        const access = accessMap.get(p.id);
-        const level = access?.access_level || '';
-        return { property: p, access, level, originalLevel: level };
-      });
+      const accessMap = new Map<number, UserOwnerAccess>();
+      for (const a of accessList) accessMap.set(a.owner_id, a);
+
+      // Group properties by owner
+      const propsByOwner = new Map<number, Property[]>();
+      for (const p of properties) {
+        const oid = p.owner_id || 0;
+        if (!propsByOwner.has(oid)) propsByOwner.set(oid, []);
+        propsByOwner.get(oid)!.push(p);
+      }
+
+      const list: OwnerRow[] = owners
+        .filter(o => (propsByOwner.get(o.id)?.length || 0) > 0) // Only show owners with properties
+        .map(o => {
+          const access = accessMap.get(o.id);
+          const level = access?.access_level || '';
+          return {
+            owner: o,
+            access,
+            level,
+            originalLevel: level,
+            properties: propsByOwner.get(o.id) || [],
+            expanded: false,
+          };
+        });
       setRows(list);
     } catch (e) {
       console.error(e);
@@ -46,7 +67,7 @@ export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
     setLoading(false);
   }
 
-  function toggleProperty(idx: number) {
+  function toggleOwner(idx: number) {
     setRows(prev => prev.map((r, i) => {
       if (i !== idx) return r;
       if (r.level) return { ...r, level: '' };
@@ -58,6 +79,10 @@ export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
   function setLevel(idx: number, level: string) {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, level } : r));
     setSaved(false);
+  }
+
+  function toggleExpand(idx: number) {
+    setRows(prev => prev.map((r, i) => i === idx ? { ...r, expanded: !r.expanded } : r));
   }
 
   function selectAll() {
@@ -72,6 +97,7 @@ export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
 
   const hasDirty = rows.some(r => r.level !== r.originalLevel);
   const selectedCount = rows.filter(r => r.level).length;
+  const totalProps = rows.reduce((s, r) => s + (r.level ? r.properties.length : 0), 0);
 
   async function handleSave() {
     setSaving(true);
@@ -79,12 +105,15 @@ export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
       for (const r of rows) {
         if (r.level !== r.originalLevel) {
           if (r.level && r.access) {
-            await removeUserAccess(r.access.id);
-            await addUserAccess(user.id, r.property.id, r.level);
+            // Update: remove old, add new
+            await removeUserOwnerAccess(r.access.id);
+            await addUserOwnerAccess(user.id, r.owner.id, r.level);
           } else if (r.level && !r.access) {
-            await addUserAccess(user.id, r.property.id, r.level);
+            // New access
+            await addUserOwnerAccess(user.id, r.owner.id, r.level);
           } else if (!r.level && r.access) {
-            await removeUserAccess(r.access.id);
+            // Remove access
+            await removeUserOwnerAccess(r.access.id);
           }
         }
       }
@@ -107,7 +136,7 @@ export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
         <div className="flex items-center justify-between p-4 border-b border-base-200">
           <div>
             <h3 className="font-bold text-base flex items-center gap-2">
-              <Shield size={16} className="text-primary" /> 物业访问权限
+              <Shield size={16} className="text-primary" /> 公司访问权限
             </h3>
             <p className="text-xs text-base-content/60 mt-0.5 flex items-center gap-1.5">
               {roleIcon} {user.name} · {roleInfo?.label}
@@ -125,41 +154,95 @@ export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
             </div>
           ) : loading ? (
             <div className="flex justify-center py-12"><span className="loading loading-spinner loading-md" /></div>
+          ) : rows.length === 0 ? (
+            <div className="text-center py-8 text-base-content/60">
+              <p className="text-sm">暂无持有公司</p>
+              <p className="text-xs mt-1">请先在设置中添加持有公司</p>
+            </div>
           ) : (
             <div className="space-y-3">
               {/* Batch actions */}
               <div className="flex items-center justify-between">
-                <span className="text-xs text-base-content/60">{selectedCount} / {rows.length} 物业已授权</span>
+                <span className="text-xs text-base-content/60">
+                  {selectedCount} / {rows.length} 公司已授权 · 共 {totalProps} 个物业
+                </span>
                 <div className="flex gap-2">
                   <button className="btn btn-xs btn-ghost" onClick={selectAll}>全选</button>
                   <button className="btn btn-xs btn-ghost" onClick={clearAll}>清除</button>
                 </div>
               </div>
 
-              {/* Property list */}
+              {/* Owner/Company list */}
               {rows.map((r, idx) => (
-                <div key={r.property.id} className={`rounded-lg border p-2.5 transition-colors ${r.level ? 'border-primary/30 bg-primary/5' : 'border-base-200'}`}>
-                  <div className="flex items-center gap-2">
-                    <button className="shrink-0" onClick={() => toggleProperty(idx)}>
-                      {r.level ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} className="text-base-content/30" />}
-                    </button>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{r.property.name}</p>
-                      <p className="text-xs text-base-content/50 truncate">{r.property.address}</p>
+                <div key={r.owner.id} className={`rounded-lg border transition-colors ${r.level ? 'border-primary/30 bg-primary/5' : 'border-base-200'}`}>
+                  {/* Company header */}
+                  <div className="p-3">
+                    <div className="flex items-center gap-2">
+                      <button className="shrink-0" onClick={() => toggleOwner(idx)}>
+                        {r.level ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} className="text-base-content/30" />}
+                      </button>
+                      <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleExpand(idx)}>
+                        <div className="flex items-center gap-1.5">
+                          <Building2 size={14} className="text-base-content/50 shrink-0" />
+                          <p className="text-sm font-semibold truncate">{r.owner.name}</p>
+                        </div>
+                        <p className="text-xs text-base-content/50 ml-5">
+                          {r.owner.owner_type === 'company' ? '公司' : '个人'} · {r.properties.length} 个物业
+                        </p>
+                      </div>
+                      <button className="btn btn-xs btn-ghost btn-circle" onClick={() => toggleExpand(idx)}>
+                        {r.expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                      </button>
                     </div>
+
+                    {/* Access level selector */}
+                    {r.level && (
+                      <div className="mt-2 ml-7">
+                        <select className="select select-bordered select-xs w-full max-w-xs"
+                          value={r.level} onChange={e => setLevel(idx, e.target.value)}>
+                          {ACCESS_LEVELS.map(l => (
+                            <option key={l.value} value={l.value}>{l.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                   </div>
-                  {r.level && (
-                    <div className="mt-2 ml-7">
-                      <select className="select select-bordered select-xs w-full max-w-xs"
-                        value={r.level} onChange={e => setLevel(idx, e.target.value)}>
-                        {ACCESS_LEVELS.map(l => (
-                          <option key={l.value} value={l.value}>{l.label}</option>
-                        ))}
-                      </select>
+
+                  {/* Expanded property list */}
+                  {r.expanded && (
+                    <div className="border-t border-base-200 bg-base-200/30 px-3 py-2">
+                      <p className="text-[10px] text-base-content/40 font-medium mb-1.5 uppercase tracking-wider">
+                        此公司名下物业
+                      </p>
+                      <div className="space-y-1">
+                        {r.properties.map(p => {
+                          const statusColors: Record<string, string> = {
+                            rented: 'badge-success', vacant: 'badge-warning', sold: 'badge-info',
+                            'self-use': 'badge-accent', 'under-construction': 'badge-secondary',
+                          };
+                          const statusLabels: Record<string, string> = {
+                            rented: '已出租', vacant: '空置', sold: '已售',
+                            'self-use': '自用', 'under-construction': '在建', active: '活跃',
+                          };
+                          return (
+                            <div key={p.id} className="flex items-center gap-2 py-1">
+                              <span className="text-xs text-base-content/70 flex-1 truncate">{p.name}</span>
+                              <span className={`badge badge-xs ${statusColors[p.status] || 'badge-ghost'}`}>
+                                {statusLabels[p.status] || p.status}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
               ))}
+
+              {/* Info note */}
+              <div className="text-xs text-base-content/40 text-center mt-4 px-4">
+                💡 授权公司后，该公司名下的所有物业（包括将来新增的）都会自动对此用户可见
+              </div>
             </div>
           )}
         </div>

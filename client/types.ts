@@ -178,6 +178,14 @@ export interface UserAccess {
   property_name?: string;
 }
 
+export interface UserOwnerAccess {
+  id: number;
+  user_id: number;
+  owner_id: number;
+  access_level: AccessLevel;
+  owner_name?: string;
+}
+
 // ========== Loan Payment Record ==========
 export interface LoanPayment {
   id: number;

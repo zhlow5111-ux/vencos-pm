@@ -376,6 +376,12 @@ function initDatabase() {
   // V21: Add merged_data column to invoices for merged billing
   if (currentVer < 21) {
     safeExec(`ALTER TABLE vc_invoices ADD COLUMN merged_data TEXT NOT NULL DEFAULT ''`);
+
+  // V22: Company-based user access
+  safeExec(`CREATE TABLE IF NOT EXISTS vc_user_owner_access (
+    id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, owner_id INTEGER NOT NULL,
+    access_level TEXT NOT NULL DEFAULT 'readonly', UNIQUE(user_id, owner_id)
+  )`);
   }
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);

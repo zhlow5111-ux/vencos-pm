@@ -109,6 +109,10 @@ export async function initDB(): Promise<void> {
         id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, property_id INTEGER NOT NULL,
         access_level TEXT NOT NULL DEFAULT 'readonly', UNIQUE(user_id, property_id)
       )`,
+      `CREATE TABLE IF NOT EXISTS vc_user_owner_access (
+        id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, owner_id INTEGER NOT NULL,
+        access_level TEXT NOT NULL DEFAULT 'readonly', UNIQUE(user_id, owner_id)
+      )`,
       `CREATE TABLE IF NOT EXISTS vc_loan_payments (
         id INTEGER PRIMARY KEY, property_id INTEGER NOT NULL, amount REAL NOT NULL DEFAULT 0,
         payment_date TEXT NOT NULL DEFAULT '', reference_no TEXT NOT NULL DEFAULT '',
@@ -440,7 +444,7 @@ export async function initDB(): Promise<void> {
 export async function getProperties(userId?: number): Promise<Property[]> {
   let accessFilter = '';
   if (userId && userId > 0) {
-    accessFilter = `AND p.id IN (SELECT property_id FROM vc_user_access WHERE user_id = ${userId})`;
+    accessFilter = `AND (p.id IN (SELECT property_id FROM vc_user_access WHERE user_id = ${userId}) OR p.owner_id IN (SELECT owner_id FROM vc_user_owner_access WHERE user_id = ${userId}))`;
   }
   const rows = await window.tasklet.sqlQuery(`
     SELECT p.*,
@@ -681,7 +685,7 @@ export async function getSystemUsers(roleFilter?: string): Promise<SystemUser[]>
   if (roleFilter) where = `WHERE u.role='${escapeSQL(roleFilter)}'`;
   const rows = await window.tasklet.sqlQuery(`
     SELECT u.id, u.username, u.name, u.role, u.phone, u.email, u.notes, u.active, u.must_change_pin, u.created_at, u.updated_at, u.last_login,
-      (SELECT COUNT(*) FROM vc_user_access WHERE user_id = u.id) as access_count
+      (SELECT COUNT(*) FROM vc_user_owner_access WHERE user_id = u.id) as access_count
     FROM vc_users u
     ${where}
     ORDER BY CASE u.role WHEN 'super_admin' THEN 0 WHEN 'admin' THEN 1 WHEN 'stakeholder' THEN 2 WHEN 'tenant' THEN 3 WHEN 'worker' THEN 4 ELSE 5 END, u.name ASC
@@ -723,6 +727,7 @@ export async function saveSystemUser(u: Partial<SystemUser> & { name: string }):
 export async function deleteSystemUser(id: number): Promise<void> {
   await window.tasklet.sqlExec(`DELETE FROM vc_users WHERE id=${id}`);
   await window.tasklet.sqlExec(`DELETE FROM vc_user_access WHERE user_id=${id}`);
+  await window.tasklet.sqlExec(`DELETE FROM vc_user_owner_access WHERE user_id=${id}`);
 }
 
 // ========== User Access (Property Permissions) ==========
@@ -759,6 +764,41 @@ export async function addUserAccess(userId: number, propertyId: number, accessLe
 
 export async function removeUserAccess(id: number): Promise<void> {
   await window.tasklet.sqlExec(`DELETE FROM vc_user_access WHERE id=${id}`);
+}
+
+// ========== User Owner Access (Company-level Permissions) ==========
+export async function getUserOwnerAccess(userId: number): Promise<import('../types').UserOwnerAccess[]> {
+  const rows = await window.tasklet.sqlQuery(`
+    SELECT a.*, o.name as owner_name
+    FROM vc_user_owner_access a
+    LEFT JOIN vc_owners o ON a.owner_id = o.id
+    WHERE a.user_id = ${userId}
+    ORDER BY o.name ASC
+  `);
+  return (rows as Record<string, unknown>[]).map(r => ({
+    id: Number(r.id), user_id: Number(r.user_id), owner_id: Number(r.owner_id),
+    access_level: String(r.access_level || 'readonly') as any,
+    owner_name: String(r.owner_name || ''),
+  }));
+}
+
+export async function addUserOwnerAccess(userId: number, ownerId: number, accessLevel: string): Promise<void> {
+  const id = generateId();
+  try {
+    await window.tasklet.sqlExec(`
+      INSERT INTO vc_user_owner_access (id, user_id, owner_id, access_level)
+      VALUES (${id}, ${userId}, ${ownerId}, '${accessLevel}')
+    `);
+  } catch (_) {
+    await window.tasklet.sqlExec(`
+      UPDATE vc_user_owner_access SET access_level='${accessLevel}'
+      WHERE user_id=${userId} AND owner_id=${ownerId}
+    `);
+  }
+}
+
+export async function removeUserOwnerAccess(id: number): Promise<void> {
+  await window.tasklet.sqlExec(`DELETE FROM vc_user_owner_access WHERE id=${id}`);
 }
 
 // ========== Loan Payments ==========
@@ -1107,7 +1147,7 @@ export async function moveRentalStage(id: number, stage: string): Promise<void> 
 
 // ========== Invoices ==========
 export async function getInvoices(userId?: number): Promise<Invoice[]> {
-  const accessFilter = userId ? `AND i.property_id IN (SELECT property_id FROM vc_user_access WHERE user_id=${userId})` : '';
+  const accessFilter = userId ? `AND (i.property_id IN (SELECT property_id FROM vc_user_access WHERE user_id=${userId}) OR i.property_id IN (SELECT p.id FROM vc_properties p WHERE p.owner_id IN (SELECT owner_id FROM vc_user_owner_access WHERE user_id=${userId})))` : '';
   const rows = await window.tasklet.sqlQuery(`
     SELECT i.id, i.invoice_no, i.property_id, i.tenant_id, i.amount, i.due_date,
       i.paid_date, i.status, i.description, i.created_at, i.updated_at,
