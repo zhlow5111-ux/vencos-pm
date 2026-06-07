@@ -657,202 +657,269 @@ const BillingTab: React.FC<{ invoices: InvoiceRow[] }> = ({ invoices }) => {
   );
 };
 
-// ========== Reports Tab ==========
+// ========== Reports Tab (Redesigned - Clean & Easy) ==========
 
 const ReportsTab: React.FC<{
   properties: PropertyRow[];
   floorUnits: Record<number, FloorUnitRow[]>;
   invoices: InvoiceRow[];
 }> = ({ properties, floorUnits, invoices }) => {
+  const [showAllPL, setShowAllPL] = useState(false);
+  const [showAllLoans, setShowAllLoans] = useState(false);
 
-  // ===== Rent Collection by Month (last 6 months) =====
   const now = new Date();
-  const last6Months: { key: string; label: string }[] = [];
+
+  // ===== Monthly Totals =====
+  const totalRentIncome = properties.reduce((s, p) => {
+    const floors = floorUnits[p.id] || [];
+    const floorRent = floors.reduce((sum, f) => sum + (Number(f.rent_amount) || 0), 0);
+    if (floorRent > 0) return s + floorRent;
+    if (p.status === 'rented' && Number(p.rental_price || 0) > 0) return s + Number(p.rental_price);
+    return s;
+  }, 0);
+
+  const totalLoanPayment = properties.reduce((s, p) => s + (Number(p.monthly_repayment) || 0), 0);
+  const netIncome = totalRentIncome - totalLoanPayment;
+
+  // ===== Rent Collection (last 6 months) =====
+  const last6: { key: string; label: string }[] = [];
   for (let i = 5; i >= 0; i--) {
     const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const label = `${d.getMonth() + 1}月`;
-    last6Months.push({ key, label });
+    last6.push({
+      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
+      label: `${d.getMonth() + 1}月`,
+    });
   }
 
-  const monthlyData = last6Months.map(m => {
-    const monthInvs = invoices.filter(i => {
-      if (i.billing_month) return i.billing_month.startsWith(m.key);
-      if (i.due_date) return i.due_date.startsWith(m.key);
-      return false;
-    });
-    const total = Math.round(monthInvs.reduce((s, i) => s + (Number(i.amount) || 0), 0));
-    const collected = Math.round(monthInvs.filter(i => i.status === 'paid').reduce((s, i) => s + (Number(i.amount) || 0), 0));
-    return { ...m, total, collected };
+  const monthlyData = last6.map(m => {
+    const mInvs = invoices.filter(i => (i.billing_month || i.due_date || '').startsWith(m.key));
+    const total = mInvs.reduce((s, i) => s + (Number(i.amount) || 0), 0);
+    const collected = mInvs.filter(i => i.status === 'paid').reduce((s, i) => s + (Number(i.amount) || 0), 0);
+    const rate = total > 0 ? Math.round((collected / total) * 100) : 0;
+    return { ...m, total: Math.round(total), collected: Math.round(collected), rate };
   });
+  const maxBar = Math.max(...monthlyData.map(m => m.total), 1);
 
-  const maxMonthly = Math.max(...monthlyData.map(m => m.total), 1);
-
-  // ===== Per-Property P&L =====
+  // ===== Per-Property P&L (sorted by net) =====
   const propertyPL = properties.map(p => {
     const floors = floorUnits[p.id] || [];
-    const floorRentIncome = Math.round(floors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0));
-    const rentIncome = floorRentIncome > 0 ? floorRentIncome : (p.status === 'rented' && Number(p.rental_price || 0) > 0 ? Math.round(Number(p.rental_price)) : 0);
-    const loanPayment = Math.round(Number(p.monthly_repayment) || 0);
-    const net = rentIncome - loanPayment;
-    return { id: p.id, name: p.name, rentIncome, loanPayment, net };
-  });
+    const floorRent = floors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0);
+    const rent = floorRent > 0 ? floorRent : (p.status === 'rented' && Number(p.rental_price || 0) > 0 ? Number(p.rental_price) : 0);
+    const loan = Number(p.monthly_repayment) || 0;
+    return { id: p.id, name: p.name, rent: Math.round(rent), loan: Math.round(loan), net: Math.round(rent - loan) };
+  }).sort((a, b) => b.net - a.net);
+
+  const profitable = propertyPL.filter(p => p.net > 0).length;
+  const losing = propertyPL.filter(p => p.net < 0).length;
+  const displayPL = showAllPL ? propertyPL : propertyPL.slice(0, 5);
 
   // ===== Loan Summary =====
   const propsWithLoans = properties.filter(p => Number(p.loan_amount) > 0);
-  const totalLoanBalance = Math.round(propsWithLoans.reduce((s, p) => {
+  const totalOriginal = propsWithLoans.reduce((s, p) => s + (Number(p.loan_amount) || 0), 0);
+  const totalBalance = propsWithLoans.reduce((s, p) => {
     return s + estimateBalance(Number(p.loan_amount), Number(p.monthly_repayment), Number(p.loan_interest_rate), p.loan_start);
-  }, 0));
-  const totalMonthlyRepayment = Math.round(propsWithLoans.reduce((s, p) => s + (Number(p.monthly_repayment) || 0), 0));
+  }, 0);
+  const totalPaid = totalOriginal - totalBalance;
+  const overallPct = totalOriginal > 0 ? Math.round((totalPaid / totalOriginal) * 100) : 0;
+  const totalMonthlyRepay = propsWithLoans.reduce((s, p) => s + (Number(p.monthly_repayment) || 0), 0);
 
-  // Estimated payoff months (very rough — average remaining months across loans)
-  let estimatedPayoffMonths = 0;
-  if (totalMonthlyRepayment > 0) {
-    estimatedPayoffMonths = Math.ceil(totalLoanBalance / totalMonthlyRepayment);
-  }
-  const payoffYears = Math.floor(estimatedPayoffMonths / 12);
-  const payoffRemMonths = estimatedPayoffMonths % 12;
+  const loanDetails = propsWithLoans.map(p => {
+    const orig = Number(p.loan_amount) || 0;
+    const bal = estimateBalance(orig, Number(p.monthly_repayment), Number(p.loan_interest_rate), p.loan_start);
+    const pct = orig > 0 ? Math.round(((orig - bal) / orig) * 100) : 0;
+    return { id: p.id, name: p.name, original: orig, balance: Math.round(bal), monthly: Math.round(Number(p.monthly_repayment) || 0), rate: Number(p.loan_interest_rate) || 0, pct };
+  }).sort((a, b) => a.pct - b.pct);
+  const displayLoans = showAllLoans ? loanDetails : loanDetails.slice(0, 5);
 
   return (
     <div className="space-y-4">
-      {/* Rent Collection Chart */}
+
+      {/* ===== 1. Summary KPI ===== */}
+      <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
+        <div className="grid grid-cols-3 divide-x divide-base-200">
+          <div className="text-center px-2">
+            <p className="text-[10px] text-base-content/40 mb-1">月租收入</p>
+            <p className="text-base font-bold text-success">{fmtCurrency(totalRentIncome)}</p>
+          </div>
+          <div className="text-center px-2">
+            <p className="text-[10px] text-base-content/40 mb-1">贷款支出</p>
+            <p className="text-base font-bold text-error">{fmtCurrency(totalLoanPayment)}</p>
+          </div>
+          <div className="text-center px-2">
+            <p className="text-[10px] text-base-content/40 mb-1">净收入</p>
+            <p className={`text-base font-bold ${netIncome >= 0 ? 'text-success' : 'text-error'}`}>
+              {netIncome >= 0 ? '+' : ''}{fmtCurrency(netIncome)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* ===== 2. Rent Collection Trend ===== */}
       <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
         <h3 className="text-sm font-bold text-base-content mb-3 flex items-center gap-2">
           <BarChart3 size={16} className="text-primary" />
-          收租总览 (近6个月)
+          收租趋势
         </h3>
-        <div className="space-y-3">
+        {/* Chart - horizontal bars */}
+        <div className="space-y-2.5">
           {monthlyData.map(m => (
-            <div key={m.key}>
-              <div className="flex items-center justify-between mb-1">
-                <span className="text-[11px] text-base-content/60">{m.label}</span>
-                <span className="text-[10px] text-base-content/40">
-                  {fmtCurrency(m.collected)} / {fmtCurrency(m.total)}
-                </span>
-              </div>
-              <div className="w-full h-4 bg-base-200 rounded-full overflow-hidden relative">
-                {/* Total bar */}
+            <div key={m.key} className="flex items-center gap-2">
+              <span className="text-[11px] text-base-content/50 w-8 shrink-0 text-right">{m.label}</span>
+              <div className="flex-1 h-5 bg-base-200 rounded-full overflow-hidden relative">
                 <div
-                  className="absolute inset-y-0 left-0 bg-base-300 rounded-full"
-                  style={{ width: `${maxMonthly > 0 ? (m.total / maxMonthly) * 100 : 0}%` }}
+                  className="absolute inset-y-0 left-0 bg-success/20 rounded-full"
+                  style={{ width: `${(m.total / maxBar) * 100}%` }}
                 />
-                {/* Collected bar */}
                 <div
-                  className="absolute inset-y-0 left-0 bg-success rounded-full transition-all duration-500"
-                  style={{ width: `${maxMonthly > 0 ? (m.collected / maxMonthly) * 100 : 0}%` }}
+                  className="absolute inset-y-0 left-0 bg-success rounded-full transition-all duration-300"
+                  style={{ width: `${(m.collected / maxBar) * 100}%` }}
                 />
               </div>
+              <span className={`text-[10px] font-semibold w-10 shrink-0 text-right ${m.rate >= 80 ? 'text-success' : m.rate >= 50 ? 'text-warning' : 'text-error'}`}>
+                {m.rate}%
+              </span>
             </div>
           ))}
         </div>
-        <div className="flex items-center gap-4 mt-3 text-[10px] text-base-content/40">
+        <div className="flex items-center gap-4 mt-2.5 text-[10px] text-base-content/30">
           <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-success inline-block" /> 已收</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-base-300 inline-block" /> 总额</span>
+          <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-success/20 inline-block" /> 总额</span>
         </div>
       </div>
 
-      {/* Per-Property P&L */}
+      {/* ===== 3. Property P&L - Clean Table ===== */}
       <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
-        <h3 className="text-sm font-bold text-base-content mb-3 flex items-center gap-2">
-          <TrendingDown size={16} className="text-primary" />
-          物业损益
-        </h3>
-        {propertyPL.length === 0 ? (
-          <p className="text-xs text-base-content/40 text-center py-4">暂无物业数据</p>
-        ) : (
-          <div className="space-y-3">
-            {propertyPL.map(p => (
-              <div key={p.id} className="border border-base-200 rounded-lg p-3">
-                <p className="text-xs font-bold text-base-content mb-2 truncate">{p.name}</p>
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div>
-                    <p className="text-[10px] text-base-content/40">租金收入</p>
-                    <p className="text-xs font-semibold text-success">+{fmtCurrency(p.rentIncome)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-base-content/40">贷款支出</p>
-                    <p className="text-xs font-semibold text-error">-{fmtCurrency(p.loanPayment)}</p>
-                  </div>
-                  <div>
-                    <p className="text-[10px] text-base-content/40">净收入</p>
-                    <p className={`text-xs font-bold ${p.net >= 0 ? 'text-success' : 'text-error'}`}>
-                      {p.net >= 0 ? '+' : ''}{fmtCurrency(p.net)}
-                    </p>
-                  </div>
-                </div>
-                {/* Visual bar */}
-                {p.rentIncome > 0 && (
-                  <div className="mt-2">
-                    <div className="w-full h-2 bg-base-200 rounded-full overflow-hidden flex">
-                      <div
-                        className={`h-full ${p.net >= 0 ? 'bg-success' : 'bg-error'} rounded-full`}
-                        style={{ width: `${Math.min((p.loanPayment / p.rentIncome) * 100, 100)}%` }}
-                      />
-                    </div>
-                    <p className="text-[9px] text-base-content/30 text-right mt-0.5">
-                      贷款占比 {p.rentIncome > 0 ? Math.round((p.loanPayment / p.rentIncome) * 100) : 0}%
-                    </p>
-                  </div>
-                )}
-              </div>
-            ))}
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-base-content flex items-center gap-2">
+            <TrendingDown size={16} className="text-primary" />
+            物业损益
+          </h3>
+          <div className="flex items-center gap-2 text-[10px]">
+            <span className="text-success">▲ {profitable}</span>
+            <span className="text-error">▼ {losing}</span>
           </div>
+        </div>
+
+        <div className="overflow-x-auto -mx-1">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="text-[10px] text-base-content/40 border-b border-base-200">
+                <th className="text-left py-1.5 pl-1 font-medium">物业</th>
+                <th className="text-right py-1.5 font-medium">收入</th>
+                <th className="text-right py-1.5 font-medium">支出</th>
+                <th className="text-right py-1.5 pr-1 font-medium">净额</th>
+              </tr>
+            </thead>
+            <tbody>
+              {displayPL.map(p => (
+                <tr key={p.id} className="border-b border-base-200/50 last:border-b-0">
+                  <td className="py-2 pl-1 max-w-[120px]">
+                    <p className="text-xs text-base-content truncate">{p.name}</p>
+                  </td>
+                  <td className="py-2 text-right text-success whitespace-nowrap">
+                    {p.rent > 0 ? fmtCurrency(p.rent) : <span className="text-base-content/20">-</span>}
+                  </td>
+                  <td className="py-2 text-right text-error whitespace-nowrap">
+                    {p.loan > 0 ? fmtCurrency(p.loan) : <span className="text-base-content/20">-</span>}
+                  </td>
+                  <td className={`py-2 pr-1 text-right font-semibold whitespace-nowrap ${p.net > 0 ? 'text-success' : p.net < 0 ? 'text-error' : 'text-base-content/30'}`}>
+                    {p.net !== 0 ? `${p.net > 0 ? '+' : ''}${fmtCurrency(p.net)}` : '-'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+            {/* Total row */}
+            <tfoot>
+              <tr className="border-t-2 border-base-300">
+                <td className="py-2 pl-1 text-xs font-bold text-base-content">合计</td>
+                <td className="py-2 text-right text-xs font-bold text-success">{fmtCurrency(totalRentIncome)}</td>
+                <td className="py-2 text-right text-xs font-bold text-error">{fmtCurrency(totalLoanPayment)}</td>
+                <td className={`py-2 pr-1 text-right text-xs font-bold ${netIncome >= 0 ? 'text-success' : 'text-error'}`}>
+                  {netIncome >= 0 ? '+' : ''}{fmtCurrency(netIncome)}
+                </td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+
+        {propertyPL.length > 5 && (
+          <button
+            className="w-full text-center text-xs text-primary mt-2 py-1.5 hover:underline"
+            onClick={() => setShowAllPL(!showAllPL)}
+          >
+            {showAllPL ? '收起' : `查看全部 ${propertyPL.length} 个物业 ▼`}
+          </button>
         )}
       </div>
 
-      {/* Loan Summary */}
-      <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
-        <h3 className="text-sm font-bold text-base-content mb-3 flex items-center gap-2">
-          <Landmark size={16} className="text-primary" />
-          贷款摘要
-        </h3>
-        {propsWithLoans.length === 0 ? (
-          <p className="text-xs text-base-content/40 text-center py-4">暂无贷款</p>
-        ) : (
-          <div className="space-y-3">
-            <div className="grid grid-cols-2 gap-3">
-              <div className="bg-base-200/50 rounded-lg p-3 text-center">
-                <p className="text-[10px] text-base-content/40">贷款总余额</p>
-                <p className="text-sm font-bold text-base-content">{fmtCurrency(totalLoanBalance)}</p>
-              </div>
-              <div className="bg-base-200/50 rounded-lg p-3 text-center">
-                <p className="text-[10px] text-base-content/40">每月总还款</p>
-                <p className="text-sm font-bold text-error">{fmtCurrency(totalMonthlyRepayment)}</p>
-              </div>
+      {/* ===== 4. Loan Progress ===== */}
+      {propsWithLoans.length > 0 && (
+        <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
+          <h3 className="text-sm font-bold text-base-content mb-3 flex items-center gap-2">
+            <Landmark size={16} className="text-primary" />
+            贷款进度
+          </h3>
+
+          {/* Overall progress */}
+          <div className="bg-base-200/40 rounded-lg p-3 mb-3">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-[11px] text-base-content/60">整体还款进度</span>
+              <span className="text-xs font-bold text-primary">{overallPct}%</span>
             </div>
-            {estimatedPayoffMonths > 0 && (
-              <div className="bg-base-200/50 rounded-lg p-3 text-center">
-                <p className="text-[10px] text-base-content/40">预估还清时间</p>
-                <p className="text-sm font-bold text-base-content">
-                  {payoffYears > 0 ? `${payoffYears}年` : ''}{payoffRemMonths > 0 ? `${payoffRemMonths}个月` : ''}
-                  {payoffYears === 0 && payoffRemMonths === 0 ? '已还清' : ''}
-                </p>
+            <div className="w-full h-3 bg-base-200 rounded-full overflow-hidden">
+              <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${overallPct}%` }} />
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-2.5 text-center">
+              <div>
+                <p className="text-[9px] text-base-content/30">贷款总额</p>
+                <p className="text-[11px] font-semibold text-base-content">{fmtCurrency(totalOriginal)}</p>
               </div>
-            )}
-            {/* Per-loan detail */}
-            <div className="space-y-2 mt-2">
-              {propsWithLoans.map(p => {
-                const bal = estimateBalance(Number(p.loan_amount), Number(p.monthly_repayment), Number(p.loan_interest_rate), p.loan_start);
-                const paidPct = Number(p.loan_amount) > 0 ? Math.round(((Number(p.loan_amount) - bal) / Number(p.loan_amount)) * 100) : 0;
-                return (
-                  <div key={p.id} className="flex items-center gap-3 py-2 border-b border-base-200 last:border-b-0">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-base-content truncate">{p.name}</p>
-                      <p className="text-[10px] text-base-content/40">
-                        {fmtCurrency(bal)} / {fmtCurrency(Number(p.loan_amount))}
-                      </p>
-                      <div className="w-full h-1.5 bg-base-200 rounded-full mt-1 overflow-hidden">
-                        <div className="h-full bg-primary rounded-full" style={{ width: `${paidPct}%` }} />
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-medium text-base-content/50 shrink-0">{paidPct}% 已还</span>
-                  </div>
-                );
-              })}
+              <div>
+                <p className="text-[9px] text-base-content/30">剩余</p>
+                <p className="text-[11px] font-semibold text-error">{fmtCurrency(totalBalance)}</p>
+              </div>
+              <div>
+                <p className="text-[9px] text-base-content/30">月还款</p>
+                <p className="text-[11px] font-semibold text-base-content">{fmtCurrency(totalMonthlyRepay)}</p>
+              </div>
             </div>
           </div>
-        )}
-      </div>
+
+          {/* Per-loan compact list */}
+          <div className="space-y-2">
+            {displayLoans.map(l => (
+              <div key={l.id} className="flex items-center gap-2.5 py-1.5">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between mb-0.5">
+                    <p className="text-[11px] text-base-content truncate mr-2">{l.name}</p>
+                    <span className="text-[10px] text-base-content/40 shrink-0">{l.pct}%</span>
+                  </div>
+                  <div className="w-full h-1.5 bg-base-200 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${l.pct >= 50 ? 'bg-success' : 'bg-primary'}`}
+                      style={{ width: `${l.pct}%` }}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between mt-0.5">
+                    <span className="text-[9px] text-base-content/30">余额 {fmtCurrency(l.balance)}</span>
+                    <span className="text-[9px] text-base-content/30">{l.rate}% · {fmtCurrency(l.monthly)}/月</span>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {loanDetails.length > 5 && (
+            <button
+              className="w-full text-center text-xs text-primary mt-2 py-1.5 hover:underline"
+              onClick={() => setShowAllLoans(!showAllLoans)}
+            >
+              {showAllLoans ? '收起' : `查看全部 ${loanDetails.length} 笔贷款 ▼`}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 };
+
