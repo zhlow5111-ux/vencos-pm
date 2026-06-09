@@ -167,13 +167,12 @@ export interface SystemUser {
   last_login?: string;
 }
 
-export type AccessLevel = 'full' | 'edit' | 'financial' | 'readonly';
 
 export interface UserAccess {
   id: number;
   user_id: number;
   property_id: number;
-  access_level: AccessLevel;
+  access_level: string;
   user_name?: string;
   property_name?: string;
 }
@@ -182,7 +181,7 @@ export interface UserOwnerAccess {
   id: number;
   user_id: number;
   owner_id: number;
-  access_level: AccessLevel;
+  access_level: string;
   owner_name?: string;
 }
 
@@ -457,9 +456,9 @@ export const OWNER_TYPES: SelectOption[] = [
 export const USER_ROLES: { value: UserRole; label: string; desc: string }[] = [
   { value: 'super_admin', label: '超级管理员', desc: '全部权限，管理系统和用户' },
   { value: 'admin', label: '管理员', desc: '管理全部物业，大部分功能' },
-  { value: 'stakeholder', label: '股东/投资人', desc: '查看被授权的物业' },
+  { value: 'stakeholder', label: '业主', desc: '查看被授权公司的全部物业资料' },
   { value: 'tenant', label: '租户', desc: '查看自己的租约和账单' },
-  { value: 'worker', label: '工人', desc: '查看分配的维修工单' },
+  { value: 'worker', label: '维修人员', desc: '查看分配的维修工单' },
 ];
 
 

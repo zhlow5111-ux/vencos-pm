@@ -144,10 +144,10 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
     const endDate = new Date(end);
     const now = new Date();
     const diff = (endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24);
-    if (diff < 0) return <span className="badge badge-error badge-xs">已过期</span>;
-    if (diff <= 30) return <span className="badge badge-warning badge-xs">即将到期</span>;
-    if (diff <= 90) return <span className="badge badge-info badge-xs">90天内到期</span>;
-    return <span className="badge badge-success badge-xs">有效</span>;
+    if (diff < 0) return <span className="badge badge-error badge-sm">已过期</span>;
+    if (diff <= 30) return <span className="badge badge-warning badge-sm">即将到期</span>;
+    if (diff <= 90) return <span className="badge badge-info badge-sm">90天内到期</span>;
+    return <span className="badge badge-success badge-sm">有效</span>;
   }
 
   // ========== LOGIN SCREEN ==========

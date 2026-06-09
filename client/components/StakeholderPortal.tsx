@@ -186,7 +186,6 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
   const [floorUnits, setFloorUnits] = useState<Record<number, FloorUnitRow[]>>({});
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [owners, setOwners] = useState<Record<number, OwnerRow>>({});
-  const [purchaseCostsTotal, setPurchaseCostsTotal] = useState(0);
   const [hoveredTab, setHoveredTab] = useState<StakeholderTab | null>(null);
 
   // ===== Data Loading =====
@@ -215,15 +214,6 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
       )) as InvoiceRow[];
       setInvoices(invs);
 
-      // Load purchase costs for these properties
-      const propIds = props.map(p => p.id);
-      if (propIds.length > 0) {
-        const costRows = (await window.tasklet.sqlQuery(
-          `SELECT COALESCE(SUM(amount), 0) as total FROM vc_purchase_costs WHERE property_id IN (${propIds.join(',')})`
-        )) as any[];
-        setPurchaseCostsTotal(Number(costRows[0]?.total) || 0);
-      }
-
       // Load owners
       const ownerIds = [...new Set(props.map(p => p.owner_id).filter(Boolean))];
       const ownerMap: Record<number, OwnerRow> = {};
@@ -234,14 +224,6 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
         if (rows.length > 0) ownerMap[oid] = rows[0];
       }
       setOwners(ownerMap);
-
-      // Access map: just record which owners this user can access (true/false)
-      const accessRows = (await window.tasklet.sqlQuery(
-        `SELECT owner_id FROM vc_user_owner_access WHERE user_id = ${user.id}`
-      )) as any[];
-      const aMap: Record<number, string> = {};
-      for (const r of accessRows) aMap[Number(r.owner_id)] = 'full';
-      setOwnerAccessMap(aMap);
     } catch (err) {
       console.error('[StakeholderPortal] Data load error:', err);
     } finally {
@@ -253,12 +235,8 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
     loadData();
   }, [loadData]);
 
-  // ===== All accessible properties show full data =====
-
   // ===== Computed Values =====
-  // All properties the user can see are fully accessible
-  const allFloors = properties.flatMap(p => (floorUnits[p.id] || []).map(f => ({ ...f, propertyName: p.name, propOwnerId: p.owner_id })));
-  const financialFloors = allFloors;
+  const allFloors = properties.flatMap(p => (floorUnits[p.id] || []).map(f => ({ ...f, propertyName: p.name })));
   const floorRentTotal = Math.round(allFloors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0));
   // Add property-level rental_price for rented properties without floor-level rent data
   const propRentFallback = properties.reduce((s, p) => {
@@ -421,7 +399,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
   }
 
   function renderReports() {
-    return <ReportsTab properties={properties} floorUnits={floorUnits} invoices={invoices} purchaseCostsTotal={purchaseCostsTotal} />;
+    return <ReportsTab properties={properties} floorUnits={floorUnits} invoices={invoices} />;
   }
 
   // ===== Main Layout =====
@@ -550,11 +528,11 @@ const PropertyCard: React.FC<{ property: PropertyRow; floors: FloorUnitRow[]; ow
                         </td>
                         <td>
                           {badge ? (
-                            <span className={`badge badge-sm whitespace-nowrap ${badge.cls}`}>{badge.emoji} {badge.label}</span>
+                            <span className={`badge badge-sm ${badge.cls}`}>{badge.emoji} {badge.label}</span>
                           ) : (
                             isVacant
-                              ? <span className="badge badge-sm badge-ghost whitespace-nowrap">空置</span>
-                              : <span className="badge badge-sm badge-success whitespace-nowrap">正出租</span>
+                              ? <span className="badge badge-sm badge-ghost">空置</span>
+                              : <span className="badge badge-sm badge-success">正常</span>
                           )}
                         </td>
                       </tr>
@@ -663,7 +641,7 @@ const BillingTab: React.FC<{ invoices: InvoiceRow[] }> = ({ invoices }) => {
                   </div>
                   <div className="text-right shrink-0 ml-3">
                     <p className="text-sm font-bold text-base-content">{fmtCurrency(Number(inv.amount) || 0)}</p>
-                    <span className={`badge badge-xs ${badge.cls} mt-1`}>{badge.label}</span>
+                    <span className={`badge badge-sm ${badge.cls} mt-1`}>{badge.label}</span>
                   </div>
                 </div>
                 <div className="flex items-center justify-between mt-2 pt-2 border-t border-base-200">
@@ -685,32 +663,23 @@ const ReportsTab: React.FC<{
   properties: PropertyRow[];
   floorUnits: Record<number, FloorUnitRow[]>;
   invoices: InvoiceRow[];
-  purchaseCostsTotal: number;
-}> = ({ properties, floorUnits, invoices, purchaseCostsTotal }) => {
+}> = ({ properties, floorUnits, invoices }) => {
   const [showAllPL, setShowAllPL] = useState(false);
   const [showAllLoans, setShowAllLoans] = useState(false);
 
   const now = new Date();
 
-  // All properties fully accessible
-  const fProps = properties;
-
   // ===== Monthly Totals =====
-  const totalRentIncome = fProps.reduce((s, p) => {
-    const floors = (floorUnits[p.id] || []);
+  const totalRentIncome = properties.reduce((s, p) => {
+    const floors = floorUnits[p.id] || [];
     const floorRent = floors.reduce((sum, f) => sum + (Number(f.rent_amount) || 0), 0);
     if (floorRent > 0) return s + floorRent;
     if (p.status === 'rented' && Number(p.rental_price || 0) > 0) return s + Number(p.rental_price);
     return s;
   }, 0);
 
-  const totalLoanPayment = fProps.reduce((s, p) => s + (Number(p.monthly_repayment) || 0), 0);
+  const totalLoanPayment = properties.reduce((s, p) => s + (Number(p.monthly_repayment) || 0), 0);
   const netIncome = totalRentIncome - totalLoanPayment;
-
-  // Total purchase value breakdown
-  const totalPurchasePrice = fProps.reduce((s, p) => s + (Number(p.price) || 0), 0);
-  const totalPurchaseValue = totalPurchasePrice + purchaseCostsTotal;
-  const totalLoanBalance = fProps.reduce((s, p) => s + (Number(p.loan_balance) || Number(p.loan_amount) || 0), 0);
 
   // ===== Rent Collection (last 6 months) =====
   const last6: { key: string; label: string }[] = [];
@@ -732,7 +701,7 @@ const ReportsTab: React.FC<{
   const maxBar = Math.max(...monthlyData.map(m => m.total), 1);
 
   // ===== Per-Property P&L (sorted by net) =====
-  const propertyPL = fProps.map(p => {
+  const propertyPL = properties.map(p => {
     const floors = floorUnits[p.id] || [];
     const floorRent = floors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0);
     const rent = floorRent > 0 ? floorRent : (p.status === 'rented' && Number(p.rental_price || 0) > 0 ? Number(p.rental_price) : 0);
@@ -745,7 +714,7 @@ const ReportsTab: React.FC<{
   const displayPL = showAllPL ? propertyPL : propertyPL.slice(0, 5);
 
   // ===== Loan Summary =====
-  const propsWithLoans = fProps.filter(p => Number(p.loan_amount) > 0);
+  const propsWithLoans = properties.filter(p => Number(p.loan_amount) > 0);
   const totalOriginal = propsWithLoans.reduce((s, p) => s + (Number(p.loan_amount) || 0), 0);
   const totalBalance = propsWithLoans.reduce((s, p) => {
     return s + estimateBalance(Number(p.loan_amount), Number(p.monthly_repayment), Number(p.loan_interest_rate), p.loan_start);
@@ -766,34 +735,19 @@ const ReportsTab: React.FC<{
     <div className="space-y-4">
 
       {/* ===== 1. Summary KPI ===== */}
-      <div className="space-y-2">
-        {/* Row 1: 总购买价值 + 总欠款 */}
-        <div className="grid grid-cols-2 gap-2">
-          <div className="bg-accent/10 rounded-xl p-3">
-            <p className="text-[10px] text-base-content/40 mb-1">总购买价值</p>
-            <p className="text-base font-bold text-accent">{fmtCurrency(totalPurchaseValue)}</p>
-            <p className="text-[9px] text-base-content/40 mt-0.5">购买价格 {fmtCurrency(totalPurchasePrice)}</p>
-            <p className="text-[9px] text-base-content/40">其他费用 {fmtCurrency(purchaseCostsTotal)}</p>
-          </div>
-          <div className="bg-info/10 rounded-xl p-3">
-            <p className="text-[10px] text-base-content/40 mb-1">总欠款</p>
-            <p className="text-base font-bold text-info">{fmtCurrency(totalLoanBalance)}</p>
-            <p className="text-[9px] text-base-content/40 mt-0.5">月供 {fmtCurrency(totalLoanPayment)}</p>
-          </div>
-        </div>
-        {/* Row 2: 月租收入 + 贷款支出 + 净收入 */}
-        <div className="grid grid-cols-3 gap-2">
-          <div className="bg-success/10 rounded-xl p-3 text-center">
+      <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
+        <div className="grid grid-cols-3 divide-x divide-base-200">
+          <div className="text-center px-2">
             <p className="text-[10px] text-base-content/40 mb-1">月租收入</p>
-            <p className="text-sm font-bold text-success">{fmtCurrency(totalRentIncome)}</p>
+            <p className="text-base font-bold text-success">{fmtCurrency(totalRentIncome)}</p>
           </div>
-          <div className="bg-error/10 rounded-xl p-3 text-center">
+          <div className="text-center px-2">
             <p className="text-[10px] text-base-content/40 mb-1">贷款支出</p>
-            <p className="text-sm font-bold text-error">{fmtCurrency(totalLoanPayment)}</p>
+            <p className="text-base font-bold text-error">{fmtCurrency(totalLoanPayment)}</p>
           </div>
-          <div className={`${netIncome >= 0 ? 'bg-success/10' : 'bg-error/10'} rounded-xl p-3 text-center`}>
+          <div className="text-center px-2">
             <p className="text-[10px] text-base-content/40 mb-1">净收入</p>
-            <p className={`text-sm font-bold ${netIncome >= 0 ? 'text-success' : 'text-error'}`}>
+            <p className={`text-base font-bold ${netIncome >= 0 ? 'text-success' : 'text-error'}`}>
               {netIncome >= 0 ? '+' : ''}{fmtCurrency(netIncome)}
             </p>
           </div>

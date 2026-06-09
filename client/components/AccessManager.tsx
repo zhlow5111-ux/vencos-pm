@@ -11,8 +11,8 @@ interface Props {
 interface OwnerRow {
   owner: Owner;
   access?: UserOwnerAccess;
-  enabled: boolean;
-  originalEnabled: boolean;
+  level: string;
+  originalLevel: string;
   properties: Property[];
   expanded: boolean;
 }
@@ -38,6 +38,7 @@ export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
       const accessMap = new Map<number, UserOwnerAccess>();
       for (const a of accessList) accessMap.set(a.owner_id, a);
 
+      // Group properties by owner
       const propsByOwner = new Map<number, Property[]>();
       for (const p of properties) {
         const oid = p.owner_id || 0;
@@ -46,15 +47,15 @@ export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
       }
 
       const list: OwnerRow[] = owners
-        .filter(o => (propsByOwner.get(o.id)?.length || 0) > 0)
+        .filter(o => (propsByOwner.get(o.id)?.length || 0) > 0) // Only show owners with properties
         .map(o => {
           const access = accessMap.get(o.id);
-          const enabled = !!access;
+          const level = access?.access_level || '';
           return {
             owner: o,
             access,
-            enabled,
-            originalEnabled: enabled,
+            level,
+            originalLevel: level,
             properties: propsByOwner.get(o.id) || [],
             expanded: false,
           };
@@ -67,36 +68,47 @@ export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
   }
 
   function toggleOwner(idx: number) {
-    setRows(prev => prev.map((r, i) => i === idx ? { ...r, enabled: !r.enabled } : r));
+    setRows(prev => prev.map((r, i) => {
+      if (i !== idx) return r;
+      if (r.level) return { ...r, level: '' };
+      return { ...r, level: 'full' };
+    }));
     setSaved(false);
   }
+
 
   function toggleExpand(idx: number) {
     setRows(prev => prev.map((r, i) => i === idx ? { ...r, expanded: !r.expanded } : r));
   }
 
   function selectAll() {
-    setRows(prev => prev.map(r => ({ ...r, enabled: true })));
+    setRows(prev => prev.map(r => r.level ? r : { ...r, level: 'full' }));
     setSaved(false);
   }
 
   function clearAll() {
-    setRows(prev => prev.map(r => ({ ...r, enabled: false })));
+    setRows(prev => prev.map(r => ({ ...r, level: '' })));
     setSaved(false);
   }
 
-  const hasDirty = rows.some(r => r.enabled !== r.originalEnabled);
-  const selectedCount = rows.filter(r => r.enabled).length;
-  const totalProps = rows.reduce((s, r) => s + (r.enabled ? r.properties.length : 0), 0);
+  const hasDirty = rows.some(r => r.level !== r.originalLevel);
+  const selectedCount = rows.filter(r => r.level).length;
+  const totalProps = rows.reduce((s, r) => s + (r.level ? r.properties.length : 0), 0);
 
   async function handleSave() {
     setSaving(true);
     try {
       for (const r of rows) {
-        if (r.enabled !== r.originalEnabled) {
-          if (r.enabled && !r.access) {
-            await addUserOwnerAccess(user.id, r.owner.id, 'full');
-          } else if (!r.enabled && r.access) {
+        if (r.level !== r.originalLevel) {
+          if (r.level && r.access) {
+            // Update: remove old, add new
+            await removeUserOwnerAccess(r.access.id);
+            await addUserOwnerAccess(user.id, r.owner.id, r.level);
+          } else if (r.level && !r.access) {
+            // New access
+            await addUserOwnerAccess(user.id, r.owner.id, r.level);
+          } else if (!r.level && r.access) {
+            // Remove access
             await removeUserOwnerAccess(r.access.id);
           }
         }
@@ -145,6 +157,7 @@ export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
             </div>
           ) : (
             <div className="space-y-3">
+              {/* Batch actions */}
               <div className="flex items-center justify-between">
                 <span className="text-xs text-base-content/60">
                   {selectedCount} / {rows.length} 公司已授权 · 共 {totalProps} 个物业
@@ -155,12 +168,14 @@ export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
                 </div>
               </div>
 
+              {/* Owner/Company list */}
               {rows.map((r, idx) => (
-                <div key={r.owner.id} className={`rounded-lg border transition-colors ${r.enabled ? 'border-primary/30 bg-primary/5' : 'border-base-200'}`}>
+                <div key={r.owner.id} className={`rounded-lg border transition-colors ${r.level ? 'border-primary/30 bg-primary/5' : 'border-base-200'}`}>
+                  {/* Company header */}
                   <div className="p-3">
                     <div className="flex items-center gap-2">
                       <button className="shrink-0" onClick={() => toggleOwner(idx)}>
-                        {r.enabled ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} className="text-base-content/30" />}
+                        {r.level ? <CheckSquare size={18} className="text-primary" /> : <Square size={18} className="text-base-content/30" />}
                       </button>
                       <div className="flex-1 min-w-0 cursor-pointer" onClick={() => toggleExpand(idx)}>
                         <div className="flex items-center gap-1.5">
@@ -177,6 +192,7 @@ export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
                     </div>
                   </div>
 
+                  {/* Expanded property list */}
                   {r.expanded && (
                     <div className="border-t border-base-200 bg-base-200/30 px-3 py-2">
                       <p className="text-[10px] text-base-content/40 font-medium mb-1.5 uppercase tracking-wider">
@@ -207,25 +223,27 @@ export const AccessManager: React.FC<Props> = ({ user, onClose }) => {
                 </div>
               ))}
 
+              {/* Info note */}
               <div className="text-xs text-base-content/40 text-center mt-4 px-4">
-                💡 授权后，该公司名下的所有物业（包括将来新增的）都会自动对此用户可见
+                💡 授权公司后，该公司名下的所有物业（包括将来新增的）都会自动对此用户可见
               </div>
             </div>
           )}
         </div>
 
+        {/* Footer */}
         {user.role !== 'super_admin' && hasDirty && (
           <div className="p-4 border-t border-base-200">
             <button className="btn btn-primary btn-sm w-full gap-1" onClick={handleSave} disabled={saving}>
               {saving ? <span className="loading loading-spinner loading-xs" /> : <Check size={14} />}
-              保存设置
+              保存权限设置
             </button>
           </div>
         )}
         {saved && (
           <div className="toast toast-top toast-center z-[10000]">
             <div className="alert alert-success shadow-lg">
-              <span className="text-sm">✓ 已保存</span>
+              <span className="text-sm">✓ 权限已保存</span>
             </div>
           </div>
         )}

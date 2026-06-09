@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Mail, MessageSquare, Calendar, Power, PowerOff, Trash2, Edit2, Wifi, WifiOff, Bell, Building2, User, Shield, Key, Users, UserPlus, Save, X, Eye, EyeOff, Send, CheckCircle, XCircle, Clock, LogOut, MapPin, Briefcase, Phone, Navigation } from 'lucide-react';
-import { MessageTemplate, BillingSchedule, Owner, SystemUser, UserRole, Agent, CHANNEL_TYPES, REMINDER_OPTIONS, OWNER_TYPES, USER_ROLES, ACCESS_LEVELS } from '../types';
-import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog, getProperties, addUserAccess, forceLogoutUser, getAgents, saveAgent, deleteAgent, getAgentsByArea, getAllFloorUnits } from '../utils/db';
+import { MessageTemplate, BillingSchedule, Owner, SystemUser, UserRole, Agent, CHANNEL_TYPES, REMINDER_OPTIONS, OWNER_TYPES, USER_ROLES } from '../types';
+import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog, getProperties, addUserAccess, addUserOwnerAccess, forceLogoutUser, getAgents, saveAgent, deleteAgent, getAgentsByArea, getAllFloorUnits } from '../utils/db';
 import { ConfirmModal } from './ConfirmModal';
 import { sendWhatsAppMessage } from '../utils/whatsapp';
 
@@ -63,7 +63,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUser, setEditingUser] = useState<SystemUser | null>(null);
   const [userForm, setUserForm] = useState({
-    username: '', pin: '', role: '' as UserRole | '', phone: '', name: '', email: '', notes: '', must_change_pin: true, active: true, defaultAccessLevel: '' as string,
+    username: '', pin: '', role: '' as UserRole | '', phone: '', name: '', email: '', notes: '', must_change_pin: true, active: true, grantAllCompanies: false,
   });
   const [userSaving, setUserSaving] = useState(false);
   const [userToast, setUserToast] = useState('');
@@ -220,11 +220,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       setEditingUser(u);
       setUserForm({
         username: u.username, pin: '', role: u.role, phone: u.phone,
-        name: u.name, email: u.email, notes: u.notes, must_change_pin: false, active: u.active === 1, defaultAccessLevel: '',
+        name: u.name, email: u.email, notes: u.notes, must_change_pin: false, active: u.active === 1, grantAllCompanies: false,
       });
     } else {
       setEditingUser(null);
-      setUserForm({ username: '', pin: '', role: '', phone: '', name: '', email: '', notes: '', must_change_pin: true, active: true, defaultAccessLevel: '' });
+      setUserForm({ username: '', pin: '', role: '', phone: '', name: '', email: '', notes: '', must_change_pin: true, active: true, grantAllCompanies: false });
     }
     setShowUserForm(true);
   }
@@ -259,14 +259,13 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         must_change_pin: userForm.must_change_pin ? 1 : 0,
         active: userForm.active ? 1 : 0,
       });
-      // Auto-apply default access to all properties for admin/stakeholder (new or edit)
-      if (userForm.defaultAccessLevel && (userForm.role === 'admin' || userForm.role === 'stakeholder')) {
+      // Auto-grant all company access for admin/stakeholder
+      if (userForm.grantAllCompanies && (userForm.role === 'admin' || userForm.role === 'stakeholder')) {
         try {
-          const allProperties = await getProperties();
-          for (const p of allProperties) {
-            await addUserAccess(savedId, p.id, userForm.defaultAccessLevel);
+          for (const o of owners) {
+            await addUserOwnerAccess(savedId, o.id, 'full');
           }
-        } catch (e) { console.error('Failed to apply default access:', e); }
+        } catch (e) { console.error('Failed to grant company access:', e); }
       }
       setShowUserForm(false);
       setEditingUser(null);
@@ -514,18 +513,15 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
                 {(userForm.role === 'admin' || userForm.role === 'stakeholder') && (
                   <div className="form-control col-span-2">
-                    <label className="label py-0.5"><span className="label-text text-xs">默认物业权限</span></label>
-                    <select className="select select-bordered select-sm w-full" value={userForm.defaultAccessLevel}
-                      onChange={e => setUserForm(f => ({ ...f, defaultAccessLevel: e.target.value }))}>
-                      <option value="">不设置（稍后手动配置）</option>
-                      <option value="full">全部物业 - 完全权限</option>
-                      <option value="edit">全部物业 - 编辑物业</option>
-                      <option value="financial">全部物业 - 查看财务</option>
-                      <option value="readonly">全部物业 - 只读查看</option>
-                    </select>
+                    <label className="flex items-center gap-2 cursor-pointer py-1">
+                      <input type="checkbox" className="checkbox checkbox-sm checkbox-primary"
+                        checked={userForm.grantAllCompanies}
+                        onChange={e => setUserForm(f => ({ ...f, grantAllCompanies: e.target.checked }))} />
+                      <span className="text-xs font-medium">授权全部公司访问权</span>
+                    </label>
                     <label className="label py-0">
                       <span className="label-text-alt text-xs text-base-content/50">
-                        {userForm.defaultAccessLevel ? (editingUser ? '✅ 保存后将重新应用到所有现有物业' : '✅ 保存后将自动应用到所有现有物业') : '保存后可在权限按钮中逐个配置'}
+                        {userForm.grantAllCompanies ? '✅ 保存后将自动授权所有公司的物业' : '保存后可在权限按钮中逐个配置公司'}
                       </span>
                     </label>
                   </div>
@@ -556,7 +552,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <div className="bg-base-200/50 rounded-lg p-2">
                 <p className="text-xs text-base-content/50">
                   {roleIcon(userForm.role)} {USER_ROLES.find(r => r.value === userForm.role)?.desc}
-                  {(userForm.role === 'stakeholder' || userForm.role === 'admin') && !userForm.defaultAccessLevel && (editingUser ? ' — 可在上方选择默认物业权限' : ' — 保存后可配置物业访问权限')}
+                  {(userForm.role === 'stakeholder' || userForm.role === 'admin') && !userForm.grantAllCompanies && (editingUser ? ' — 可在上方勾选或用权限按钮配置' : ' — 保存后可配置公司访问权限')}
                 </p>
               </div>
 
