@@ -254,6 +254,30 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
     loadData();
   }, [loadData]);
 
+  // ===== Permission Helpers =====
+  const canSeeFinancials = (ownerId: number) => {
+    const level = ownerAccessMap[ownerId] || 'readonly';
+    return level === 'financial' || level === 'edit' || level === 'full';
+  };
+  const getAccessLabel = (ownerId: number) => {
+    const level = ownerAccessMap[ownerId] || 'readonly';
+    switch(level) {
+      case 'full': return '完全权限';
+      case 'edit': return '编辑物业';
+      case 'financial': return '查看财务';
+      default: return '只读查看';
+    }
+  };
+  const getAccessColor = (ownerId: number) => {
+    const level = ownerAccessMap[ownerId] || 'readonly';
+    switch(level) {
+      case 'full': return 'text-success';
+      case 'edit': return 'text-info';
+      case 'financial': return 'text-warning';
+      default: return 'text-base-content/30';
+    }
+  };
+
   // ===== Computed Values =====
   const financialProps = properties.filter(p => canSeeFinancials(p.owner_id));
   const allFloors = properties.flatMap(p => (floorUnits[p.id] || []).map(f => ({ ...f, propertyName: p.name, propOwnerId: p.owner_id })));
@@ -280,30 +304,6 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
     const days = getDaysUntil(f.lease_end);
     return days <= 90;
   }).sort((a, b) => getDaysUntil(a.lease_end) - getDaysUntil(b.lease_end));
-
-  // ===== Permission Helpers =====
-  const canSeeFinancials = (ownerId: number) => {
-    const level = ownerAccessMap[ownerId] || 'readonly';
-    return level === 'financial' || level === 'edit' || level === 'full';
-  };
-  const getAccessLabel = (ownerId: number) => {
-    const level = ownerAccessMap[ownerId] || 'readonly';
-    switch(level) {
-      case 'full': return '完全权限';
-      case 'edit': return '编辑物业';
-      case 'financial': return '查看财务';
-      default: return '只读查看';
-    }
-  };
-  const getAccessColor = (ownerId: number) => {
-    const level = ownerAccessMap[ownerId] || 'readonly';
-    switch(level) {
-      case 'full': return 'text-success';
-      case 'edit': return 'text-info';
-      case 'financial': return 'text-warning';
-      default: return 'text-base-content/30';
-    }
-  };
 
   // ===== Tab Navigation Config =====
   const TABS: { key: StakeholderTab; label: string; Icon: React.FC<{ size?: number; className?: string }> }[] = [
