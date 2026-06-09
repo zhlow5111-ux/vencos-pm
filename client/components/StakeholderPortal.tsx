@@ -1,12 +1,17 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import {
-  LayoutDashboard, Building2, Receipt, BarChart3,
-  Bell, BellOff, BellRing, LogOut, ChevronDown, ChevronUp,
-  Home, AlertCircle, TrendingDown, Landmark, CalendarClock
+  LayoutDashboard, Building2, Receipt, BarChart3, Bell, BellOff, BellRing,
+  LogOut, ChevronDown, ChevronUp, Home, AlertCircle, TrendingDown, TrendingUp,
+  Landmark, CalendarClock, DollarSign, Wallet, Percent, ArrowUpRight,
+  ArrowDownRight, PiggyBank, Download, Zap, Droplets, MapPin, Key, Shield,
+  Users, FileText, Clock, CreditCard, Activity, Eye, Banknote
 } from 'lucide-react';
 import { isPushSupported, getNotificationPermission, requestNotificationPermission } from '../utils/push';
+import { downloadCsv } from '../utils/export';
 
-// ========== Types ==========
+/* ═══════════════════════════════════════════════════════════════════
+   TYPES
+   ═══════════════════════════════════════════════════════════════════ */
 
 interface StakeholderPortalProps {
   user: { id: number; name: string; role: string; phone?: string };
@@ -14,912 +19,1451 @@ interface StakeholderPortalProps {
   hideHeader?: boolean;
 }
 
-type StakeholderTab = 'home' | 'properties' | 'billing' | 'reports';
+type Rec = Record<string, unknown>;
 
-interface PropertyRow {
-  id: number;
-  name: string;
-  address: string;
-  type: string;
-  status: string;
-  loan_amount: number;
-  loan_balance: number;
-  monthly_repayment: number;
-  loan_interest_rate: number;
-  loan_start: string;
-  loan_tenure_months: number;
-  owner_id: number;
-  [key: string]: unknown;
-}
+/* ═══════════════════════════════════════════════════════════════════
+   HELPERS
+   ═══════════════════════════════════════════════════════════════════ */
 
-interface FloorUnitRow {
-  id: number;
-  property_id: number;
-  floor_label: string;
-  tenant_name: string;
-  tenant_phone: string;
-  rent_amount: number;
-  deposit: number;
-  lease_start: string;
-  lease_end: string;
-  status: string;
-  notes: string;
-  [key: string]: unknown;
-}
+const N = (v: unknown): number => Number(v || 0);
+const S = (v: unknown): string => String(v ?? '');
 
-interface InvoiceRow {
-  id: number;
-  invoice_no: string;
-  property_id: number;
-  property_name: string;
-  tenant_name: string;
-  floor_label: string;
-  amount: number;
-  due_date: string;
-  paid_date: string;
-  status: string;
-  billing_month: string;
-  description: string;
-  created_at: string;
-  [key: string]: unknown;
-}
+const fmtCurrency = (v: number): string => {
+  if (v < 0) return '-RM ' + Math.abs(v).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return 'RM ' + v.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
 
-interface OwnerRow {
-  id: number;
-  name: string;
-  owner_type: string;
-  contact_person: string;
-  phone: string;
-  email: string;
-  [key: string]: unknown;
-}
-
-interface RecurringChargeRow {
-  id: number;
-  property_id: number;
-  charge_name: string;
-  amount: number;
-  [key: string]: unknown;
-}
-
-// ========== Helpers ==========
-
-function fmtCurrency(amount: number): string {
-  return `RM ${Math.round(amount).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
-function fmtDate(dateStr: string): string {
-  if (!dateStr) return '-';
-  const d = new Date(dateStr);
+const fmtDate = (v: unknown): string => {
+  if (!v) return '-';
+  const d = new Date(String(v));
+  if (isNaN(d.getTime())) return '-';
   return d.toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit' });
-}
+};
 
-function getDaysUntil(dateStr: string): number {
-  if (!dateStr) return 999;
-  const end = new Date(dateStr);
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  end.setHours(0, 0, 0, 0);
-  return Math.ceil((end.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-}
+const fmtPct = (v: number): string => v.toFixed(1) + '%';
 
-function leaseStatusBadge(leaseEnd: string): { emoji: string; label: string; cls: string } | null {
-  if (!leaseEnd) return null;
-  const days = getDaysUntil(leaseEnd);
-  if (days < 0) return { emoji: '🔴', label: '已过期', cls: 'badge-error' };
-  if (days <= 30) return { emoji: '🟡', label: `${days}天到期`, cls: 'badge-warning' };
-  if (days <= 90) return { emoji: '🔵', label: `${days}天到期`, cls: 'badge-info' };
-  return null;
-}
+const daysUntil = (dateStr: unknown): number => {
+  if (!dateStr) return Infinity;
+  const d = new Date(String(dateStr));
+  if (isNaN(d.getTime())) return Infinity;
+  return Math.ceil((d.getTime() - Date.now()) / 86400000);
+};
 
-function invoiceStatusBadge(status: string): { label: string; cls: string } {
-  switch (status) {
-    case 'paid': return { label: '已付', cls: 'badge-success' };
-    case 'overdue': return { label: '逾期', cls: 'badge-error' };
-    case 'cancelled': return { label: '取消', cls: 'badge-ghost' };
-    default: return { label: '待付', cls: 'badge-warning' };
-  }
-}
+const getGreeting = (): string => {
+  const h = new Date().getHours();
+  if (h < 12) return '早上好';
+  if (h < 18) return '下午好';
+  return '晚上好';
+};
 
-function estimateBalance(loanAmount: number, monthlyPayment: number, annualRate: number, loanStart: string): number {
-  if (!loanAmount || !monthlyPayment || !annualRate || !loanStart) return loanAmount || 0;
-  const start = new Date(loanStart);
-  const now = new Date();
-  if (start >= now) return loanAmount;
-  const monthsElapsed = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
-  if (monthsElapsed <= 0) return loanAmount;
+const todayStr = (): string =>
+  new Date().toLocaleDateString('zh-CN', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+
+const currentBillingMonth = (): string => {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+};
+
+/** Estimate current loan balance via amortization */
+const estimateLoanBalance = (
+  loanAmount: number,
+  interestRate: number,
+  monthlyPayment: number,
+  loanStart: unknown
+): number => {
+  if (!loanAmount || !monthlyPayment || !loanStart) return loanAmount;
+  const startDate = new Date(String(loanStart));
+  if (isNaN(startDate.getTime())) return loanAmount;
+  const monthlyRate = interestRate / 12 / 100;
   let balance = loanAmount;
-  const monthlyRate = annualRate / 12 / 100;
-  for (let i = 0; i < monthsElapsed; i++) {
+  const now = new Date();
+  let cur = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+  while (cur < now && balance > 0) {
     const interest = balance * monthlyRate;
+    if (monthlyPayment <= interest) break;
     const principal = monthlyPayment - interest;
-    if (principal <= 0) break;
     balance -= principal;
-    if (balance <= 0) { balance = 0; break; }
+    cur.setMonth(cur.getMonth() + 1);
   }
-  return Math.round(balance);
-}
+  return Math.max(0, balance);
+};
 
-// ========== Notification Bell ==========
+const estimatePayoffDate = (loanStart: unknown, tenureMonths: number): string => {
+  if (!loanStart || !tenureMonths) return '-';
+  const d = new Date(String(loanStart));
+  if (isNaN(d.getTime())) return '-';
+  d.setMonth(d.getMonth() + tenureMonths);
+  return fmtDate(d);
+};
+
+const sqlQuery = (sql: string): Promise<Rec[]> =>
+  (window as any).tasklet.sqlQuery(sql);
+
+/* ═══════════════════════════════════════════════════════════════════
+   NOTIFICATION BELL
+   ═══════════════════════════════════════════════════════════════════ */
 
 const NotificationBell: React.FC = () => {
-  const [permState, setPermState] = useState<string>('default');
-  const [requesting, setRequesting] = useState(false);
-  const supported = isPushSupported();
+  const [perm, setPerm] = useState<string>('default');
+  const [supported, setSupported] = useState(false);
 
   useEffect(() => {
-    setPermState(getNotificationPermission());
+    setSupported(isPushSupported());
+    setPerm(getNotificationPermission());
   }, []);
 
-  const handleClick = async () => {
-    if (!supported || permState === 'granted') return;
-    setRequesting(true);
-    try {
-      const granted = await requestNotificationPermission();
-      setPermState(granted ? 'granted' : 'denied');
-    } finally {
-      setRequesting(false);
-    }
+  const toggle = async () => {
+    if (perm === 'granted') return;
+    const result = await requestNotificationPermission();
+    setPerm(result);
   };
 
   if (!supported) return null;
 
-  const Icon = permState === 'granted' ? BellRing : permState === 'denied' ? BellOff : Bell;
+  const Icon = perm === 'granted' ? BellRing : perm === 'denied' ? BellOff : Bell;
   return (
-    <button
-      onClick={handleClick}
-      disabled={requesting || permState === 'granted'}
-      className={`btn btn-ghost btn-sm btn-circle ${permState === 'granted' ? 'text-success' : permState === 'denied' ? 'text-error/60' : 'text-base-content/70'}`}
-      title={permState === 'granted' ? '通知已开启' : permState === 'denied' ? '通知已被拒绝' : '开启通知'}
-    >
-      {requesting ? <span className="loading loading-spinner loading-xs" /> : <Icon size={18} />}
+    <button onClick={toggle} className="btn btn-ghost btn-sm btn-circle" title="通知">
+      <Icon size={18} />
     </button>
   );
 };
 
-// ========== Main Component ==========
+/* ═══════════════════════════════════════════════════════════════════
+   MAIN COMPONENT
+   ═══════════════════════════════════════════════════════════════════ */
 
 export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLogout, hideHeader }) => {
-  const [tab, setTab] = useState<StakeholderTab>('home');
+  /* ── state ── */
+  const [tab, setTab] = useState(0);
   const [loading, setLoading] = useState(true);
-  const [properties, setProperties] = useState<PropertyRow[]>([]);
-  const [floorUnits, setFloorUnits] = useState<Record<number, FloorUnitRow[]>>({});
-  const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
-  const [owners, setOwners] = useState<Record<number, OwnerRow>>({});
-  const [hoveredTab, setHoveredTab] = useState<StakeholderTab | null>(null);
+  const [properties, setProperties] = useState<Rec[]>([]);
+  const [floorUnits, setFloorUnits] = useState<Rec[]>([]);
+  const [invoices, setInvoices] = useState<Rec[]>([]);
+  const [purchaseCosts, setPurchaseCosts] = useState<Rec[]>([]);
+  const [recurringCharges, setRecurringCharges] = useState<Rec[]>([]);
+  const [meters, setMeters] = useState<Rec[]>([]);
+  const [owners, setOwners] = useState<Rec[]>([]);
+  const [expandedProps, setExpandedProps] = useState<Set<number>>(new Set());
+  const [expandedAlerts, setExpandedAlerts] = useState(false);
+  const [billingFilter, setBillingFilter] = useState<number | 'all'>('all');
+  const [reportSub, setReportSub] = useState(0);
 
-  // ===== Data Loading =====
-  const loadData = useCallback(async () => {
+  const fontStyle = { fontFamily: 'Avenir, Arial, sans-serif' };
+
+  /* ── data fetching ── */
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      // Load properties
-      const props = (await window.tasklet.sqlQuery(
-        `SELECT p.* FROM vc_properties p WHERE (p.id IN (SELECT property_id FROM vc_user_access WHERE user_id = ${user.id}) OR p.owner_id IN (SELECT owner_id FROM vc_user_owner_access WHERE user_id = ${user.id})) ORDER BY p.name ASC`
-      )) as PropertyRow[];
+      const propSql = `SELECT p.* FROM vc_properties p WHERE p.id IN (SELECT property_id FROM vc_user_access WHERE user_id = ${user.id}) OR p.owner_id IN (SELECT owner_id FROM vc_user_owner_access WHERE user_id = ${user.id})`;
+      const props = await sqlQuery(propSql);
       setProperties(props);
 
-      // Load floor units for each property
-      const fuMap: Record<number, FloorUnitRow[]> = {};
-      for (const p of props) {
-        const units = (await window.tasklet.sqlQuery(
-          `SELECT * FROM vc_floor_units WHERE property_id = ${p.id} ORDER BY CASE WHEN floor_label='G' THEN 0 ELSE CAST(floor_label AS INTEGER) END ASC`
-        )) as FloorUnitRow[];
-        fuMap[p.id] = units;
-      }
-      setFloorUnits(fuMap);
+      if (props.length === 0) { setLoading(false); return; }
 
-      // Load invoices
-      const invs = (await window.tasklet.sqlQuery(
-        `SELECT i.*, f.tenant_name FROM vc_invoices i LEFT JOIN vc_floor_units f ON i.property_id = f.property_id AND i.floor_label = f.floor_label WHERE (i.property_id IN (SELECT property_id FROM vc_user_access WHERE user_id = ${user.id}) OR i.property_id IN (SELECT p.id FROM vc_properties p WHERE p.owner_id IN (SELECT owner_id FROM vc_user_owner_access WHERE user_id = ${user.id}))) ORDER BY i.created_at DESC`
-      )) as InvoiceRow[];
-      setInvoices(invs);
+      const propIds = props.map(p => N(p.id)).join(',');
+      const ownerIds = [...new Set(props.map(p => N(p.owner_id)).filter(id => id > 0))].join(',');
 
-      // Load owners
-      const ownerIds = [...new Set(props.map(p => p.owner_id).filter(Boolean))];
-      const ownerMap: Record<number, OwnerRow> = {};
-      for (const oid of ownerIds) {
-        const rows = (await window.tasklet.sqlQuery(
-          `SELECT * FROM vc_owners WHERE id = ${oid}`
-        )) as OwnerRow[];
-        if (rows.length > 0) ownerMap[oid] = rows[0];
-      }
-      setOwners(ownerMap);
-    } catch (err) {
-      console.error('[StakeholderPortal] Data load error:', err);
-    } finally {
-      setLoading(false);
+      const [fu, inv, pc, rc, mt, ow] = await Promise.all([
+        sqlQuery(`SELECT * FROM vc_floor_units WHERE property_id IN (${propIds}) ORDER BY property_id, floor_label`),
+        sqlQuery(`SELECT i.*, f.tenant_name FROM vc_invoices i LEFT JOIN vc_floor_units f ON i.tenant_id = f.id WHERE i.property_id IN (${propIds}) ORDER BY i.due_date DESC`),
+        sqlQuery(`SELECT * FROM vc_purchase_costs WHERE property_id IN (${propIds}) ORDER BY property_id, paid_date`),
+        sqlQuery(`SELECT * FROM vc_recurring_charges WHERE property_id IN (${propIds}) ORDER BY property_id`),
+        sqlQuery(`SELECT * FROM vc_meters WHERE property_id IN (${propIds}) ORDER BY property_id`),
+        ownerIds ? sqlQuery(`SELECT * FROM vc_owners WHERE id IN (${ownerIds})`) : Promise.resolve([]),
+      ]);
+
+      setFloorUnits(fu);
+      setInvoices(inv);
+      setPurchaseCosts(pc);
+      setRecurringCharges(rc);
+      setMeters(mt);
+      setOwners(ow);
+    } catch (e) {
+      console.error('StakeholderPortal fetch error:', e);
     }
+    setLoading(false);
   }, [user.id]);
 
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  useEffect(() => { fetchData(); }, [fetchData]);
 
-  // ===== Computed Values =====
-  const allFloors = properties.flatMap(p => (floorUnits[p.id] || []).map(f => ({ ...f, propertyName: p.name })));
-  const floorRentTotal = Math.round(allFloors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0));
-  // Add property-level rental_price for rented properties without floor-level rent data
-  const propRentFallback = properties.reduce((s, p) => {
-    const propFloorRent = (floorUnits[p.id] || []).reduce((sum: number, f: Record<string, unknown>) => sum + (Number(f.rent_amount) || 0), 0);
-    if (propFloorRent > 0) return s;
-    if (p.status === 'rented' && Number(p.rental_price || 0) > 0) return s + Number(p.rental_price);
-    return s;
-  }, 0);
-  const totalRent = floorRentTotal + Math.round(propRentFallback);
+  /* ── toggle helpers ── */
+  const toggleProp = (id: number) => {
+    setExpandedProps(prev => {
+      const s = new Set(prev);
+      s.has(id) ? s.delete(id) : s.add(id);
+      return s;
+    });
+  };
 
-  const now = new Date();
-  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-  const thisMonthInvoices = invoices.filter(i => (i.billing_month || '').startsWith(thisMonth));
-  const paidThisMonth = thisMonthInvoices.filter(i => i.status === 'paid').length;
-  const pendingThisMonth = thisMonthInvoices.filter(i => i.status === 'pending' || i.status === 'overdue').length;
+  /* ── computed data helpers ── */
+  const getUnits = (propId: number) => floorUnits.filter(u => N(u.property_id) === propId);
+  const getPurchaseCosts = (propId: number) => purchaseCosts.filter(c => N(c.property_id) === propId);
+  const getRecurring = (propId: number) => recurringCharges.filter(c => N(c.property_id) === propId);
+  const getMeters = (propId: number) => meters.filter(m => N(m.property_id) === propId);
+  const getOwner = (ownerId: number) => owners.find(o => N(o.id) === ownerId);
 
-  // Expiring leases
-  const expiringFloors = allFloors.filter(f => {
-    if (!f.lease_end) return false;
-    const days = getDaysUntil(f.lease_end);
-    return days <= 90;
-  }).sort((a, b) => getDaysUntil(a.lease_end) - getDaysUntil(b.lease_end));
+  const getMonthlyRent = (p: Rec): number => {
+    const units = getUnits(N(p.id));
+    const unitRent = units.reduce((s, u) => s + N(u.rent_amount), 0);
+    if (unitRent > 0) return unitRent;
+    if (S(p.status) === '出租中' || S(p.status) === 'rented') return N(p.rental_price);
+    return 0;
+  };
 
-  // ===== Tab Navigation Config =====
-  const TABS: { key: StakeholderTab; label: string; Icon: React.FC<{ size?: number; className?: string }> }[] = [
-    { key: 'home', label: '首页', Icon: LayoutDashboard },
-    { key: 'properties', label: '物业', Icon: Building2 },
-    { key: 'billing', label: '收租', Icon: Receipt },
-    { key: 'reports', label: '报表', Icon: BarChart3 },
-  ];
+  const getMgmtFee = (p: Rec): number => {
+    if (S(p.mgmt_fee_type) === 'fixed') return N(p.mgmt_fee_amount);
+    if (N(p.mgmt_fee_pct) > 0) return getMonthlyRent(p) * N(p.mgmt_fee_pct) / 100;
+    return N(p.mgmt_fee_amount);
+  };
 
-  // ===== Loading State =====
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-base-200 flex items-center justify-center" style={{ fontFamily: 'Avenir, Arial, sans-serif' }}>
-        <div className="text-center space-y-4">
-          <span className="loading loading-spinner loading-lg text-primary" />
-          <p className="text-sm text-base-content/60">加载中...</p>
-        </div>
+  const getMonthlyExpense = (p: Rec): number => {
+    const propId = N(p.id);
+    const recurring = getRecurring(propId).reduce((s, c) => {
+      const amt = N(c.amount);
+      const freq = S(c.frequency).toLowerCase();
+      if (freq === 'yearly' || freq === 'annual') return s + amt / 12;
+      if (freq === 'quarterly') return s + amt / 3;
+      return s + amt;
+    }, 0);
+    return N(p.monthly_repayment) + getMgmtFee(p) + N(p.indah_water) + N(p.service_charge) +
+      recurring + N(p.land_tax) / 12 + (N(p.assessment_tax) * 2) / 12;
+  };
+
+  const getEstimatedBalance = (p: Rec): number =>
+    estimateLoanBalance(N(p.loan_amount), N(p.loan_interest_rate), N(p.monthly_repayment), p.loan_start);
+
+  const getPurchaseTotal = (p: Rec): number =>
+    N(p.price) + getPurchaseCosts(N(p.id)).reduce((s, c) => s + N(c.amount), 0);
+
+  /* ── aggregate calculations ── */
+  const totalAssets = properties.reduce((s, p) => s + getPurchaseTotal(p), 0);
+  const totalLoanBalance = properties.reduce((s, p) => s + getEstimatedBalance(p), 0);
+  const netAssets = totalAssets - totalLoanBalance;
+  const totalMonthlyRent = properties.reduce((s, p) => s + getMonthlyRent(p), 0);
+  const totalMonthlyExpense = properties.reduce((s, p) => s + getMonthlyExpense(p), 0);
+  const monthlyNet = totalMonthlyRent - totalMonthlyExpense;
+
+  const totalUnits = floorUnits.length || properties.length;
+  const occupiedUnits = floorUnits.length > 0
+    ? floorUnits.filter(u => S(u.status) !== '空置' && S(u.status) !== 'vacant' && S(u.tenant_name)).length
+    : properties.filter(p => S(p.status) === '出租中' || S(p.status) === 'rented').length;
+  const occupancyRate = totalUnits > 0 ? (occupiedUnits / totalUnits) * 100 : 0;
+
+  const bm = currentBillingMonth();
+  const currentInvoices = invoices.filter(i => S(i.billing_month) === bm || S(i.billing_month).startsWith(bm));
+  const nonCancelledCurrent = currentInvoices.filter(i => S(i.status) !== 'cancelled' && S(i.status) !== '已取消');
+  const paidCurrent = nonCancelledCurrent.filter(i => S(i.status) === 'paid' || S(i.status) === '已付');
+  const collectionRate = nonCancelledCurrent.length > 0
+    ? (paidCurrent.reduce((s, i) => s + N(i.amount), 0) / nonCancelledCurrent.reduce((s, i) => s + N(i.amount), 0)) * 100
+    : 0;
+
+  const overdueInvoices = invoices.filter(i => S(i.status) === 'overdue' || S(i.status) === '逾期');
+  const pendingInvoices = invoices.filter(i => S(i.status) === 'pending' || S(i.status) === '待付');
+  const expiringLeases = floorUnits.filter(u => {
+    const d = daysUntil(u.lease_end);
+    return d >= 0 && d <= 90;
+  });
+
+  const totalLoanOriginal = properties.reduce((s, p) => s + N(p.loan_amount), 0);
+  const totalMonthlyRepayment = properties.reduce((s, p) => s + N(p.monthly_repayment), 0);
+  const loanPayoffPct = totalLoanOriginal > 0 ? ((totalLoanOriginal - totalLoanBalance) / totalLoanOriginal) * 100 : 0;
+
+  /* ── card wrapper ── */
+  const Card: React.FC<{ children: React.ReactNode; className?: string }> = ({ children, className }) => (
+    <div className={`bg-base-100 rounded-xl p-4 shadow-sm border border-base-200 ${className || ''}`}>
+      {children}
+    </div>
+  );
+
+  /* ── badge helper ── */
+  const StatusBadge: React.FC<{ status: string; small?: boolean }> = ({ status, small }) => {
+    const s = status.toLowerCase();
+    let color = 'badge-ghost';
+    let label = status;
+    if (s === 'paid' || s === '已付') { color = 'badge-success'; label = '已付'; }
+    else if (s === 'overdue' || s === '逾期') { color = 'badge-error'; label = '逾期'; }
+    else if (s === 'pending' || s === '待付') { color = 'badge-warning'; label = '待付'; }
+    else if (s === 'cancelled' || s === '已取消') { color = 'badge-ghost'; label = '已取消'; }
+    else if (s === 'partial' || s === '部分') { color = 'badge-info'; label = '部分付'; }
+    return <span className={`badge ${color} ${small ? 'badge-xs' : 'badge-sm'}`}>{label}</span>;
+  };
+
+  const LeaseBadge: React.FC<{ leaseEnd: unknown; status?: unknown }> = ({ leaseEnd, status }) => {
+    const st = S(status).toLowerCase();
+    if (st === '空置' || st === 'vacant') return <span className="badge badge-ghost badge-sm">空置</span>;
+    const d = daysUntil(leaseEnd);
+    if (d < 0) return <span className="badge badge-error badge-sm">已过期</span>;
+    if (d <= 30) return <span className="badge badge-warning badge-sm">{d}天到期</span>;
+    if (d <= 90) return <span className="badge badge-info badge-sm">{d}天到期</span>;
+    return <span className="badge badge-success badge-sm">正常</span>;
+  };
+
+  /* ═══════════════════════════════════════════════════════════════
+     TAB 1: 首页 DASHBOARD
+     ═══════════════════════════════════════════════════════════════ */
+  const renderDashboard = () => (
+    <div className="space-y-4">
+      {/* Greeting */}
+      <div className="px-1">
+        <h2 className="text-xl font-bold">{getGreeting()}，{user.name}</h2>
+        <p className="text-xs text-base-content/60 mt-0.5">{todayStr()}</p>
       </div>
-    );
-  }
 
-  // ===== Renderers =====
-
-  function renderDashboard() {
-    return (
-      <div className="space-y-4">
-        {/* KPI Grid */}
-        <div className="grid grid-cols-2 gap-3">
-          <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
-            <div className="text-2xl mb-1">🏢</div>
-            <p className="text-xs text-base-content/50">我的物业</p>
-            <p className="text-xl font-bold text-base-content">{properties.length}</p>
+      {/* Portfolio Value */}
+      <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-8 h-8 rounded-lg bg-primary/15 flex items-center justify-center">
+            <PiggyBank size={16} className="text-primary" />
           </div>
-          <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
-            <div className="text-2xl mb-1">💰</div>
-            <p className="text-xs text-base-content/50">月租收入</p>
-            <p className="text-lg font-bold text-base-content">{fmtCurrency(totalRent)}</p>
+          <span className="font-semibold text-sm">资产总览</span>
+        </div>
+        <div className="space-y-2">
+          <div className="flex justify-between items-end">
+            <span className="text-xs text-base-content/60">总资产价值</span>
+            <span className="text-xl font-bold text-primary">{fmtCurrency(totalAssets)}</span>
           </div>
-          <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
-            <div className="text-2xl mb-1">✅</div>
-            <p className="text-xs text-base-content/50">已收租</p>
-            <p className="text-xl font-bold text-success">{paidThisMonth}</p>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-base-content/60">总贷款余额</span>
+            <span className="text-sm font-semibold text-error">{fmtCurrency(totalLoanBalance)}</span>
           </div>
-          <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
-            <div className="text-2xl mb-1">⏳</div>
-            <p className="text-xs text-base-content/50">待收租</p>
-            <p className="text-xl font-bold text-warning">{pendingThisMonth}</p>
+          <div className="divider my-1"></div>
+          <div className="flex justify-between items-center">
+            <span className="text-xs font-semibold">净资产</span>
+            <span className={`text-lg font-bold ${netAssets >= 0 ? 'text-success' : 'text-error'}`}>
+              {fmtCurrency(netAssets)}
+            </span>
           </div>
         </div>
+      </Card>
 
-        {/* Lease Expiry Alerts */}
-        <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
-          <h3 className="text-sm font-bold text-base-content mb-3 flex items-center gap-2">
-            <CalendarClock size={16} className="text-primary" />
-            租约到期提醒
-          </h3>
-          {expiringFloors.length === 0 ? (
-            <p className="text-xs text-base-content/40 text-center py-4">暂无即将到期的租约 🎉</p>
-          ) : (
-            <div className="space-y-2">
-              {expiringFloors.map((f, idx) => {
-                const badge = leaseStatusBadge(f.lease_end);
-                return (
-                  <div key={`${f.property_id}-${f.floor_label}-${idx}`} className="flex items-center justify-between py-2 border-b border-base-200 last:border-b-0">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-base-content truncate">{f.propertyName} · {f.floor_label}楼</p>
-                      <p className="text-[11px] text-base-content/50">{f.tenant_name || '空置'} · 到期 {fmtDate(f.lease_end)}</p>
+      {/* Monthly Cash Flow */}
+      <Card>
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-8 h-8 rounded-lg bg-info/15 flex items-center justify-center">
+            <Activity size={16} className="text-info" />
+          </div>
+          <span className="font-semibold text-sm">月度现金流</span>
+        </div>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="bg-success/5 rounded-lg p-2">
+            <div className="text-[10px] text-base-content/60 mb-1">月租收入</div>
+            <div className="text-sm font-bold text-success">{fmtCurrency(totalMonthlyRent)}</div>
+            <TrendingUp size={12} className="text-success mx-auto mt-1" />
+          </div>
+          <div className="bg-error/5 rounded-lg p-2">
+            <div className="text-[10px] text-base-content/60 mb-1">月总支出</div>
+            <div className="text-sm font-bold text-error">{fmtCurrency(totalMonthlyExpense)}</div>
+            <TrendingDown size={12} className="text-error mx-auto mt-1" />
+          </div>
+          <div className={`${monthlyNet >= 0 ? 'bg-success/5' : 'bg-error/5'} rounded-lg p-2`}>
+            <div className="text-[10px] text-base-content/60 mb-1">月净收入</div>
+            <div className={`text-sm font-bold ${monthlyNet >= 0 ? 'text-success' : 'text-error'}`}>
+              {fmtCurrency(monthlyNet)}
+            </div>
+            {monthlyNet >= 0
+              ? <ArrowUpRight size={12} className="text-success mx-auto mt-1" />
+              : <ArrowDownRight size={12} className="text-error mx-auto mt-1" />}
+          </div>
+        </div>
+      </Card>
+
+      {/* Alerts */}
+      {(overdueInvoices.length > 0 || expiringLeases.length > 0 || pendingInvoices.length > 0) && (
+        <Card className="border-warning/30">
+          <button
+            className="flex items-center justify-between w-full"
+            onClick={() => setExpandedAlerts(!expandedAlerts)}
+          >
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-warning/15 flex items-center justify-center">
+                <AlertCircle size={16} className="text-warning" />
+              </div>
+              <span className="font-semibold text-sm">
+                提醒事项
+                <span className="badge badge-warning badge-xs ml-2">
+                  {overdueInvoices.length + expiringLeases.length + pendingInvoices.length}
+                </span>
+              </span>
+            </div>
+            {expandedAlerts ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </button>
+          {expandedAlerts && (
+            <div className="mt-3 space-y-2">
+              {overdueInvoices.length > 0 && (
+                <div className="flex items-center gap-2 p-2 bg-error/5 rounded-lg">
+                  <span className="text-error text-lg">🔴</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-error">逾期账单 × {overdueInvoices.length}</div>
+                    <div className="text-xs text-base-content/60">
+                      总额 {fmtCurrency(overdueInvoices.reduce((s, i) => s + N(i.amount), 0))}
                     </div>
-                    {badge && (
-                      <span className={`badge badge-sm ${badge.cls} shrink-0 ml-2`}>
-                        {badge.emoji} {badge.label}
-                      </span>
+                  </div>
+                </div>
+              )}
+              {expiringLeases.length > 0 && (
+                <div className="flex items-center gap-2 p-2 bg-warning/5 rounded-lg">
+                  <span className="text-warning text-lg">🟡</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-warning">租约即将到期 × {expiringLeases.length}</div>
+                    <div className="text-xs text-base-content/60">
+                      {expiringLeases.map(u => `${S(u.tenant_name)}(${daysUntil(u.lease_end)}天)`).join('、')}
+                    </div>
+                  </div>
+                </div>
+              )}
+              {pendingInvoices.length > 0 && (
+                <div className="flex items-center gap-2 p-2 bg-info/5 rounded-lg">
+                  <span className="text-info text-lg">⏳</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-xs font-semibold text-info">待收账单 × {pendingInvoices.length}</div>
+                    <div className="text-xs text-base-content/60">
+                      总额 {fmtCurrency(pendingInvoices.reduce((s, i) => s + N(i.amount), 0))}
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </Card>
+      )}
+
+      {/* Quick Stats Grid */}
+      <div className="grid grid-cols-2 gap-3">
+        <Card>
+          <div className="flex items-center gap-2">
+            <Building2 size={14} className="text-primary" />
+            <span className="text-xs text-base-content/60">物业数量</span>
+          </div>
+          <div className="text-2xl font-bold mt-1">{properties.length}</div>
+        </Card>
+        <Card>
+          <div className="flex items-center gap-2">
+            <Key size={14} className="text-primary" />
+            <span className="text-xs text-base-content/60">出租单位</span>
+          </div>
+          <div className="text-2xl font-bold mt-1">{occupiedUnits}/{totalUnits}</div>
+        </Card>
+        <Card>
+          <div className="flex items-center gap-2">
+            <Users size={14} className="text-primary" />
+            <span className="text-xs text-base-content/60">入住率</span>
+          </div>
+          <div className={`text-2xl font-bold mt-1 ${occupancyRate >= 80 ? 'text-success' : occupancyRate >= 50 ? 'text-warning' : 'text-error'}`}>
+            {fmtPct(occupancyRate)}
+          </div>
+        </Card>
+        <Card>
+          <div className="flex items-center gap-2">
+            <Wallet size={14} className="text-primary" />
+            <span className="text-xs text-base-content/60">收款率</span>
+          </div>
+          <div className={`text-2xl font-bold mt-1 ${collectionRate >= 80 ? 'text-success' : collectionRate >= 50 ? 'text-warning' : 'text-error'}`}>
+            {fmtPct(collectionRate)}
+          </div>
+        </Card>
+      </div>
+
+      {/* Loan Summary Mini */}
+      {totalLoanOriginal > 0 && (
+        <Card>
+          <div className="flex items-center gap-2 mb-3">
+            <div className="w-8 h-8 rounded-lg bg-error/10 flex items-center justify-center">
+              <Landmark size={16} className="text-error" />
+            </div>
+            <span className="font-semibold text-sm">贷款摘要</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center text-xs mb-3">
+            <div>
+              <div className="text-base-content/50">原始贷款</div>
+              <div className="font-semibold mt-0.5">{fmtCurrency(totalLoanOriginal)}</div>
+            </div>
+            <div>
+              <div className="text-base-content/50">剩余余额</div>
+              <div className="font-semibold text-error mt-0.5">{fmtCurrency(totalLoanBalance)}</div>
+            </div>
+            <div>
+              <div className="text-base-content/50">月总供期</div>
+              <div className="font-semibold mt-0.5">{fmtCurrency(totalMonthlyRepayment)}</div>
+            </div>
+          </div>
+          <div className="w-full bg-base-200 rounded-full h-2.5">
+            <div
+              className="bg-success h-2.5 rounded-full transition-all"
+              style={{ width: `${Math.min(loanPayoffPct, 100)}%` }}
+            />
+          </div>
+          <div className="text-right text-xs text-base-content/50 mt-1">已还 {fmtPct(loanPayoffPct)}</div>
+        </Card>
+      )}
+    </div>
+  );
+
+  /* ═══════════════════════════════════════════════════════════════
+     TAB 2: 资产 PROPERTY DEEP-DIVE
+     ═══════════════════════════════════════════════════════════════ */
+  const renderAssets = () => (
+    <div className="space-y-3">
+      <h2 className="text-lg font-bold px-1">我的资产</h2>
+      {properties.length === 0 && (
+        <Card><p className="text-center text-sm text-base-content/50 py-6">暂无物业数据</p></Card>
+      )}
+      {properties.map(p => {
+        const propId = N(p.id);
+        const expanded = expandedProps.has(propId);
+        const units = getUnits(propId);
+        const propRent = getMonthlyRent(p);
+        const owner = getOwner(N(p.owner_id));
+        const hasLoan = N(p.loan_amount) > 0;
+        const costs = getPurchaseCosts(propId);
+        const recurring = getRecurring(propId);
+        const propMeters = getMeters(propId);
+        const balance = getEstimatedBalance(p);
+        const payoffPct = N(p.loan_amount) > 0 ? ((N(p.loan_amount) - balance) / N(p.loan_amount)) * 100 : 0;
+        const monthlyExp = getMonthlyExpense(p);
+        const mgmtFee = getMgmtFee(p);
+
+        const isRented = units.some(u => S(u.status) !== '空置' && S(u.status) !== 'vacant' && S(u.tenant_name))
+          || S(p.status) === '出租中' || S(p.status) === 'rented';
+
+        return (
+          <Card key={propId}>
+            {/* Collapsed header */}
+            <button className="flex items-start justify-between w-full text-left" onClick={() => toggleProp(propId)}>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-sm truncate">{S(p.name)}</span>
+                  <span className={`badge badge-sm ${isRented ? 'badge-success' : 'badge-ghost'}`}>
+                    {isRented ? '出租中' : '空置'}
+                  </span>
+                </div>
+                <div className="text-xs text-base-content/50 mt-0.5 truncate">{S(p.address)}</div>
+                {owner && <div className="text-xs text-base-content/40 mt-0.5">{S(owner.name)}</div>}
+                <div className="text-sm font-semibold text-success mt-1">{fmtCurrency(propRent)}/月</div>
+              </div>
+              <div className="ml-2 mt-1">
+                {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+              </div>
+            </button>
+
+            {/* Expanded content */}
+            {expanded && (
+              <div className="mt-4 space-y-4">
+                {/* Section A: Property Info */}
+                <div>
+                  <h4 className="text-sm font-bold flex items-center gap-1.5 mb-2">
+                    <FileText size={14} className="text-primary" /> 物业资料
+                  </h4>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                    <div className="text-base-content/50">类型</div>
+                    <div className="font-medium">{S(p.type) || '-'}</div>
+                    <div className="text-base-content/50">面积</div>
+                    <div className="font-medium">{N(p.area_sqft) ? `${N(p.area_sqft).toLocaleString()} sqft` : '-'}</div>
+                    <div className="text-base-content/50">房间/浴室</div>
+                    <div className="font-medium">{N(p.bedrooms) || '-'} / {N(p.bathrooms) || '-'}</div>
+                    {N(p.floor_count) > 0 && <>
+                      <div className="text-base-content/50">楼层数</div>
+                      <div className="font-medium">{N(p.floor_count)}</div>
+                    </>}
+                    {S(p.hakmilik_no) && <>
+                      <div className="text-base-content/50">Hakmilik No</div>
+                      <div className="font-medium">{S(p.hakmilik_no)}</div>
+                    </>}
+                    <div className="text-base-content/50">地址</div>
+                    <div className="font-medium col-span-1">{S(p.address) || '-'}</div>
+                    <div className="text-base-content/50">购入价</div>
+                    <div className="font-medium text-primary">{N(p.price) ? fmtCurrency(N(p.price)) : '-'}</div>
+                    <div className="text-base-content/50">月租定价</div>
+                    <div className="font-medium">{N(p.rental_price) ? fmtCurrency(N(p.rental_price)) : '-'}</div>
+                    <div className="text-base-content/50">状态</div>
+                    <div className="font-medium">{S(p.status) || '-'}</div>
+                  </div>
+                </div>
+
+                {/* Section B: Tenants */}
+                <div>
+                  <h4 className="text-sm font-bold flex items-center gap-1.5 mb-2">
+                    <Users size={14} className="text-primary" /> 租赁状况
+                  </h4>
+                  {units.length === 0 ? (
+                    <p className="text-xs text-base-content/40">暂无单位数据</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {units.map(u => {
+                        const uid = N(u.id);
+                        return (
+                          <div key={uid} className="bg-base-200/50 rounded-lg p-3">
+                            <div className="flex items-center justify-between mb-1">
+                              <div className="flex items-center gap-2">
+                                <span className="font-semibold text-xs">{S(u.floor_label)}</span>
+                                <LeaseBadge leaseEnd={u.lease_end} status={u.status} />
+                              </div>
+                              <span className="text-xs font-bold text-success">{fmtCurrency(N(u.rent_amount))}/月</span>
+                            </div>
+                            {S(u.tenant_name) && (
+                              <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs mt-2">
+                                <div className="text-base-content/50">租户</div>
+                                <div className="font-medium">{S(u.tenant_name)}</div>
+                                {S(u.tenant_phone) && <>
+                                  <div className="text-base-content/50">电话</div>
+                                  <div className="font-medium">{S(u.tenant_phone)}</div>
+                                </>}
+                                <div className="text-base-content/50">押金</div>
+                                <div className="font-medium">{fmtCurrency(N(u.deposit))}</div>
+                                {N(u.utility_deposit) > 0 && <>
+                                  <div className="text-base-content/50">杂费押金</div>
+                                  <div className="font-medium">{fmtCurrency(N(u.utility_deposit))}</div>
+                                </>}
+                                <div className="text-base-content/50">租约期</div>
+                                <div className="font-medium">{fmtDate(u.lease_start)} ~ {fmtDate(u.lease_end)}</div>
+                                {S(u.tenant_company_reg) && <>
+                                  <div className="text-base-content/50">公司注册号</div>
+                                  <div className="font-medium">{S(u.tenant_company_reg)}</div>
+                                </>}
+                                {S(u.tenant_address) && <>
+                                  <div className="text-base-content/50">租户地址</div>
+                                  <div className="font-medium">{S(u.tenant_address)}</div>
+                                </>}
+                                {S(u.director_name) && <>
+                                  <div className="text-base-content/50">负责人</div>
+                                  <div className="font-medium">{S(u.director_name)}</div>
+                                </>}
+                                {S(u.director_ic) && <>
+                                  <div className="text-base-content/50">身份证号</div>
+                                  <div className="font-medium">{S(u.director_ic)}</div>
+                                </>}
+                                {S(u.director_phone) && <>
+                                  <div className="text-base-content/50">负责人电话</div>
+                                  <div className="font-medium">{S(u.director_phone)}</div>
+                                </>}
+                                {S(u.director_notes) && <>
+                                  <div className="text-base-content/50">备注</div>
+                                  <div className="font-medium">{S(u.director_notes)}</div>
+                                </>}
+                                {S(u.tenant_bank_name) && <>
+                                  <div className="text-base-content/50">银行</div>
+                                  <div className="font-medium">{S(u.tenant_bank_name)}</div>
+                                </>}
+                                {S(u.tenant_bank_account) && <>
+                                  <div className="text-base-content/50">银行户口</div>
+                                  <div className="font-medium">{S(u.tenant_bank_account)}</div>
+                                </>}
+                                {S(u.agent_name) && <>
+                                  <div className="text-base-content/50">经纪人</div>
+                                  <div className="font-medium">{S(u.agent_name)}{S(u.agent_company) ? ` (${S(u.agent_company)})` : ''}</div>
+                                </>}
+                                {S(u.agent_phone) && <>
+                                  <div className="text-base-content/50">经纪人电话</div>
+                                  <div className="font-medium">{S(u.agent_phone)}</div>
+                                </>}
+                                {S(u.linked_lease_ref) && <>
+                                  <div className="text-base-content/50">租约参考</div>
+                                  <div className="font-medium">{S(u.linked_lease_ref)}</div>
+                                </>}
+                                {S(u.notes) && <>
+                                  <div className="text-base-content/50">备注</div>
+                                  <div className="font-medium">{S(u.notes)}</div>
+                                </>}
+                              </div>
+                            )}
+                            {!S(u.tenant_name) && (
+                              <div className="text-xs text-base-content/40 mt-1">空置中</div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* Section C: Loan Details */}
+                {hasLoan && (
+                  <div>
+                    <h4 className="text-sm font-bold flex items-center gap-1.5 mb-2">
+                      <Landmark size={14} className="text-error" /> 贷款详情
+                    </h4>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                      <div className="text-base-content/50">银行</div>
+                      <div className="font-medium">{S(p.bank_name) || S(p.bank_code) || '-'}</div>
+                      <div className="text-base-content/50">贷款户口</div>
+                      <div className="font-medium">{S(p.loan_account_no) || '-'}</div>
+                      <div className="text-base-content/50">原始贷款额</div>
+                      <div className="font-medium">{fmtCurrency(N(p.loan_amount))}</div>
+                      <div className="text-base-content/50">预估余额</div>
+                      <div className="font-medium text-error">{fmtCurrency(balance)}</div>
+                      <div className="text-base-content/50">利率</div>
+                      <div className="font-medium">{N(p.loan_interest_rate)}%</div>
+                      <div className="text-base-content/50">月供</div>
+                      <div className="font-medium">{fmtCurrency(N(p.monthly_repayment))}</div>
+                      <div className="text-base-content/50">还款日</div>
+                      <div className="font-medium">每月 {N(p.loan_repayment_day) || '-'} 日</div>
+                      <div className="text-base-content/50">贷款开始</div>
+                      <div className="font-medium">{fmtDate(p.loan_start)}</div>
+                      <div className="text-base-content/50">预计还清</div>
+                      <div className="font-medium">{estimatePayoffDate(p.loan_start, N(p.loan_tenure_months))}</div>
+                      {S(p.loan_si_account) && <>
+                        <div className="text-base-content/50">SI 户口</div>
+                        <div className="font-medium">{S(p.loan_si_account)}</div>
+                      </>}
+                    </div>
+                    <div className="mt-2">
+                      <div className="flex justify-between text-xs mb-1">
+                        <span className="text-base-content/50">还贷进度</span>
+                        <span className="font-semibold">{fmtPct(payoffPct)}</span>
+                      </div>
+                      <div className="w-full bg-base-200 rounded-full h-2">
+                        <div className="bg-success h-2 rounded-full transition-all" style={{ width: `${Math.min(payoffPct, 100)}%` }} />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Section D: Purchase Costs */}
+                {costs.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-bold flex items-center gap-1.5 mb-2">
+                      <DollarSign size={14} className="text-primary" /> 购入成本
+                    </h4>
+                    <div className="overflow-x-auto">
+                      <table className="table table-xs">
+                        <thead>
+                          <tr className="text-base-content/50">
+                            <th>类别</th>
+                            <th>说明</th>
+                            <th className="text-right">金额</th>
+                            <th>付给</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {costs.map((c, i) => (
+                            <tr key={i}>
+                              <td className="font-medium">{S(c.category)}</td>
+                              <td>{S(c.description)}</td>
+                              <td className="text-right font-medium">{fmtCurrency(N(c.amount))}</td>
+                              <td>{S(c.paid_to) || '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr className="font-bold">
+                            <td colSpan={2}>总购入成本 (含房价)</td>
+                            <td className="text-right text-primary">{fmtCurrency(getPurchaseTotal(p))}</td>
+                            <td></td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Section E: Monthly Expenses */}
+                <div>
+                  <h4 className="text-sm font-bold flex items-center gap-1.5 mb-2">
+                    <CreditCard size={14} className="text-error" /> 每月开支
+                  </h4>
+                  <div className="space-y-1.5 text-xs">
+                    {N(p.monthly_repayment) > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-base-content/60">贷款月供</span>
+                        <span className="font-medium text-error">{fmtCurrency(N(p.monthly_repayment))}</span>
+                      </div>
                     )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {/* Loan Overview */}
-        <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
-          <h3 className="text-sm font-bold text-base-content mb-3 flex items-center gap-2">
-            <Landmark size={16} className="text-primary" />
-            贷款概览
-          </h3>
-          {properties.filter(p => Number(p.loan_amount) > 0).length === 0 ? (
-            <p className="text-xs text-base-content/40 text-center py-4">暂无贷款记录</p>
-          ) : (
-            <div className="space-y-2">
-              {properties.filter(p => Number(p.loan_amount) > 0).map(p => {
-                const bal = estimateBalance(
-                  Number(p.loan_amount),
-                  Number(p.monthly_repayment),
-                  Number(p.loan_interest_rate),
-                  p.loan_start
-                );
-                return (
-                  <div key={p.id} className="flex items-center justify-between py-2 border-b border-base-200 last:border-b-0">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-semibold text-base-content truncate">{p.name}</p>
-                      <p className="text-[11px] text-base-content/50">余额 {fmtCurrency(bal)}</p>
+                    {mgmtFee > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-base-content/60">
+                          管理费 {S(p.mgmt_fee_type) === 'fixed' ? '' : `(${N(p.mgmt_fee_pct)}%)`}
+                        </span>
+                        <span className="font-medium">{fmtCurrency(mgmtFee)}</span>
+                      </div>
+                    )}
+                    {(S(p.mgmt_company_name) || S(p.mgmt_company_phone)) && (
+                      <div className="bg-base-200/50 rounded p-2 text-xs">
+                        <div className="text-base-content/40 text-[10px] mb-1">管理公司</div>
+                        {S(p.mgmt_company_name) && <div>{S(p.mgmt_company_name)}</div>}
+                        {S(p.mgmt_company_phone) && <div>📞 {S(p.mgmt_company_phone)}</div>}
+                        {S(p.mgmt_company_address) && <div>📍 {S(p.mgmt_company_address)}</div>}
+                      </div>
+                    )}
+                    {N(p.service_charge) > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-base-content/60">服务费</span>
+                        <span className="font-medium">{fmtCurrency(N(p.service_charge))}</span>
+                      </div>
+                    )}
+                    {N(p.indah_water) > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-base-content/60">
+                          Indah Water {S(p.indah_water_acc) ? `(${S(p.indah_water_acc)})` : ''}
+                        </span>
+                        <span className="font-medium">{fmtCurrency(N(p.indah_water))}</span>
+                      </div>
+                    )}
+                    {N(p.land_tax) > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-base-content/60">
+                          地税/月 {S(p.land_tax_ref) ? `(${S(p.land_tax_ref)})` : ''}
+                          {S(p.land_tax_due) ? ` 到期:${fmtDate(p.land_tax_due)}` : ''}
+                        </span>
+                        <span className="font-medium">{fmtCurrency(N(p.land_tax) / 12)}</span>
+                      </div>
+                    )}
+                    {N(p.assessment_tax) > 0 && (
+                      <div className="flex justify-between">
+                        <span className="text-base-content/60">
+                          门牌税/月 {S(p.assessment_tax_ref) ? `(${S(p.assessment_tax_ref)})` : ''}
+                          {S(p.assessment_tax_due) ? ` 到期:${fmtDate(p.assessment_tax_due)}` : ''}
+                        </span>
+                        <span className="font-medium">{fmtCurrency((N(p.assessment_tax) * 2) / 12)}</span>
+                      </div>
+                    )}
+                    {recurring.length > 0 && recurring.map((rc, i) => (
+                      <div key={i} className="flex justify-between">
+                        <span className="text-base-content/60">
+                          {S(rc.charge_name)} {S(rc.floor_label) ? `[${S(rc.floor_label)}]` : ''}
+                          {S(rc.notes) ? ` (${S(rc.notes)})` : ''}
+                        </span>
+                        <span className="font-medium">{fmtCurrency(N(rc.amount))}/{S(rc.frequency) || '月'}</span>
+                      </div>
+                    ))}
+                    <div className="divider my-1"></div>
+                    <div className="flex justify-between font-bold">
+                      <span>月总支出</span>
+                      <span className="text-error">{fmtCurrency(monthlyExp)}</span>
                     </div>
-                    <span className="text-xs font-medium text-error shrink-0 ml-2">
-                      -{fmtCurrency(Number(p.monthly_repayment) || 0)}/月
-                    </span>
+                    <div className="flex justify-between font-bold">
+                      <span>月净收入</span>
+                      <span className={propRent - monthlyExp >= 0 ? 'text-success' : 'text-error'}>
+                        {fmtCurrency(propRent - monthlyExp)}
+                      </span>
+                    </div>
                   </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </div>
-    );
-  }
+                </div>
 
-  function renderProperties() {
-    if (properties.length === 0) {
-      return (
-        <div className="text-center py-16">
-          <Home size={48} className="mx-auto text-base-content/20 mb-3" />
-          <p className="text-sm text-base-content/40">暂无物业</p>
-        </div>
-      );
-    }
+                {/* Section F: Meters */}
+                {propMeters.length > 0 && (
+                  <div>
+                    <h4 className="text-sm font-bold flex items-center gap-1.5 mb-2">
+                      <Zap size={14} className="text-warning" /> 电水表
+                    </h4>
+                    <div className="space-y-1.5">
+                      {propMeters.map((m, i) => (
+                        <div key={i} className="flex items-center gap-2 bg-base-200/50 rounded-lg p-2 text-xs">
+                          <span className="text-lg">{S(m.meter_type) === 'electricity' ? '⚡' : '💧'}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium">{S(m.meter_number)}</div>
+                            <div className="text-base-content/50">
+                              {S(m.account_holder)}{S(m.label) ? ` · ${S(m.label)}` : ''}
+                              {S(m.notes) ? ` · ${S(m.notes)}` : ''}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Owner details */}
+                {owner && (
+                  <div>
+                    <h4 className="text-sm font-bold flex items-center gap-1.5 mb-2">
+                      <Shield size={14} className="text-info" /> 业主资料
+                    </h4>
+                    <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                      <div className="text-base-content/50">业主名</div>
+                      <div className="font-medium">{S(owner.name)}</div>
+                      {S(owner.owner_type) && <>
+                        <div className="text-base-content/50">类型</div>
+                        <div className="font-medium">{S(owner.owner_type)}</div>
+                      </>}
+                      {S(owner.registration_no) && <>
+                        <div className="text-base-content/50">注册号</div>
+                        <div className="font-medium">{S(owner.registration_no)}</div>
+                      </>}
+                      {S(owner.contact_person) && <>
+                        <div className="text-base-content/50">联系人</div>
+                        <div className="font-medium">{S(owner.contact_person)}</div>
+                      </>}
+                      {S(owner.phone) && <>
+                        <div className="text-base-content/50">电话</div>
+                        <div className="font-medium">{S(owner.phone)}</div>
+                      </>}
+                      {S(owner.email) && <>
+                        <div className="text-base-content/50">邮箱</div>
+                        <div className="font-medium">{S(owner.email)}</div>
+                      </>}
+                      {S(owner.address) && <>
+                        <div className="text-base-content/50">地址</div>
+                        <div className="font-medium">{S(owner.address)}</div>
+                      </>}
+                      {S(owner.payment_bank_name) && <>
+                        <div className="text-base-content/50">收款银行</div>
+                        <div className="font-medium">{S(owner.payment_bank_name)}</div>
+                      </>}
+                      {S(owner.payment_bank_account) && <>
+                        <div className="text-base-content/50">收款户口</div>
+                        <div className="font-medium">{S(owner.payment_bank_account)}</div>
+                      </>}
+                      {S(owner.payment_account_name) && <>
+                        <div className="text-base-content/50">户口名</div>
+                        <div className="font-medium">{S(owner.payment_account_name)}</div>
+                      </>}
+                      {S(owner.notes) && <>
+                        <div className="text-base-content/50">备注</div>
+                        <div className="font-medium">{S(owner.notes)}</div>
+                      </>}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </Card>
+        );
+      })}
+    </div>
+  );
+
+  /* ═══════════════════════════════════════════════════════════════
+     TAB 3: 收租 BILLING
+     ═══════════════════════════════════════════════════════════════ */
+  const renderBilling = () => {
+    const filtered = billingFilter === 'all'
+      ? invoices
+      : invoices.filter(i => N(i.property_id) === billingFilter);
+
+    const nonCancelled = filtered.filter(i => S(i.status) !== 'cancelled' && S(i.status) !== '已取消');
+    const totalAmount = nonCancelled.reduce((s, i) => s + N(i.amount), 0);
+    const paidAmount = nonCancelled
+      .filter(i => S(i.status) === 'paid' || S(i.status) === '已付')
+      .reduce((s, i) => s + N(i.amount), 0);
+    const rate = totalAmount > 0 ? (paidAmount / totalAmount) * 100 : 0;
 
     return (
       <div className="space-y-3">
-        {properties.map(p => (
-          <PropertyCard key={p.id} property={p} floors={floorUnits[p.id] || []} owner={owners[p.owner_id]} />
-        ))}
+        <h2 className="text-lg font-bold px-1">收租管理</h2>
+
+        {/* Property filter */}
+        <div className="px-1">
+          <select
+            className="select select-bordered select-sm w-full"
+            value={billingFilter}
+            onChange={e => setBillingFilter(e.target.value === 'all' ? 'all' : Number(e.target.value))}
+          >
+            <option value="all">全部物业</option>
+            {properties.map(p => (
+              <option key={N(p.id)} value={N(p.id)}>{S(p.name)}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Billing summary */}
+        <Card>
+          <div className="grid grid-cols-3 gap-2 text-center text-xs mb-3">
+            <div>
+              <div className="text-base-content/50">总账单</div>
+              <div className="font-bold mt-0.5">{fmtCurrency(totalAmount)}</div>
+            </div>
+            <div>
+              <div className="text-base-content/50">已收</div>
+              <div className="font-bold text-success mt-0.5">{fmtCurrency(paidAmount)}</div>
+            </div>
+            <div>
+              <div className="text-base-content/50">未收</div>
+              <div className="font-bold text-error mt-0.5">{fmtCurrency(totalAmount - paidAmount)}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex-1 bg-base-200 rounded-full h-2.5">
+              <div
+                className={`h-2.5 rounded-full transition-all ${rate >= 80 ? 'bg-success' : rate >= 50 ? 'bg-warning' : 'bg-error'}`}
+                style={{ width: `${Math.min(rate, 100)}%` }}
+              />
+            </div>
+            <span className="text-xs font-semibold">{fmtPct(rate)}</span>
+          </div>
+        </Card>
+
+        {/* Invoice list */}
+        {filtered.length === 0 ? (
+          <Card><p className="text-center text-sm text-base-content/50 py-6">暂无账单</p></Card>
+        ) : (
+          <div className="space-y-2">
+            {filtered.map((inv, idx) => {
+              const prop = properties.find(p => N(p.id) === N(inv.property_id));
+              return (
+                <Card key={idx}>
+                  <div className="flex items-start justify-between">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-xs">{S(inv.invoice_no)}</span>
+                        <StatusBadge status={S(inv.status)} />
+                      </div>
+                      <div className="text-xs text-base-content/50 mt-0.5">
+                        {prop ? S(prop.name) : ''}{S(inv.floor_label) ? ` · ${S(inv.floor_label)}` : ''}
+                      </div>
+                      {S(inv.tenant_name) && (
+                        <div className="text-xs text-base-content/40">{S(inv.tenant_name)}</div>
+                      )}
+                      {S(inv.description) && (
+                        <div className="text-xs text-base-content/40 mt-0.5">{S(inv.description)}</div>
+                      )}
+                      <div className="text-xs text-base-content/40 mt-1">
+                        {S(inv.billing_month) ? `账期: ${S(inv.billing_month)} · ` : ''}
+                        到期: {fmtDate(inv.due_date)}
+                        {S(inv.paid_date) ? ` · 已付: ${fmtDate(inv.paid_date)}` : ''}
+                      </div>
+                      {(N(inv.rent_amount) > 0 || N(inv.charges_amount) > 0) && (
+                        <div className="text-xs text-base-content/40">
+                          {N(inv.rent_amount) > 0 ? `租金: ${fmtCurrency(N(inv.rent_amount))}` : ''}
+                          {N(inv.charges_amount) > 0 ? ` + 杂费: ${fmtCurrency(N(inv.charges_amount))}` : ''}
+                        </div>
+                      )}
+                    </div>
+                    <div className="text-right ml-2">
+                      <div className="font-bold text-sm">{fmtCurrency(N(inv.amount))}</div>
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  /* ═══════════════════════════════════════════════════════════════
+     TAB 4: 报表 REPORTS
+     ═══════════════════════════════════════════════════════════════ */
+
+  const reportSubTabs = ['总览', '损益表', 'ROI', '贷款'];
+
+  const renderReports = () => {
+    /* Pre-compute per-property data for reports */
+    const propData = properties.map(p => {
+      const propId = N(p.id);
+      const rent = getMonthlyRent(p);
+      const expense = getMonthlyExpense(p);
+      const monthlyRepayment = N(p.monthly_repayment);
+      const mgmt = getMgmtFee(p);
+      const otherExp = expense - monthlyRepayment - mgmt;
+      const netMonthly = rent - expense;
+      const netAnnual = netMonthly * 12;
+      const purchaseTotal = getPurchaseTotal(p);
+      const roi = purchaseTotal > 0 ? (netAnnual / purchaseTotal) * 100 : 0;
+      const balance = getEstimatedBalance(p);
+      const payoff = N(p.loan_amount) > 0 ? ((N(p.loan_amount) - balance) / N(p.loan_amount)) * 100 : 0;
+      return {
+        id: propId, name: S(p.name), rent, expense, monthlyRepayment, mgmt, otherExp,
+        netMonthly, netAnnual, purchaseTotal, roi, balance, payoff, raw: p,
+      };
+    });
+
+    const totalAnnualNet = propData.reduce((s, d) => s + d.netAnnual, 0);
+    const avgRoi = propData.length > 0
+      ? propData.reduce((s, d) => s + d.roi, 0) / propData.length
+      : 0;
+
+    return (
+      <div className="space-y-3">
+        <h2 className="text-lg font-bold px-1">财务报表</h2>
+
+        {/* Sub-tab selector */}
+        <div className="flex gap-1 overflow-x-auto px-1">
+          {reportSubTabs.map((t, i) => (
+            <button
+              key={i}
+              className={`btn btn-sm ${reportSub === i ? 'btn-primary' : 'btn-ghost'} whitespace-nowrap`}
+              onClick={() => setReportSub(i)}
+            >
+              {t}
+            </button>
+          ))}
+        </div>
+
+        {/* Sub-tab: 总览 */}
+        {reportSub === 0 && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <Card>
+                <div className="text-xs text-base-content/50">月租收入</div>
+                <div className="text-lg font-bold text-success">{fmtCurrency(totalMonthlyRent)}</div>
+              </Card>
+              <Card>
+                <div className="text-xs text-base-content/50">月总支出</div>
+                <div className="text-lg font-bold text-error">{fmtCurrency(totalMonthlyExpense)}</div>
+              </Card>
+              <Card>
+                <div className="text-xs text-base-content/50">月净收入</div>
+                <div className={`text-lg font-bold ${monthlyNet >= 0 ? 'text-success' : 'text-error'}`}>{fmtCurrency(monthlyNet)}</div>
+              </Card>
+              <Card>
+                <div className="text-xs text-base-content/50">总购入价值</div>
+                <div className="text-lg font-bold text-primary">{fmtCurrency(totalAssets)}</div>
+              </Card>
+              <Card>
+                <div className="text-xs text-base-content/50">总贷款余额</div>
+                <div className="text-lg font-bold text-error">{fmtCurrency(totalLoanBalance)}</div>
+              </Card>
+              <Card>
+                <div className="text-xs text-base-content/50">入住率</div>
+                <div className={`text-lg font-bold ${occupancyRate >= 80 ? 'text-success' : 'text-warning'}`}>{fmtPct(occupancyRate)}</div>
+              </Card>
+              <Card>
+                <div className="text-xs text-base-content/50">收款率</div>
+                <div className={`text-lg font-bold ${collectionRate >= 80 ? 'text-success' : 'text-warning'}`}>{fmtPct(collectionRate)}</div>
+              </Card>
+              <Card>
+                <div className="text-xs text-base-content/50">年净收入</div>
+                <div className={`text-lg font-bold ${totalAnnualNet >= 0 ? 'text-success' : 'text-error'}`}>{fmtCurrency(totalAnnualNet)}</div>
+              </Card>
+            </div>
+
+            {/* Income vs Expense per property */}
+            <Card>
+              <h4 className="text-sm font-bold mb-3">收入 vs 支出 (按物业)</h4>
+              <div className="space-y-3">
+                {propData.map(d => {
+                  const maxVal = Math.max(d.rent, d.expense, 1);
+                  return (
+                    <div key={d.id}>
+                      <div className="text-xs font-medium mb-1 truncate">{d.name}</div>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] w-8 text-right text-success">收入</span>
+                          <div className="flex-1 bg-base-200 rounded-full h-3 overflow-hidden">
+                            <div className="bg-success h-3 rounded-full" style={{ width: `${(d.rent / maxVal) * 100}%` }} />
+                          </div>
+                          <span className="text-[10px] w-20 text-right">{fmtCurrency(d.rent)}</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] w-8 text-right text-error">支出</span>
+                          <div className="flex-1 bg-base-200 rounded-full h-3 overflow-hidden">
+                            <div className="bg-error h-3 rounded-full" style={{ width: `${(d.expense / maxVal) * 100}%` }} />
+                          </div>
+                          <span className="text-[10px] w-20 text-right">{fmtCurrency(d.expense)}</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </Card>
+          </div>
+        )}
+
+        {/* Sub-tab: 损益表 */}
+        {reportSub === 1 && (
+          <div className="space-y-3">
+            <Card>
+              <div className="flex items-center justify-between mb-3">
+                <h4 className="text-sm font-bold">月度损益表</h4>
+                <button
+                  className="btn btn-ghost btn-xs gap-1"
+                  onClick={() => {
+                    const rows = propData.map(d => ({
+                      物业: d.name,
+                      月租金: d.rent.toFixed(2),
+                      月供: d.monthlyRepayment.toFixed(2),
+                      管理费: d.mgmt.toFixed(2),
+                      其他费用: d.otherExp.toFixed(2),
+                      月净收入: d.netMonthly.toFixed(2),
+                      年净收入: d.netAnnual.toFixed(2),
+                    }));
+                    const totals = {
+                      物业: '合计',
+                      月租金: totalMonthlyRent.toFixed(2),
+                      月供: totalMonthlyRepayment.toFixed(2),
+                      管理费: propData.reduce((s, d) => s + d.mgmt, 0).toFixed(2),
+                      其他费用: propData.reduce((s, d) => s + d.otherExp, 0).toFixed(2),
+                      月净收入: monthlyNet.toFixed(2),
+                      年净收入: totalAnnualNet.toFixed(2),
+                    };
+                    downloadCsv([...rows, totals], `损益表_${new Date().toISOString().slice(0, 10)}`);
+                  }}
+                >
+                  <Download size={12} /> 导出
+                </button>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="table table-xs">
+                  <thead>
+                    <tr className="text-base-content/50">
+                      <th>物业</th>
+                      <th className="text-right">月租金</th>
+                      <th className="text-right">月供</th>
+                      <th className="text-right">管理费</th>
+                      <th className="text-right">其他</th>
+                      <th className="text-right">月净</th>
+                      <th className="text-right">年净</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {propData.map(d => (
+                      <tr key={d.id}>
+                        <td className="font-medium max-w-[80px] truncate">{d.name}</td>
+                        <td className="text-right text-success">{fmtCurrency(d.rent)}</td>
+                        <td className="text-right text-error">{fmtCurrency(d.monthlyRepayment)}</td>
+                        <td className="text-right">{fmtCurrency(d.mgmt)}</td>
+                        <td className="text-right">{fmtCurrency(d.otherExp)}</td>
+                        <td className={`text-right font-semibold ${d.netMonthly >= 0 ? 'text-success' : 'text-error'}`}>
+                          {fmtCurrency(d.netMonthly)}
+                        </td>
+                        <td className={`text-right font-semibold ${d.netAnnual >= 0 ? 'text-success' : 'text-error'}`}>
+                          {fmtCurrency(d.netAnnual)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="font-bold border-t-2 border-base-300">
+                      <td>合计</td>
+                      <td className="text-right text-success">{fmtCurrency(totalMonthlyRent)}</td>
+                      <td className="text-right text-error">{fmtCurrency(totalMonthlyRepayment)}</td>
+                      <td className="text-right">{fmtCurrency(propData.reduce((s, d) => s + d.mgmt, 0))}</td>
+                      <td className="text-right">{fmtCurrency(propData.reduce((s, d) => s + d.otherExp, 0))}</td>
+                      <td className={`text-right ${monthlyNet >= 0 ? 'text-success' : 'text-error'}`}>{fmtCurrency(monthlyNet)}</td>
+                      <td className={`text-right ${totalAnnualNet >= 0 ? 'text-success' : 'text-error'}`}>{fmtCurrency(totalAnnualNet)}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </Card>
+
+            {/* Annual summary */}
+            <div className="grid grid-cols-2 gap-3">
+              <Card>
+                <div className="text-xs text-base-content/50">年总租金</div>
+                <div className="text-lg font-bold text-success">{fmtCurrency(totalMonthlyRent * 12)}</div>
+              </Card>
+              <Card>
+                <div className="text-xs text-base-content/50">年总支出</div>
+                <div className="text-lg font-bold text-error">{fmtCurrency(totalMonthlyExpense * 12)}</div>
+              </Card>
+              <Card className="col-span-2">
+                <div className="text-xs text-base-content/50">年净收入</div>
+                <div className={`text-2xl font-bold ${totalAnnualNet >= 0 ? 'text-success' : 'text-error'}`}>
+                  {fmtCurrency(totalAnnualNet)}
+                </div>
+              </Card>
+            </div>
+          </div>
+        )}
+
+        {/* Sub-tab: ROI */}
+        {reportSub === 2 && (
+          <div className="space-y-3">
+            <Card className="bg-gradient-to-br from-primary/5 to-primary/10 border-primary/20">
+              <div className="text-center">
+                <div className="text-xs text-base-content/50">平均投资回报率</div>
+                <div className={`text-3xl font-bold mt-1 ${avgRoi >= 0 ? 'text-success' : 'text-error'}`}>
+                  {fmtPct(avgRoi)}
+                </div>
+                <div className="text-xs text-base-content/40 mt-1">年化 ROI</div>
+              </div>
+            </Card>
+            {[...propData].sort((a, b) => b.roi - a.roi).map(d => (
+              <Card key={d.id}>
+                <div className="flex items-start justify-between mb-2">
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm truncate">{d.name}</div>
+                    <div className="text-xs text-base-content/50">总购入: {fmtCurrency(d.purchaseTotal)}</div>
+                  </div>
+                  <div className={`text-xl font-bold ${d.roi >= 0 ? 'text-success' : 'text-error'}`}>
+                    {fmtPct(d.roi)}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-xs mb-2">
+                  <div>
+                    <span className="text-base-content/50">年租金:</span>
+                    <span className="ml-1 font-medium text-success">{fmtCurrency(d.rent * 12)}</span>
+                  </div>
+                  <div>
+                    <span className="text-base-content/50">年支出:</span>
+                    <span className="ml-1 font-medium text-error">{fmtCurrency(d.expense * 12)}</span>
+                  </div>
+                  <div className="col-span-2">
+                    <span className="text-base-content/50">年净收入:</span>
+                    <span className={`ml-1 font-medium ${d.netAnnual >= 0 ? 'text-success' : 'text-error'}`}>{fmtCurrency(d.netAnnual)}</span>
+                  </div>
+                </div>
+                <div className="w-full bg-base-200 rounded-full h-2">
+                  <div
+                    className={`h-2 rounded-full ${d.roi >= 5 ? 'bg-success' : d.roi >= 0 ? 'bg-warning' : 'bg-error'}`}
+                    style={{ width: `${Math.max(0, Math.min(d.roi * 5, 100))}%` }}
+                  />
+                </div>
+              </Card>
+            ))}
+          </div>
+        )}
+
+        {/* Sub-tab: 贷款 */}
+        {reportSub === 3 && (
+          <div className="space-y-3">
+            {/* Loan summary */}
+            <Card className="bg-gradient-to-br from-error/5 to-error/10 border-error/20">
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div>
+                  <div className="text-base-content/50">总贷款额</div>
+                  <div className="font-bold text-sm mt-1">{fmtCurrency(totalLoanOriginal)}</div>
+                </div>
+                <div>
+                  <div className="text-base-content/50">总余额</div>
+                  <div className="font-bold text-sm text-error mt-1">{fmtCurrency(totalLoanBalance)}</div>
+                </div>
+                <div>
+                  <div className="text-base-content/50">总月供</div>
+                  <div className="font-bold text-sm mt-1">{fmtCurrency(totalMonthlyRepayment)}</div>
+                </div>
+              </div>
+              <div className="mt-3">
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-base-content/50">总还贷进度</span>
+                  <span className="font-semibold">{fmtPct(loanPayoffPct)}</span>
+                </div>
+                <div className="w-full bg-base-200 rounded-full h-2.5">
+                  <div className="bg-success h-2.5 rounded-full" style={{ width: `${Math.min(loanPayoffPct, 100)}%` }} />
+                </div>
+              </div>
+            </Card>
+
+            {/* Per-property loan cards */}
+            {properties.filter(p => N(p.loan_amount) > 0).map(p => {
+              const propId = N(p.id);
+              const loanAmt = N(p.loan_amount);
+              const bal = getEstimatedBalance(p);
+              const poff = loanAmt > 0 ? ((loanAmt - bal) / loanAmt) * 100 : 0;
+              return (
+                <Card key={propId}>
+                  <div className="font-semibold text-sm mb-2 truncate">{S(p.name)}</div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                    <div className="text-base-content/50">银行</div>
+                    <div className="font-medium">{S(p.bank_name) || S(p.bank_code) || '-'}</div>
+                    <div className="text-base-content/50">户口号</div>
+                    <div className="font-medium">{S(p.loan_account_no) || '-'}</div>
+                    <div className="text-base-content/50">原始贷款</div>
+                    <div className="font-medium">{fmtCurrency(loanAmt)}</div>
+                    <div className="text-base-content/50">预估余额</div>
+                    <div className="font-medium text-error">{fmtCurrency(bal)}</div>
+                    <div className="text-base-content/50">利率</div>
+                    <div className="font-medium">{N(p.loan_interest_rate)}%</div>
+                    <div className="text-base-content/50">月供</div>
+                    <div className="font-medium">{fmtCurrency(N(p.monthly_repayment))}</div>
+                    <div className="text-base-content/50">还款日</div>
+                    <div className="font-medium">每月 {N(p.loan_repayment_day) || '-'} 日</div>
+                    <div className="text-base-content/50">贷款开始</div>
+                    <div className="font-medium">{fmtDate(p.loan_start)}</div>
+                    <div className="text-base-content/50">期限</div>
+                    <div className="font-medium">{N(p.loan_tenure_months) ? `${N(p.loan_tenure_months)}个月 (${(N(p.loan_tenure_months) / 12).toFixed(1)}年)` : '-'}</div>
+                    <div className="text-base-content/50">预计还清</div>
+                    <div className="font-medium">{estimatePayoffDate(p.loan_start, N(p.loan_tenure_months))}</div>
+                    {S(p.loan_si_account) && <>
+                      <div className="text-base-content/50">SI 户口</div>
+                      <div className="font-medium">{S(p.loan_si_account)}</div>
+                    </>}
+                  </div>
+                  <div className="mt-2">
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-base-content/50">还贷进度</span>
+                      <span className="font-semibold">{fmtPct(poff)}</span>
+                    </div>
+                    <div className="w-full bg-base-200 rounded-full h-2">
+                      <div className="bg-success h-2 rounded-full" style={{ width: `${Math.min(poff, 100)}%` }} />
+                    </div>
+                  </div>
+                </Card>
+              );
+            })}
+
+            {properties.filter(p => N(p.loan_amount) > 0).length === 0 && (
+              <Card><p className="text-center text-sm text-base-content/50 py-6">暂无贷款记录</p></Card>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  /* ═══════════════════════════════════════════════════════════════
+     LAYOUT
+     ═══════════════════════════════════════════════════════════════ */
+
+  const tabs = [
+    { icon: LayoutDashboard, label: '首页' },
+    { icon: Building2, label: '资产' },
+    { icon: Receipt, label: '收租' },
+    { icon: BarChart3, label: '报表' },
+  ];
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={fontStyle}>
+        <div className="text-center">
+          <span className="loading loading-spinner loading-lg text-primary"></span>
+          <p className="text-sm text-base-content/50 mt-3">加载中...</p>
+        </div>
       </div>
     );
   }
 
-  function renderBilling() {
-    return <BillingTab invoices={invoices} />;
-  }
-
-  function renderReports() {
-    return <ReportsTab properties={properties} floorUnits={floorUnits} invoices={invoices} />;
-  }
-
-  // ===== Main Layout =====
   return (
-    <div className="min-h-screen bg-base-200" style={{ fontFamily: 'Avenir, Arial, sans-serif' }}>
-      {/* Header — only shown when standalone (not embedded in admin) */}
+    <div className="min-h-screen bg-base-200/50 pb-20" style={fontStyle}>
+      {/* Header */}
       {!hideHeader && (
-        <header className="sticky top-0 z-40 px-4 pt-3 pb-2 flex items-center justify-between bg-base-100 border-b border-base-300/60">
-          <div>
-            <h1 className="text-lg font-extrabold tracking-wider">
-              <span style={{ color: '#BE5F28' }}>V</span><span style={{ color: '#D29B61' }}>E</span><span className="text-base-content">NCOS</span>
-            </h1>
-            <p className="text-[11px] text-base-content/40 font-medium -mt-0.5">业主入口</p>
+        <div className="bg-base-100 border-b border-base-200 sticky top-0 z-50">
+          <div className="max-w-lg mx-auto px-4 py-3 flex items-center justify-between">
+            <div>
+              <h1 className="text-lg font-bold tracking-tight">
+                <span style={{ color: '#BE5F28' }}>V</span>
+                <span style={{ color: '#D29B61' }}>E</span>
+                <span>NCOS</span>
+              </h1>
+              <p className="text-[10px] text-base-content/50 -mt-0.5">业主入口</p>
+            </div>
+            <div className="flex items-center gap-1">
+              <NotificationBell />
+              <div className="text-right mr-1">
+                <div className="text-xs font-medium">{user.name}</div>
+              </div>
+              <button onClick={onLogout} className="btn btn-ghost btn-sm btn-circle" title="退出">
+                <LogOut size={16} />
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="text-xs text-base-content/50 font-medium whitespace-nowrap">{user.name}</span>
-            <button onClick={onLogout} className="btn btn-xs btn-ghost text-base-content/30 hover:text-base-content/60" title="退出">
-              <LogOut size={14} />
-            </button>
-          </div>
-        </header>
+        </div>
       )}
 
       {/* Content */}
-      <main className="max-w-lg mx-auto px-4 py-4 pb-24">
-        {tab === 'home' && renderDashboard()}
-        {tab === 'properties' && renderProperties()}
-        {tab === 'billing' && renderBilling()}
-        {tab === 'reports' && renderReports()}
-      </main>
+      <div className="max-w-lg mx-auto px-4 py-4">
+        {tab === 0 && renderDashboard()}
+        {tab === 1 && renderAssets()}
+        {tab === 2 && renderBilling()}
+        {tab === 3 && renderReports()}
+      </div>
 
-      {/* Bottom Nav — warm elevated */}
-      <nav className="fixed bottom-0 left-0 right-0 z-50 bg-base-100 shadow-[0_-2px_12px_rgba(19,58,81,0.08)]">
-        <div className="flex items-center justify-around h-16 max-w-lg mx-auto px-2">
-          {TABS.map(({ key, label, Icon }) => {
-            const isActive = tab === key;
+      {/* Bottom Navigation */}
+      <div className="fixed bottom-0 left-0 right-0 bg-base-100 border-t border-base-200 z-50">
+        <div className="max-w-lg mx-auto grid grid-cols-4">
+          {tabs.map((t, i) => {
+            const active = tab === i;
+            const Icon = t.icon;
             return (
               <button
-                key={key}
-                onClick={() => setTab(key)}
-                className={`
-                  relative flex flex-col items-center justify-center gap-1
-                  flex-1 h-14 rounded-xl transition-all duration-200 mx-1
-                  ${isActive
-                    ? 'text-primary'
-                    : 'text-base-content/35 hover:text-base-content/60'
-                  }
-                `}
+                key={i}
+                onClick={() => setTab(i)}
+                className={`flex flex-col items-center py-2 pt-2.5 relative transition-colors ${active ? 'text-primary' : 'text-base-content/40'}`}
               >
-                <div className={`p-1.5 rounded-xl transition-all duration-200 ${isActive ? 'bg-primary/10' : ''}`}>
-                  <Icon size={20} strokeWidth={isActive ? 2.5 : 1.5} />
+                <div className={`p-1.5 rounded-lg ${active ? 'bg-primary/10' : ''}`}>
+                  <Icon size={18} />
                 </div>
-                <span className={`text-[10px] leading-none transition-all duration-200 ${isActive ? 'font-bold' : 'font-medium'}`}>
-                  {label}
-                </span>
-                {isActive && <span className="absolute bottom-1 w-5 h-0.5 rounded-full bg-primary" />}
+                <span className={`text-[10px] mt-0.5 ${active ? 'font-bold' : ''}`}>{t.label}</span>
+                {active && (
+                  <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-5 h-0.5 bg-primary rounded-full" />
+                )}
               </button>
             );
           })}
         </div>
-        <div style={{ height: 'env(safe-area-inset-bottom, 0px)' }} />
-      </nav>
+      </div>
     </div>
   );
 };
-
-// ========== Property Card (Expandable) ==========
-
-const PropertyCard: React.FC<{ property: PropertyRow; floors: FloorUnitRow[]; owner?: OwnerRow }> = ({ property, floors, owner }) => {
-  const [expanded, setExpanded] = useState(false);
-  const floorRent = Math.round(floors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0));
-  const totalRent = floorRent > 0 ? floorRent : (property.status === 'rented' && Number(property.rental_price || 0) > 0 ? Math.round(Number(property.rental_price)) : 0);
-
-  return (
-    <div className="bg-base-100 rounded-xl shadow-sm border border-base-200 overflow-hidden">
-      <button
-        className="w-full text-left px-4 py-3 flex items-center justify-between hover:bg-base-200/30 transition-colors"
-        onClick={() => setExpanded(!expanded)}
-      >
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold text-base-content truncate">{property.name}</p>
-          <p className="text-[11px] text-base-content/50 truncate">{property.address || '-'}</p>
-          <div className="flex items-center gap-2 mt-1">
-            {owner && <span className="text-[10px] text-base-content/40">{owner.name}</span>}
-            <span className="text-[10px] font-medium text-primary">{fmtCurrency(totalRent)}/月</span>
-          </div>
-        </div>
-        <div className="shrink-0 ml-2 text-base-content/30">
-          {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
-        </div>
-      </button>
-
-      {expanded && (
-        <div className="border-t border-base-200 px-4 py-3">
-          {floors.length === 0 ? (
-            <p className="text-xs text-base-content/40 text-center py-2">暂无楼层信息</p>
-          ) : (
-            <div className="overflow-x-auto -mx-2">
-              <table className="table table-xs w-full">
-                <thead>
-                  <tr className="text-base-content/40">
-                    <th className="font-medium">楼层</th>
-                    <th className="font-medium">租户</th>
-                    <th className="font-medium text-right">租金</th>
-                    <th className="font-medium">租约</th>
-                    <th className="font-medium">状态</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {floors.map(f => {
-                    const badge = leaseStatusBadge(f.lease_end);
-                    const isVacant = f.status === 'vacant' || !f.tenant_name;
-                    return (
-                      <tr key={f.id} className="hover">
-                        <td className="font-medium text-base-content">{f.floor_label}</td>
-                        <td className={isVacant ? 'text-base-content/30 italic' : 'text-base-content'}>
-                          {isVacant ? '空置' : f.tenant_name}
-                        </td>
-                        <td className="text-right text-base-content">
-                          {Number(f.rent_amount) > 0 ? fmtCurrency(Number(f.rent_amount)) : '-'}
-                        </td>
-                        <td className="text-[10px] text-base-content/50 whitespace-nowrap">
-                          {f.lease_start && f.lease_end
-                            ? `${fmtDate(f.lease_start)} → ${fmtDate(f.lease_end)}`
-                            : '-'}
-                        </td>
-                        <td>
-                          {badge ? (
-                            <span className={`badge badge-sm ${badge.cls}`}>{badge.emoji} {badge.label}</span>
-                          ) : (
-                            isVacant
-                              ? <span className="badge badge-sm badge-ghost">空置</span>
-                              : <span className="badge badge-sm badge-success">正常</span>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ========== Billing Tab ==========
-
-const BillingTab: React.FC<{ invoices: InvoiceRow[] }> = ({ invoices }) => {
-  const now = new Date();
-  const [filterYear, setFilterYear] = useState(now.getFullYear());
-  const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1);
-
-  const monthStr = `${filterYear}-${String(filterMonth).padStart(2, '0')}`;
-  const filtered = invoices.filter(i => {
-    if (i.billing_month) return i.billing_month.startsWith(monthStr);
-    if (i.due_date) return i.due_date.startsWith(monthStr);
-    return false;
-  });
-
-  const totalAmount = Math.round(filtered.reduce((s, i) => s + (Number(i.amount) || 0), 0));
-  const paidAmount = Math.round(filtered.filter(i => i.status === 'paid').reduce((s, i) => s + (Number(i.amount) || 0), 0));
-  const pendingAmount = Math.round(filtered.filter(i => i.status === 'pending').reduce((s, i) => s + (Number(i.amount) || 0), 0));
-  const overdueAmount = Math.round(filtered.filter(i => i.status === 'overdue').reduce((s, i) => s + (Number(i.amount) || 0), 0));
-
-  const months = [
-    '一月', '二月', '三月', '四月', '五月', '六月',
-    '七月', '八月', '九月', '十月', '十一月', '十二月',
-  ];
-
-  const years: number[] = [];
-  for (let y = now.getFullYear() - 2; y <= now.getFullYear() + 1; y++) years.push(y);
-
-  return (
-    <div className="space-y-4">
-      {/* Month Filter */}
-      <div className="flex items-center gap-2">
-        <select
-          className="select select-sm select-bordered flex-1"
-          value={filterYear}
-          onChange={e => setFilterYear(Number(e.target.value))}
-        >
-          {years.map(y => <option key={y} value={y}>{y}年</option>)}
-        </select>
-        <select
-          className="select select-sm select-bordered flex-1"
-          value={filterMonth}
-          onChange={e => setFilterMonth(Number(e.target.value))}
-        >
-          {months.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
-        </select>
-      </div>
-
-      {/* Summary Bar */}
-      <div className="bg-base-100 rounded-xl p-3 shadow-sm border border-base-200">
-        <div className="grid grid-cols-4 gap-2 text-center">
-          <div>
-            <p className="text-[10px] text-base-content/40">总额</p>
-            <p className="text-xs font-bold text-base-content">{fmtCurrency(totalAmount)}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-base-content/40">已付</p>
-            <p className="text-xs font-bold text-success">{fmtCurrency(paidAmount)}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-base-content/40">待付</p>
-            <p className="text-xs font-bold text-warning">{fmtCurrency(pendingAmount)}</p>
-          </div>
-          <div>
-            <p className="text-[10px] text-base-content/40">逾期</p>
-            <p className="text-xs font-bold text-error">{fmtCurrency(overdueAmount)}</p>
-          </div>
-        </div>
-      </div>
-
-      {/* Invoice Cards */}
-      {filtered.length === 0 ? (
-        <div className="text-center py-16">
-          <Receipt size={48} className="mx-auto text-base-content/20 mb-3" />
-          <p className="text-sm text-base-content/40">本月暂无账单</p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {filtered.map(inv => {
-            const badge = invoiceStatusBadge(inv.status);
-            return (
-              <div key={inv.id} className="bg-base-100 rounded-xl p-3 shadow-sm border border-base-200">
-                <div className="flex items-start justify-between">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-xs font-bold text-base-content truncate">
-                      {inv.property_name || '-'} · {inv.floor_label || '-'}楼
-                    </p>
-                    <p className="text-[11px] text-base-content/50 truncate">{inv.tenant_name || '-'}</p>
-                    {inv.invoice_no && (
-                      <p className="text-[10px] text-base-content/30 mt-0.5">#{inv.invoice_no}</p>
-                    )}
-                  </div>
-                  <div className="text-right shrink-0 ml-3">
-                    <p className="text-sm font-bold text-base-content">{fmtCurrency(Number(inv.amount) || 0)}</p>
-                    <span className={`badge badge-sm ${badge.cls} mt-1`}>{badge.label}</span>
-                  </div>
-                </div>
-                <div className="flex items-center justify-between mt-2 pt-2 border-t border-base-200">
-                  <span className="text-[10px] text-base-content/40">到期: {fmtDate(inv.due_date)}</span>
-                  {inv.paid_date && <span className="text-[10px] text-success">已付: {fmtDate(inv.paid_date)}</span>}
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </div>
-  );
-};
-
-// ========== Reports Tab (Redesigned - Clean & Easy) ==========
-
-const ReportsTab: React.FC<{
-  properties: PropertyRow[];
-  floorUnits: Record<number, FloorUnitRow[]>;
-  invoices: InvoiceRow[];
-}> = ({ properties, floorUnits, invoices }) => {
-  const [showAllPL, setShowAllPL] = useState(false);
-  const [showAllLoans, setShowAllLoans] = useState(false);
-
-  const now = new Date();
-
-  // ===== Monthly Totals =====
-  const totalRentIncome = properties.reduce((s, p) => {
-    const floors = floorUnits[p.id] || [];
-    const floorRent = floors.reduce((sum, f) => sum + (Number(f.rent_amount) || 0), 0);
-    if (floorRent > 0) return s + floorRent;
-    if (p.status === 'rented' && Number(p.rental_price || 0) > 0) return s + Number(p.rental_price);
-    return s;
-  }, 0);
-
-  const totalLoanPayment = properties.reduce((s, p) => s + (Number(p.monthly_repayment) || 0), 0);
-  const netIncome = totalRentIncome - totalLoanPayment;
-
-  // ===== Rent Collection (last 6 months) =====
-  const last6: { key: string; label: string }[] = [];
-  for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    last6.push({
-      key: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`,
-      label: `${d.getMonth() + 1}月`,
-    });
-  }
-
-  const monthlyData = last6.map(m => {
-    const mInvs = invoices.filter(i => (i.billing_month || i.due_date || '').startsWith(m.key));
-    const total = mInvs.reduce((s, i) => s + (Number(i.amount) || 0), 0);
-    const collected = mInvs.filter(i => i.status === 'paid').reduce((s, i) => s + (Number(i.amount) || 0), 0);
-    const rate = total > 0 ? Math.round((collected / total) * 100) : 0;
-    return { ...m, total: Math.round(total), collected: Math.round(collected), rate };
-  });
-  const maxBar = Math.max(...monthlyData.map(m => m.total), 1);
-
-  // ===== Per-Property P&L (sorted by net) =====
-  const propertyPL = properties.map(p => {
-    const floors = floorUnits[p.id] || [];
-    const floorRent = floors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0);
-    const rent = floorRent > 0 ? floorRent : (p.status === 'rented' && Number(p.rental_price || 0) > 0 ? Number(p.rental_price) : 0);
-    const loan = Number(p.monthly_repayment) || 0;
-    return { id: p.id, name: p.name, rent: Math.round(rent), loan: Math.round(loan), net: Math.round(rent - loan) };
-  }).sort((a, b) => b.net - a.net);
-
-  const profitable = propertyPL.filter(p => p.net > 0).length;
-  const losing = propertyPL.filter(p => p.net < 0).length;
-  const displayPL = showAllPL ? propertyPL : propertyPL.slice(0, 5);
-
-  // ===== Loan Summary =====
-  const propsWithLoans = properties.filter(p => Number(p.loan_amount) > 0);
-  const totalOriginal = propsWithLoans.reduce((s, p) => s + (Number(p.loan_amount) || 0), 0);
-  const totalBalance = propsWithLoans.reduce((s, p) => {
-    return s + estimateBalance(Number(p.loan_amount), Number(p.monthly_repayment), Number(p.loan_interest_rate), p.loan_start);
-  }, 0);
-  const totalPaid = totalOriginal - totalBalance;
-  const overallPct = totalOriginal > 0 ? Math.round((totalPaid / totalOriginal) * 100) : 0;
-  const totalMonthlyRepay = propsWithLoans.reduce((s, p) => s + (Number(p.monthly_repayment) || 0), 0);
-
-  const loanDetails = propsWithLoans.map(p => {
-    const orig = Number(p.loan_amount) || 0;
-    const bal = estimateBalance(orig, Number(p.monthly_repayment), Number(p.loan_interest_rate), p.loan_start);
-    const pct = orig > 0 ? Math.round(((orig - bal) / orig) * 100) : 0;
-    return { id: p.id, name: p.name, original: orig, balance: Math.round(bal), monthly: Math.round(Number(p.monthly_repayment) || 0), rate: Number(p.loan_interest_rate) || 0, pct };
-  }).sort((a, b) => a.pct - b.pct);
-  const displayLoans = showAllLoans ? loanDetails : loanDetails.slice(0, 5);
-
-  return (
-    <div className="space-y-4">
-
-      {/* ===== 1. Summary KPI ===== */}
-      <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
-        <div className="grid grid-cols-3 divide-x divide-base-200">
-          <div className="text-center px-2">
-            <p className="text-[10px] text-base-content/40 mb-1">月租收入</p>
-            <p className="text-base font-bold text-success">{fmtCurrency(totalRentIncome)}</p>
-          </div>
-          <div className="text-center px-2">
-            <p className="text-[10px] text-base-content/40 mb-1">贷款支出</p>
-            <p className="text-base font-bold text-error">{fmtCurrency(totalLoanPayment)}</p>
-          </div>
-          <div className="text-center px-2">
-            <p className="text-[10px] text-base-content/40 mb-1">净收入</p>
-            <p className={`text-base font-bold ${netIncome >= 0 ? 'text-success' : 'text-error'}`}>
-              {netIncome >= 0 ? '+' : ''}{fmtCurrency(netIncome)}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* ===== 2. Rent Collection Trend ===== */}
-      <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
-        <h3 className="text-sm font-bold text-base-content mb-3 flex items-center gap-2">
-          <BarChart3 size={16} className="text-primary" />
-          收租趋势
-        </h3>
-        {/* Chart - horizontal bars */}
-        <div className="space-y-2.5">
-          {monthlyData.map(m => (
-            <div key={m.key} className="flex items-center gap-2">
-              <span className="text-[11px] text-base-content/50 w-8 shrink-0 text-right">{m.label}</span>
-              <div className="flex-1 h-5 bg-base-200 rounded-full overflow-hidden relative">
-                <div
-                  className="absolute inset-y-0 left-0 bg-success/20 rounded-full"
-                  style={{ width: `${(m.total / maxBar) * 100}%` }}
-                />
-                <div
-                  className="absolute inset-y-0 left-0 bg-success rounded-full transition-all duration-300"
-                  style={{ width: `${(m.collected / maxBar) * 100}%` }}
-                />
-              </div>
-              <span className={`text-[10px] font-semibold w-10 shrink-0 text-right ${m.rate >= 80 ? 'text-success' : m.rate >= 50 ? 'text-warning' : 'text-error'}`}>
-                {m.rate}%
-              </span>
-            </div>
-          ))}
-        </div>
-        <div className="flex items-center gap-4 mt-2.5 text-[10px] text-base-content/30">
-          <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-success inline-block" /> 已收</span>
-          <span className="flex items-center gap-1"><span className="w-3 h-2 rounded bg-success/20 inline-block" /> 总额</span>
-        </div>
-      </div>
-
-      {/* ===== 3. Property P&L - Clean Table ===== */}
-      <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold text-base-content flex items-center gap-2">
-            <TrendingDown size={16} className="text-primary" />
-            物业损益
-          </h3>
-          <div className="flex items-center gap-2 text-[10px]">
-            <span className="text-success">▲ {profitable}</span>
-            <span className="text-error">▼ {losing}</span>
-          </div>
-        </div>
-
-        <div className="overflow-x-auto -mx-1">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="text-[10px] text-base-content/40 border-b border-base-200">
-                <th className="text-left py-1.5 pl-1 font-medium">物业</th>
-                <th className="text-right py-1.5 font-medium">收入</th>
-                <th className="text-right py-1.5 font-medium">支出</th>
-                <th className="text-right py-1.5 pr-1 font-medium">净额</th>
-              </tr>
-            </thead>
-            <tbody>
-              {displayPL.map(p => (
-                <tr key={p.id} className="border-b border-base-200/50 last:border-b-0">
-                  <td className="py-2 pl-1 max-w-[120px]">
-                    <p className="text-xs text-base-content truncate">{p.name}</p>
-                  </td>
-                  <td className="py-2 text-right text-success whitespace-nowrap">
-                    {p.rent > 0 ? fmtCurrency(p.rent) : <span className="text-base-content/20">-</span>}
-                  </td>
-                  <td className="py-2 text-right text-error whitespace-nowrap">
-                    {p.loan > 0 ? fmtCurrency(p.loan) : <span className="text-base-content/20">-</span>}
-                  </td>
-                  <td className={`py-2 pr-1 text-right font-semibold whitespace-nowrap ${p.net > 0 ? 'text-success' : p.net < 0 ? 'text-error' : 'text-base-content/30'}`}>
-                    {p.net !== 0 ? `${p.net > 0 ? '+' : ''}${fmtCurrency(p.net)}` : '-'}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-            {/* Total row */}
-            <tfoot>
-              <tr className="border-t-2 border-base-300">
-                <td className="py-2 pl-1 text-xs font-bold text-base-content">合计</td>
-                <td className="py-2 text-right text-xs font-bold text-success">{fmtCurrency(totalRentIncome)}</td>
-                <td className="py-2 text-right text-xs font-bold text-error">{fmtCurrency(totalLoanPayment)}</td>
-                <td className={`py-2 pr-1 text-right text-xs font-bold ${netIncome >= 0 ? 'text-success' : 'text-error'}`}>
-                  {netIncome >= 0 ? '+' : ''}{fmtCurrency(netIncome)}
-                </td>
-              </tr>
-            </tfoot>
-          </table>
-        </div>
-
-        {propertyPL.length > 5 && (
-          <button
-            className="w-full text-center text-xs text-primary mt-2 py-1.5 hover:underline"
-            onClick={() => setShowAllPL(!showAllPL)}
-          >
-            {showAllPL ? '收起' : `查看全部 ${propertyPL.length} 个物业 ▼`}
-          </button>
-        )}
-      </div>
-
-      {/* ===== 4. Loan Progress ===== */}
-      {propsWithLoans.length > 0 && (
-        <div className="bg-base-100 rounded-xl p-4 shadow-sm border border-base-200">
-          <h3 className="text-sm font-bold text-base-content mb-3 flex items-center gap-2">
-            <Landmark size={16} className="text-primary" />
-            贷款进度
-          </h3>
-
-          {/* Overall progress */}
-          <div className="bg-base-200/40 rounded-lg p-3 mb-3">
-            <div className="flex items-center justify-between mb-1.5">
-              <span className="text-[11px] text-base-content/60">整体还款进度</span>
-              <span className="text-xs font-bold text-primary">{overallPct}%</span>
-            </div>
-            <div className="w-full h-3 bg-base-200 rounded-full overflow-hidden">
-              <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${overallPct}%` }} />
-            </div>
-            <div className="grid grid-cols-3 gap-2 mt-2.5 text-center">
-              <div>
-                <p className="text-[9px] text-base-content/30">贷款总额</p>
-                <p className="text-[11px] font-semibold text-base-content">{fmtCurrency(totalOriginal)}</p>
-              </div>
-              <div>
-                <p className="text-[9px] text-base-content/30">剩余</p>
-                <p className="text-[11px] font-semibold text-error">{fmtCurrency(totalBalance)}</p>
-              </div>
-              <div>
-                <p className="text-[9px] text-base-content/30">月还款</p>
-                <p className="text-[11px] font-semibold text-base-content">{fmtCurrency(totalMonthlyRepay)}</p>
-              </div>
-            </div>
-          </div>
-
-          {/* Per-loan compact list */}
-          <div className="space-y-2">
-            {displayLoans.map(l => (
-              <div key={l.id} className="flex items-center gap-2.5 py-1.5">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center justify-between mb-0.5">
-                    <p className="text-[11px] text-base-content truncate mr-2">{l.name}</p>
-                    <span className="text-[10px] text-base-content/40 shrink-0">{l.pct}%</span>
-                  </div>
-                  <div className="w-full h-1.5 bg-base-200 rounded-full overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${l.pct >= 50 ? 'bg-success' : 'bg-primary'}`}
-                      style={{ width: `${l.pct}%` }}
-                    />
-                  </div>
-                  <div className="flex items-center justify-between mt-0.5">
-                    <span className="text-[9px] text-base-content/30">余额 {fmtCurrency(l.balance)}</span>
-                    <span className="text-[9px] text-base-content/30">{l.rate}% · {fmtCurrency(l.monthly)}/月</span>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {loanDetails.length > 5 && (
-            <button
-              className="w-full text-center text-xs text-primary mt-2 py-1.5 hover:underline"
-              onClick={() => setShowAllLoans(!showAllLoans)}
-            >
-              {showAllLoans ? '收起' : `查看全部 ${loanDetails.length} 笔贷款 ▼`}
-            </button>
-          )}
-        </div>
-      )}
-    </div>
-  );
-};
-
