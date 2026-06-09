@@ -681,8 +681,9 @@ const ReportsTab: React.FC<{
   const totalLoanPayment = properties.reduce((s, p) => s + (Number(p.monthly_repayment) || 0), 0);
   const netIncome = totalRentIncome - totalLoanPayment;
 
-  // Total purchase value of all properties
-  const totalPurchaseValue = properties.reduce((s, p) => s + (Number(p.price) || 0), 0);
+  // Total purchase value breakdown
+  const totalPurchasePrice = properties.reduce((s, p) => s + (Number(p.price) || 0), 0);
+  const totalLoanBalance = properties.reduce((s, p) => s + (Number(p.loan_balance) || Number(p.loan_amount) || 0), 0);
 
   // ===== Rent Collection (last 6 months) =====
   const last6: { key: string; label: string }[] = [];
@@ -738,24 +739,35 @@ const ReportsTab: React.FC<{
     <div className="space-y-4">
 
       {/* ===== 1. Summary KPI ===== */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="bg-accent/10 rounded-xl p-3 text-center">
-          <p className="text-[10px] text-base-content/40 mb-1">总购买价值</p>
-          <p className="text-base font-bold text-accent">{fmtCurrency(totalPurchaseValue)}</p>
+      <div className="space-y-2">
+        {/* Row 1: 总购买价值 + 总欠款 */}
+        <div className="grid grid-cols-2 gap-2">
+          <div className="bg-accent/10 rounded-xl p-3">
+            <p className="text-[10px] text-base-content/40 mb-1">总购买价值</p>
+            <p className="text-base font-bold text-accent">{fmtCurrency(totalPurchasePrice)}</p>
+          </div>
+          <div className="bg-info/10 rounded-xl p-3">
+            <p className="text-[10px] text-base-content/40 mb-1">总欠款</p>
+            <p className="text-base font-bold text-info">{fmtCurrency(totalLoanBalance)}</p>
+            <p className="text-[9px] text-base-content/40 mt-0.5">月供 {fmtCurrency(totalLoanPayment)}</p>
+          </div>
         </div>
-        <div className="bg-success/10 rounded-xl p-3 text-center">
-          <p className="text-[10px] text-base-content/40 mb-1">月租收入</p>
-          <p className="text-base font-bold text-success">{fmtCurrency(totalRentIncome)}</p>
-        </div>
-        <div className="bg-error/10 rounded-xl p-3 text-center">
-          <p className="text-[10px] text-base-content/40 mb-1">贷款支出</p>
-          <p className="text-base font-bold text-error">{fmtCurrency(totalLoanPayment)}</p>
-        </div>
-        <div className={`${netIncome >= 0 ? 'bg-success/10' : 'bg-error/10'} rounded-xl p-3 text-center`}>
-          <p className="text-[10px] text-base-content/40 mb-1">净收入</p>
-          <p className={`text-base font-bold ${netIncome >= 0 ? 'text-success' : 'text-error'}`}>
-            {netIncome >= 0 ? '+' : ''}{fmtCurrency(netIncome)}
-          </p>
+        {/* Row 2: 月租收入 + 贷款支出 + 净收入 */}
+        <div className="grid grid-cols-3 gap-2">
+          <div className="bg-success/10 rounded-xl p-3 text-center">
+            <p className="text-[10px] text-base-content/40 mb-1">月租收入</p>
+            <p className="text-sm font-bold text-success">{fmtCurrency(totalRentIncome)}</p>
+          </div>
+          <div className="bg-error/10 rounded-xl p-3 text-center">
+            <p className="text-[10px] text-base-content/40 mb-1">贷款支出</p>
+            <p className="text-sm font-bold text-error">{fmtCurrency(totalLoanPayment)}</p>
+          </div>
+          <div className={`${netIncome >= 0 ? 'bg-success/10' : 'bg-error/10'} rounded-xl p-3 text-center`}>
+            <p className="text-[10px] text-base-content/40 mb-1">净收入</p>
+            <p className={`text-sm font-bold ${netIncome >= 0 ? 'text-success' : 'text-error'}`}>
+              {netIncome >= 0 ? '+' : ''}{fmtCurrency(netIncome)}
+            </p>
+          </div>
         </div>
       </div>
 

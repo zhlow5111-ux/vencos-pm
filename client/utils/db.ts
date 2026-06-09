@@ -1883,6 +1883,8 @@ export interface PropertyFinancial {
   loanAccountNo: string;
   tenureMonths: number;
   estimatedPayoffDate: string;
+  purchasePrice: number;
+  purchaseFees: number;
   totalPurchaseCost: number;
   roi: number;
   totalFloors: number;
@@ -1958,6 +1960,8 @@ export async function getPropertyFinancials(): Promise<PropertyFinancial[]> {
     const purchaseFees = costMap.get(id) || 0;
     const totalPurchaseCost = price + purchaseFees;
     const roi = totalPurchaseCost > 0 ? (annualNetIncome / totalPurchaseCost) * 100 : 0;
+    const purchasePrice_val = price;
+    const purchaseFees_val = purchaseFees;
 
     let estimatedPayoffDate = '';
     const loanStart = String(row.loan_start || '');
@@ -1980,7 +1984,7 @@ export async function getPropertyFinancials(): Promise<PropertyFinancial[]> {
       interestRate: Number(row.loan_interest_rate || 0),
       loanStart, loanAccountNo: String(row.loan_account_no || ''),
       tenureMonths, estimatedPayoffDate,
-      totalPurchaseCost, roi,
+      purchasePrice: purchasePrice_val, purchaseFees: purchaseFees_val, totalPurchaseCost, roi,
       totalFloors: rentData.total || Number(row.floor_count || 1),
       occupiedFloors: rentData.occupied,
     });
@@ -2000,9 +2004,13 @@ export async function getFinancialSummary(): Promise<{
   occupancyRate: number;
   collectionRate: number;
   totalPurchaseValue: number;
+  totalPurchasePrice: number;
+  totalPurchaseFees: number;
 }> {
   const data = await getPropertyFinancials();
   const totalPurchaseValue = data.reduce((s, p) => s + p.totalPurchaseCost, 0);
+  const totalPurchasePrice = data.reduce((s, p) => s + p.purchasePrice, 0);
+  const totalPurchaseFees = data.reduce((s, p) => s + p.purchaseFees, 0);
   const totalMonthlyRent = data.reduce((s, p) => s + p.monthlyRent, 0);
   const totalMonthlyExpense = data.reduce((s, p) => s + p.totalMonthlyExpense, 0);
   const totalLoanBalance = data.reduce((s, p) => s + p.loanBalance, 0);
@@ -2032,6 +2040,8 @@ export async function getFinancialSummary(): Promise<{
     occupancyRate: totalFloors > 0 ? (occupiedFloors / totalFloors) * 100 : 0,
     collectionRate: totalInv > 0 ? (paidInv / totalInv) * 100 : 0,
     totalPurchaseValue,
+    totalPurchasePrice,
+    totalPurchaseFees,
   };
 }
 
