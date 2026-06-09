@@ -462,12 +462,6 @@ export const USER_ROLES: { value: UserRole; label: string; desc: string }[] = [
   { value: 'worker', label: '工人', desc: '查看分配的维修工单' },
 ];
 
-export const ACCESS_LEVELS: SelectOption[] = [
-  { value: 'full', label: '完全权限' },
-  { value: 'edit', label: '编辑物业' },
-  { value: 'financial', label: '查看财务' },
-  { value: 'readonly', label: '只读查看' },
-];
 
 export const BANK_CODES: SelectOption[] = [
   { value: '', label: '-- 选择银行 --' },
