@@ -186,6 +186,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
   const [floorUnits, setFloorUnits] = useState<Record<number, FloorUnitRow[]>>({});
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [owners, setOwners] = useState<Record<number, OwnerRow>>({});
+  const [purchaseCostsTotal, setPurchaseCostsTotal] = useState(0);
   const [hoveredTab, setHoveredTab] = useState<StakeholderTab | null>(null);
 
   // ===== Data Loading =====
@@ -213,6 +214,15 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
         `SELECT i.*, f.tenant_name FROM vc_invoices i LEFT JOIN vc_floor_units f ON i.property_id = f.property_id AND i.floor_label = f.floor_label WHERE (i.property_id IN (SELECT property_id FROM vc_user_access WHERE user_id = ${user.id}) OR i.property_id IN (SELECT p.id FROM vc_properties p WHERE p.owner_id IN (SELECT owner_id FROM vc_user_owner_access WHERE user_id = ${user.id}))) ORDER BY i.created_at DESC`
       )) as InvoiceRow[];
       setInvoices(invs);
+
+      // Load purchase costs for these properties
+      const propIds = props.map(p => p.id);
+      if (propIds.length > 0) {
+        const costRows = (await window.tasklet.sqlQuery(
+          `SELECT COALESCE(SUM(amount), 0) as total FROM vc_purchase_costs WHERE property_id IN (${propIds.join(',')})`
+        )) as any[];
+        setPurchaseCostsTotal(Number(costRows[0]?.total) || 0);
+      }
 
       // Load owners
       const ownerIds = [...new Set(props.map(p => p.owner_id).filter(Boolean))];
@@ -683,6 +693,7 @@ const ReportsTab: React.FC<{
 
   // Total purchase value breakdown
   const totalPurchasePrice = properties.reduce((s, p) => s + (Number(p.price) || 0), 0);
+  const totalPurchaseValue = totalPurchasePrice + purchaseCostsTotal;
   const totalLoanBalance = properties.reduce((s, p) => s + (Number(p.loan_balance) || Number(p.loan_amount) || 0), 0);
 
   // ===== Rent Collection (last 6 months) =====
@@ -744,7 +755,9 @@ const ReportsTab: React.FC<{
         <div className="grid grid-cols-2 gap-2">
           <div className="bg-accent/10 rounded-xl p-3">
             <p className="text-[10px] text-base-content/40 mb-1">总购买价值</p>
-            <p className="text-base font-bold text-accent">{fmtCurrency(totalPurchasePrice)}</p>
+            <p className="text-base font-bold text-accent">{fmtCurrency(totalPurchaseValue)}</p>
+            <p className="text-[9px] text-base-content/40 mt-0.5">购买价格 {fmtCurrency(totalPurchasePrice)}</p>
+            <p className="text-[9px] text-base-content/40">其他费用 {fmtCurrency(purchaseCostsTotal)}</p>
           </div>
           <div className="bg-info/10 rounded-xl p-3">
             <p className="text-[10px] text-base-content/40 mb-1">总欠款</p>
