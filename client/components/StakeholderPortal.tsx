@@ -187,6 +187,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
   const [invoices, setInvoices] = useState<InvoiceRow[]>([]);
   const [owners, setOwners] = useState<Record<number, OwnerRow>>({});
   const [purchaseCostsTotal, setPurchaseCostsTotal] = useState(0);
+  const [ownerAccessMap, setOwnerAccessMap] = useState<Record<number, string>>({});
   const [hoveredTab, setHoveredTab] = useState<StakeholderTab | null>(null);
 
   // ===== Data Loading =====
@@ -234,6 +235,14 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
         if (rows.length > 0) ownerMap[oid] = rows[0];
       }
       setOwners(ownerMap);
+
+      // Load access levels per owner company
+      const accessRows = (await window.tasklet.sqlQuery(
+        `SELECT owner_id, access_level FROM vc_user_owner_access WHERE user_id = ${user.id}`
+      )) as any[];
+      const aMap: Record<number, string> = {};
+      for (const r of accessRows) aMap[Number(r.owner_id)] = String(r.access_level || 'readonly');
+      setOwnerAccessMap(aMap);
     } catch (err) {
       console.error('[StakeholderPortal] Data load error:', err);
     } finally {
@@ -246,10 +255,12 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
   }, [loadData]);
 
   // ===== Computed Values =====
-  const allFloors = properties.flatMap(p => (floorUnits[p.id] || []).map(f => ({ ...f, propertyName: p.name })));
-  const floorRentTotal = Math.round(allFloors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0));
+  const financialProps = properties.filter(p => canSeeFinancials(p.owner_id));
+  const allFloors = properties.flatMap(p => (floorUnits[p.id] || []).map(f => ({ ...f, propertyName: p.name, propOwnerId: p.owner_id })));
+  const financialFloors = allFloors.filter(f => canSeeFinancials((f as any).propOwnerId));
+  const floorRentTotal = Math.round(financialFloors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0));
   // Add property-level rental_price for rented properties without floor-level rent data
-  const propRentFallback = properties.reduce((s, p) => {
+  const propRentFallback = financialProps.reduce((s, p) => {
     const propFloorRent = (floorUnits[p.id] || []).reduce((sum: number, f: Record<string, unknown>) => sum + (Number(f.rent_amount) || 0), 0);
     if (propFloorRent > 0) return s;
     if (p.status === 'rented' && Number(p.rental_price || 0) > 0) return s + Number(p.rental_price);
@@ -269,6 +280,30 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
     const days = getDaysUntil(f.lease_end);
     return days <= 90;
   }).sort((a, b) => getDaysUntil(a.lease_end) - getDaysUntil(b.lease_end));
+
+  // ===== Permission Helpers =====
+  const canSeeFinancials = (ownerId: number) => {
+    const level = ownerAccessMap[ownerId] || 'readonly';
+    return level === 'financial' || level === 'edit' || level === 'full';
+  };
+  const getAccessLabel = (ownerId: number) => {
+    const level = ownerAccessMap[ownerId] || 'readonly';
+    switch(level) {
+      case 'full': return '完全权限';
+      case 'edit': return '编辑物业';
+      case 'financial': return '查看财务';
+      default: return '只读查看';
+    }
+  };
+  const getAccessColor = (ownerId: number) => {
+    const level = ownerAccessMap[ownerId] || 'readonly';
+    switch(level) {
+      case 'full': return 'text-success';
+      case 'edit': return 'text-info';
+      case 'financial': return 'text-warning';
+      default: return 'text-base-content/30';
+    }
+  };
 
   // ===== Tab Navigation Config =====
   const TABS: { key: StakeholderTab; label: string; Icon: React.FC<{ size?: number; className?: string }> }[] = [
@@ -355,11 +390,11 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
             <Landmark size={16} className="text-primary" />
             贷款概览
           </h3>
-          {properties.filter(p => Number(p.loan_amount) > 0).length === 0 ? (
+          {financialProps.filter(p => Number(p.loan_amount) > 0).length === 0 ? (
             <p className="text-xs text-base-content/40 text-center py-4">暂无贷款记录</p>
           ) : (
             <div className="space-y-2">
-              {properties.filter(p => Number(p.loan_amount) > 0).map(p => {
+              {financialProps.filter(p => Number(p.loan_amount) > 0).map(p => {
                 const bal = estimateBalance(
                   Number(p.loan_amount),
                   Number(p.monthly_repayment),
@@ -398,7 +433,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
     return (
       <div className="space-y-3">
         {properties.map(p => (
-          <PropertyCard key={p.id} property={p} floors={floorUnits[p.id] || []} owner={owners[p.owner_id]} />
+          <PropertyCard key={p.id} property={p} floors={floorUnits[p.id] || []} owner={owners[p.owner_id]} accessLevel={ownerAccessMap[p.owner_id] || 'readonly'} accessLabel={getAccessLabel(p.owner_id)} accessColor={getAccessColor(p.owner_id)} />
         ))}
       </div>
     );
@@ -409,7 +444,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
   }
 
   function renderReports() {
-    return <ReportsTab properties={properties} floorUnits={floorUnits} invoices={invoices} purchaseCostsTotal={purchaseCostsTotal} />;
+    return <ReportsTab properties={properties} floorUnits={floorUnits} invoices={invoices} purchaseCostsTotal={purchaseCostsTotal} ownerAccessMap={ownerAccessMap} />;
   }
 
   // ===== Main Layout =====
@@ -478,7 +513,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
 
 // ========== Property Card (Expandable) ==========
 
-const PropertyCard: React.FC<{ property: PropertyRow; floors: FloorUnitRow[]; owner?: OwnerRow }> = ({ property, floors, owner }) => {
+const PropertyCard: React.FC<{ property: PropertyRow; floors: FloorUnitRow[]; owner?: OwnerRow; accessLevel?: string; accessLabel?: string; accessColor?: string }> = ({ property, floors, owner, accessLevel = 'readonly', accessLabel = '只读查看', accessColor = 'text-base-content/30' }) => {
   const [expanded, setExpanded] = useState(false);
   const floorRent = Math.round(floors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0));
   const totalRent = floorRent > 0 ? floorRent : (property.status === 'rented' && Number(property.rental_price || 0) > 0 ? Math.round(Number(property.rental_price)) : 0);
@@ -494,7 +529,12 @@ const PropertyCard: React.FC<{ property: PropertyRow; floors: FloorUnitRow[]; ow
           <p className="text-[11px] text-base-content/50 truncate">{property.address || '-'}</p>
           <div className="flex items-center gap-2 mt-1">
             {owner && <span className="text-[10px] text-base-content/40">{owner.name}</span>}
-            <span className="text-[10px] font-medium text-primary">{fmtCurrency(totalRent)}/月</span>
+            {(accessLevel === 'financial' || accessLevel === 'edit' || accessLevel === 'full') ? (
+              <span className="text-[10px] font-medium text-primary">{fmtCurrency(totalRent)}/月</span>
+            ) : (
+              <span className="text-[10px] font-medium text-base-content/30">***</span>
+            )}
+            <span className={`text-[9px] ${accessColor} font-medium`}>{accessLabel}</span>
           </div>
         </div>
         <div className="shrink-0 ml-2 text-base-content/30">
@@ -529,7 +569,9 @@ const PropertyCard: React.FC<{ property: PropertyRow; floors: FloorUnitRow[]; ow
                           {isVacant ? '空置' : f.tenant_name}
                         </td>
                         <td className="text-right text-base-content">
-                          {Number(f.rent_amount) > 0 ? fmtCurrency(Number(f.rent_amount)) : '-'}
+                          {(accessLevel === 'financial' || accessLevel === 'edit' || accessLevel === 'full')
+                            ? (Number(f.rent_amount) > 0 ? fmtCurrency(Number(f.rent_amount)) : '-')
+                            : '***'}
                         </td>
                         <td className="text-[10px] text-base-content/50 whitespace-nowrap">
                           {f.lease_start && f.lease_end
@@ -538,11 +580,11 @@ const PropertyCard: React.FC<{ property: PropertyRow; floors: FloorUnitRow[]; ow
                         </td>
                         <td>
                           {badge ? (
-                            <span className={`badge badge-xs ${badge.cls}`}>{badge.emoji} {badge.label}</span>
+                            <span className={`badge badge-sm whitespace-nowrap ${badge.cls}`}>{badge.emoji} {badge.label}</span>
                           ) : (
                             isVacant
-                              ? <span className="badge badge-xs badge-ghost">空置</span>
-                              : <span className="badge badge-xs badge-success">正常</span>
+                              ? <span className="badge badge-sm badge-ghost whitespace-nowrap">空置</span>
+                              : <span className="badge badge-sm badge-success whitespace-nowrap">正出租</span>
                           )}
                         </td>
                       </tr>
@@ -674,28 +716,37 @@ const ReportsTab: React.FC<{
   floorUnits: Record<number, FloorUnitRow[]>;
   invoices: InvoiceRow[];
   purchaseCostsTotal: number;
-}> = ({ properties, floorUnits, invoices, purchaseCostsTotal }) => {
+  ownerAccessMap?: Record<number, string>;
+}> = ({ properties, floorUnits, invoices, purchaseCostsTotal, ownerAccessMap = {} }) => {
   const [showAllPL, setShowAllPL] = useState(false);
   const [showAllLoans, setShowAllLoans] = useState(false);
 
   const now = new Date();
 
+  // ===== Filter by financial access =====
+  const canSeeFinancial = (p: PropertyRow) => {
+    const level = ownerAccessMap[p.owner_id] || 'readonly';
+    return level === 'financial' || level === 'edit' || level === 'full';
+  };
+  const fProps = properties.filter(canSeeFinancial);
+  const readonlyProps = properties.filter(p => !canSeeFinancial(p));
+
   // ===== Monthly Totals =====
-  const totalRentIncome = properties.reduce((s, p) => {
-    const floors = floorUnits[p.id] || [];
+  const totalRentIncome = fProps.reduce((s, p) => {
+    const floors = (floorUnits[p.id] || []);
     const floorRent = floors.reduce((sum, f) => sum + (Number(f.rent_amount) || 0), 0);
     if (floorRent > 0) return s + floorRent;
     if (p.status === 'rented' && Number(p.rental_price || 0) > 0) return s + Number(p.rental_price);
     return s;
   }, 0);
 
-  const totalLoanPayment = properties.reduce((s, p) => s + (Number(p.monthly_repayment) || 0), 0);
+  const totalLoanPayment = fProps.reduce((s, p) => s + (Number(p.monthly_repayment) || 0), 0);
   const netIncome = totalRentIncome - totalLoanPayment;
 
   // Total purchase value breakdown
-  const totalPurchasePrice = properties.reduce((s, p) => s + (Number(p.price) || 0), 0);
+  const totalPurchasePrice = fProps.reduce((s, p) => s + (Number(p.price) || 0), 0);
   const totalPurchaseValue = totalPurchasePrice + purchaseCostsTotal;
-  const totalLoanBalance = properties.reduce((s, p) => s + (Number(p.loan_balance) || Number(p.loan_amount) || 0), 0);
+  const totalLoanBalance = fProps.reduce((s, p) => s + (Number(p.loan_balance) || Number(p.loan_amount) || 0), 0);
 
   // ===== Rent Collection (last 6 months) =====
   const last6: { key: string; label: string }[] = [];
@@ -717,7 +768,7 @@ const ReportsTab: React.FC<{
   const maxBar = Math.max(...monthlyData.map(m => m.total), 1);
 
   // ===== Per-Property P&L (sorted by net) =====
-  const propertyPL = properties.map(p => {
+  const propertyPL = fProps.map(p => {
     const floors = floorUnits[p.id] || [];
     const floorRent = floors.reduce((s, f) => s + (Number(f.rent_amount) || 0), 0);
     const rent = floorRent > 0 ? floorRent : (p.status === 'rented' && Number(p.rental_price || 0) > 0 ? Number(p.rental_price) : 0);
@@ -730,7 +781,7 @@ const ReportsTab: React.FC<{
   const displayPL = showAllPL ? propertyPL : propertyPL.slice(0, 5);
 
   // ===== Loan Summary =====
-  const propsWithLoans = properties.filter(p => Number(p.loan_amount) > 0);
+  const propsWithLoans = fProps.filter(p => Number(p.loan_amount) > 0);
   const totalOriginal = propsWithLoans.reduce((s, p) => s + (Number(p.loan_amount) || 0), 0);
   const totalBalance = propsWithLoans.reduce((s, p) => {
     return s + estimateBalance(Number(p.loan_amount), Number(p.monthly_repayment), Number(p.loan_interest_rate), p.loan_start);
