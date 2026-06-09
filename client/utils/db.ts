@@ -1999,8 +1999,10 @@ export async function getFinancialSummary(): Promise<{
   totalFloors: number;
   occupancyRate: number;
   collectionRate: number;
+  totalPurchaseValue: number;
 }> {
   const data = await getPropertyFinancials();
+  const totalPurchaseValue = data.reduce((s, p) => s + p.totalPurchaseCost, 0);
   const totalMonthlyRent = data.reduce((s, p) => s + p.monthlyRent, 0);
   const totalMonthlyExpense = data.reduce((s, p) => s + p.totalMonthlyExpense, 0);
   const totalLoanBalance = data.reduce((s, p) => s + p.loanBalance, 0);
@@ -2029,6 +2031,7 @@ export async function getFinancialSummary(): Promise<{
     totalFloors,
     occupancyRate: totalFloors > 0 ? (occupiedFloors / totalFloors) * 100 : 0,
     collectionRate: totalInv > 0 ? (paidInv / totalInv) * 100 : 0,
+    totalPurchaseValue,
   };
 }
 

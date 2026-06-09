@@ -53,6 +53,7 @@ export const FinancialReports: React.FC = () => {
       { label: '月租金总收入', value: formatCurrency(s.totalMonthlyRent), icon: <DollarSign size={20} />, bg: 'bg-success/15', color: 'text-success' },
       { label: '月总支出', value: formatCurrency(s.totalMonthlyExpense), icon: <Wallet size={20} />, bg: 'bg-error/15', color: 'text-error' },
       { label: '月净收入', value: formatCurrency(s.totalNetMonthly), icon: s.totalNetMonthly >= 0 ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />, bg: s.totalNetMonthly >= 0 ? 'bg-primary/15' : 'bg-error/15', color: s.totalNetMonthly >= 0 ? 'text-primary' : 'text-error' },
+      { label: '总购买价值', value: formatCurrency(s.totalPurchaseValue), icon: <Building2 size={20} />, bg: 'bg-accent/15', color: 'text-accent' },
       { label: '总贷款余额', value: formatCurrency(s.totalLoanBalance), icon: <Landmark size={20} />, bg: 'bg-info/15', color: 'text-info' },
       { label: '入住率', value: `${s.occupancyRate.toFixed(1)}%`, sub: `${s.occupiedFloors}/${s.totalFloors} 单位`, icon: <Home size={20} />, bg: 'bg-warning/15', color: 'text-warning' },
       { label: '收款率', value: `${s.collectionRate.toFixed(1)}%`, icon: <Percent size={20} />, bg: 'bg-secondary/15', color: 'text-secondary' },
