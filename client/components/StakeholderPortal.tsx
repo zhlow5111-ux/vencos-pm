@@ -409,7 +409,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
   }
 
   function renderReports() {
-    return <ReportsTab properties={properties} floorUnits={floorUnits} invoices={invoices} />;
+    return <ReportsTab properties={properties} floorUnits={floorUnits} invoices={invoices} purchaseCostsTotal={purchaseCostsTotal} />;
   }
 
   // ===== Main Layout =====
@@ -673,7 +673,8 @@ const ReportsTab: React.FC<{
   properties: PropertyRow[];
   floorUnits: Record<number, FloorUnitRow[]>;
   invoices: InvoiceRow[];
-}> = ({ properties, floorUnits, invoices }) => {
+  purchaseCostsTotal: number;
+}> = ({ properties, floorUnits, invoices, purchaseCostsTotal }) => {
   const [showAllPL, setShowAllPL] = useState(false);
   const [showAllLoans, setShowAllLoans] = useState(false);
 
