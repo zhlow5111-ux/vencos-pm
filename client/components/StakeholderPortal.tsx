@@ -242,6 +242,8 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
   const totalMonthlyRent = properties.reduce((s, p) => s + getMonthlyRent(p), 0);
   const totalMonthlyExpense = properties.reduce((s, p) => s + getMonthlyExpense(p), 0);
   const monthlyNet = totalMonthlyRent - totalMonthlyExpense;
+  const totalPurchasePrice = properties.reduce((s, p) => s + N(p.price), 0);
+  const totalPurchaseFees = totalAssets - totalPurchasePrice;
 
   const totalUnits = floorUnits.length || properties.length;
   const occupiedUnits = floorUnits.length > 0
@@ -266,6 +268,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
 
   const totalLoanOriginal = properties.reduce((s, p) => s + N(p.loan_amount), 0);
   const totalMonthlyRepayment = properties.reduce((s, p) => s + N(p.monthly_repayment), 0);
+  const totalOtherExpense = totalMonthlyExpense - totalMonthlyRepayment;
   const loanPayoffPct = totalLoanOriginal > 0 ? ((totalLoanOriginal - totalLoanBalance) / totalLoanOriginal) * 100 : 0;
 
   /* ── card wrapper ── */
@@ -348,12 +351,12 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
           <div className="bg-success/5 rounded-lg p-2">
             <div className="text-[10px] text-base-content/60 mb-1">月租收入</div>
             <div className="text-sm font-bold text-success">{fmtCurrency(totalMonthlyRent)}</div>
-            <TrendingUp size={12} className="text-success mx-auto mt-1" />
+            <div className="text-[9px] text-base-content/40 mt-0.5">租金 {fmtCurrency(totalMonthlyRent)}</div>
           </div>
           <div className="bg-error/5 rounded-lg p-2">
             <div className="text-[10px] text-base-content/60 mb-1">月总支出</div>
             <div className="text-sm font-bold text-error">{fmtCurrency(totalMonthlyExpense)}</div>
-            <TrendingDown size={12} className="text-error mx-auto mt-1" />
+            <div className="text-[9px] text-base-content/40 mt-0.5">供期 {fmtCurrency(totalMonthlyRepayment)}<br/>其他 {fmtCurrency(totalOtherExpense)}</div>
           </div>
           <div className={`${monthlyNet >= 0 ? 'bg-success/5' : 'bg-error/5'} rounded-lg p-2`}>
             <div className="text-[10px] text-base-content/60 mb-1">月净收入</div>
@@ -1086,10 +1089,12 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
               <Card>
                 <div className="text-xs text-base-content/50">月租收入</div>
                 <div className="text-lg font-bold text-success">{fmtCurrency(totalMonthlyRent)}</div>
+                <div className="text-[10px] text-base-content/40 mt-0.5">租金 {fmtCurrency(totalMonthlyRent)}</div>
               </Card>
               <Card>
                 <div className="text-xs text-base-content/50">月总支出</div>
                 <div className="text-lg font-bold text-error">{fmtCurrency(totalMonthlyExpense)}</div>
+                <div className="text-[10px] text-base-content/40 mt-0.5">银行供期 {fmtCurrency(totalMonthlyRepayment)} · 其他 {fmtCurrency(totalOtherExpense)}</div>
               </Card>
               <Card>
                 <div className="text-xs text-base-content/50">月净收入</div>
@@ -1098,6 +1103,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
               <Card>
                 <div className="text-xs text-base-content/50">总购入价值</div>
                 <div className="text-lg font-bold text-primary">{fmtCurrency(totalAssets)}</div>
+                <div className="text-[10px] text-base-content/40 mt-0.5">购买价格 {fmtCurrency(totalPurchasePrice)} · 其他费用 {fmtCurrency(totalPurchaseFees)}</div>
               </Card>
               <Card>
                 <div className="text-xs text-base-content/50">总贷款余额</div>
