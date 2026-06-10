@@ -49,9 +49,10 @@ export const FinancialReports: React.FC = () => {
     const maxExp = Math.max(...properties.map(p => p.totalMonthlyExpense), 1);
     const maxBar = Math.max(maxRent, maxExp);
 
+    const otherExpense = s.totalMonthlyExpense - s.totalMonthlyRepayment;
     const cards = [
-      { label: '月租金总收入', value: formatCurrency(s.totalMonthlyRent), icon: <DollarSign size={20} />, bg: 'bg-success/15', color: 'text-success' },
-      { label: '月总支出', value: formatCurrency(s.totalMonthlyExpense), icon: <Wallet size={20} />, bg: 'bg-error/15', color: 'text-error' },
+      { label: '月租金总收入', value: formatCurrency(s.totalMonthlyRent), sub: `租金 ${formatCurrency(s.totalMonthlyRent)}`, icon: <DollarSign size={20} />, bg: 'bg-success/15', color: 'text-success' },
+      { label: '月总支出', value: formatCurrency(s.totalMonthlyExpense), sub: `银行供期 ${formatCurrency(s.totalMonthlyRepayment)} · 其他 ${formatCurrency(otherExpense)}`, icon: <Wallet size={20} />, bg: 'bg-error/15', color: 'text-error' },
       { label: '月净收入', value: formatCurrency(s.totalNetMonthly), icon: s.totalNetMonthly >= 0 ? <ArrowUpRight size={20} /> : <ArrowDownRight size={20} />, bg: s.totalNetMonthly >= 0 ? 'bg-primary/15' : 'bg-error/15', color: s.totalNetMonthly >= 0 ? 'text-primary' : 'text-error' },
       { label: '总购买价值', value: formatCurrency(s.totalPurchaseValue), sub: `SPA合同价 ${formatCurrency(s.totalSpaPrice)}${s.totalSpaPrice !== s.totalPurchasePrice ? ` · 实际价格 ${formatCurrency(s.totalPurchasePrice)} · 台底差额 ${formatCurrency(s.totalSpaPrice - s.totalPurchasePrice)}` : ''} · 其他费用 ${formatCurrency(s.totalPurchaseFees)}`, icon: <Building2 size={20} />, bg: 'bg-accent/15', color: 'text-accent' },
       { label: '总欠款', value: formatCurrency(s.totalLoanBalance), sub: `月供 ${formatCurrency(s.totalMonthlyRepayment)}`, icon: <Landmark size={20} />, bg: 'bg-info/15', color: 'text-info' },
