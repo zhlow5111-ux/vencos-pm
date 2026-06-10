@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 22;
+  const SCHEMA_VERSION = 23;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -56,6 +56,7 @@ function initDatabase() {
         mgmt_fee_pct REAL NOT NULL DEFAULT 0, mgmt_company_address TEXT NOT NULL DEFAULT '',
         mgmt_fee_type TEXT NOT NULL DEFAULT 'percentage', mgmt_fee_amount REAL NOT NULL DEFAULT 0,
         loan_repayment_day INTEGER NOT NULL DEFAULT 0,
+        actual_price REAL NOT NULL DEFAULT 0,
         owner_id INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       )`,
       `CREATE TABLE IF NOT EXISTS vc_clients (
@@ -383,6 +384,19 @@ function initDatabase() {
     safeExec(`CREATE TABLE IF NOT EXISTS vc_user_owner_access (
       id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, owner_id INTEGER NOT NULL,
       access_level TEXT NOT NULL DEFAULT 'readonly', UNIQUE(user_id, owner_id)
+    )`);
+  }
+
+  // V23: SPA vs actual price + late penalty config + invoice attachments
+  if (currentVer < 23) {
+    safeExec(`ALTER TABLE vc_properties ADD COLUMN actual_price REAL NOT NULL DEFAULT 0`);
+    safeExec(`ALTER TABLE vc_documents ADD COLUMN linked_invoice_id INTEGER NOT NULL DEFAULT 0`);
+    safeExec(`CREATE TABLE IF NOT EXISTS vc_penalty_config (
+      id INTEGER PRIMARY KEY, property_id INTEGER NOT NULL DEFAULT 0,
+      rate_pct REAL NOT NULL DEFAULT 0, grace_days INTEGER NOT NULL DEFAULT 7,
+      calc_method TEXT NOT NULL DEFAULT 'monthly_pct', min_amount REAL NOT NULL DEFAULT 0,
+      max_amount REAL NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
     )`);
   }
 

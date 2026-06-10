@@ -233,7 +233,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
     estimateLoanBalance(N(p.loan_amount), N(p.loan_interest_rate), N(p.monthly_repayment), p.loan_start);
 
   const getPurchaseTotal = (p: Rec): number =>
-    N(p.price) + getPurchaseCosts(N(p.id)).reduce((s, c) => s + N(c.amount), 0);
+    (N(p.actual_price) > 0 ? N(p.actual_price) : N(p.price)) + getPurchaseCosts(N(p.id)).reduce((s, c) => s + N(c.amount), 0);
 
   /* ── aggregate calculations ── */
   const totalAssets = properties.reduce((s, p) => s + getPurchaseTotal(p), 0);
@@ -242,7 +242,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
   const totalMonthlyRent = properties.reduce((s, p) => s + getMonthlyRent(p), 0);
   const totalMonthlyExpense = properties.reduce((s, p) => s + getMonthlyExpense(p), 0);
   const monthlyNet = totalMonthlyRent - totalMonthlyExpense;
-  const totalPurchasePrice = properties.reduce((s, p) => s + N(p.price), 0);
+  const totalPurchasePrice = properties.reduce((s, p) => s + (N(p.actual_price) > 0 ? N(p.actual_price) : N(p.price)), 0);
   const totalPurchaseFees = totalAssets - totalPurchasePrice;
 
   const totalUnits = floorUnits.length || properties.length;
@@ -573,8 +573,17 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
                     </>}
                     <div className="text-base-content/50">地址</div>
                     <div className="font-medium col-span-1">{S(p.address) || '-'}</div>
-                    <div className="text-base-content/50">购入价</div>
+                    <div className="text-base-content/50">SPA 合同价</div>
                     <div className="font-medium text-primary">{N(p.price) ? fmtCurrency(N(p.price)) : '-'}</div>
+                    {N(p.actual_price) > 0 && N(p.actual_price) !== N(p.price) && <>
+                      <div className="text-base-content/50">实际成交价</div>
+                      <div className="font-medium text-warning">{fmtCurrency(N(p.actual_price))}</div>
+                      <div className="text-base-content/50">台底差额</div>
+                      <div className={`font-medium ${N(p.actual_price) < N(p.price) ? 'text-success' : 'text-error'}`}>
+                        {N(p.actual_price) < N(p.price) ? '-' : '+'}
+                        {fmtCurrency(Math.abs(N(p.actual_price) - N(p.price)))}
+                      </div>
+                    </>}
                     <div className="text-base-content/50">月租定价</div>
                     <div className="font-medium">{N(p.rental_price) ? fmtCurrency(N(p.rental_price)) : '-'}</div>
                     <div className="text-base-content/50">状态</div>
@@ -1103,7 +1112,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
               <Card>
                 <div className="text-xs text-base-content/50">总购入价值</div>
                 <div className="text-lg font-bold text-primary">{fmtCurrency(totalAssets)}</div>
-                <div className="text-[10px] text-base-content/40 mt-0.5">购买价格 {fmtCurrency(totalPurchasePrice)} · 其他费用 {fmtCurrency(totalPurchaseFees)}</div>
+                <div className="text-[10px] text-base-content/40 mt-0.5">实际价格 {fmtCurrency(totalPurchasePrice)} · 其他费用 {fmtCurrency(totalPurchaseFees)}</div>
               </Card>
               <Card>
                 <div className="text-xs text-base-content/50">总贷款余额</div>

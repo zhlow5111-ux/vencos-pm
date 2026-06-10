@@ -28,6 +28,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
   const [listingType, setListingType] = useState(property?.listing_type || 'rent');
   const [floorCount, setFloorCount] = useState(property?.floor_count || 1);
   const [price, setPrice] = useState(property?.price || 0);
+  const [actualPrice, setActualPrice] = useState(property?.actual_price || 0);
   const [rentalPrice, setRentalPrice] = useState(property?.rental_price || 0);
   const [bedrooms, setBedrooms] = useState(property?.bedrooms || 0);
   const [bathrooms, setBathrooms] = useState(property?.bathrooms || 0);
@@ -417,6 +418,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
         mgmt_fee_pct: mgmtFeePct,
         mgmt_fee_type: mgmtFeeType,
         mgmt_fee_amount: mgmtFeeAmount,
+        actual_price: actualPrice,
         owner_id: ownerId,
       });
       // Ensure floor units exist
@@ -555,9 +557,20 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
 
               <div className="grid grid-cols-2 gap-2">
                 <div className="form-control">
-                  <label className="label"><span className="label-text text-xs">售价 (RM)</span></label>
-                  <input type="number" className="input input-bordered input-sm w-full" value={price || ''} onChange={(e) => setPrice(Number(e.target.value))} />
+                  <label className="label"><span className="label-text text-xs">📝 SPA 合同价 (RM)</span></label>
+                  <input type="number" className="input input-bordered input-sm w-full" value={price || ''} onChange={(e) => setPrice(Number(e.target.value))} placeholder="合同签署价格" />
                 </div>
+                <div className="form-control">
+                  <label className="label"><span className="label-text text-xs">💰 实际成交价 (RM)</span></label>
+                  <input type="number" className="input input-bordered input-sm w-full" value={actualPrice || ''} onChange={(e) => setActualPrice(Number(e.target.value))} placeholder="真实支付价格" />
+                </div>
+              </div>
+              {actualPrice > 0 && actualPrice !== price && (
+                <div className={`text-xs px-2 py-1 rounded-lg ${actualPrice < price ? 'bg-success/10 text-success' : 'bg-error/10 text-error'}`}>
+                  台底差额: RM {Math.abs(actualPrice - price).toLocaleString()} ({actualPrice < price ? '实际低于合同' : '实际高于合同'})
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-2">
                 <div className="form-control">
                   <label className="label"><span className="label-text text-xs">月租 (RM)</span></label>
                   <input type="number" className="input input-bordered input-sm w-full" value={rentalPrice || ''} onChange={(e) => setRentalPrice(Number(e.target.value))} />
@@ -1092,9 +1105,21 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                 <div className="bg-warning/10 border border-warning/30 rounded-lg p-3">
                   <div className="space-y-1.5">
                     <div className="flex justify-between text-xs">
-                      <span>🏠 购买价格</span>
+                      <span>📝 SPA 合同价格</span>
                       <span className="font-medium">RM {price.toLocaleString()}</span>
                     </div>
+                    {actualPrice > 0 && actualPrice !== price && (
+                      <>
+                        <div className="flex justify-between text-xs">
+                          <span>💰 实际成交价格</span>
+                          <span className="font-medium">RM {actualPrice.toLocaleString()}</span>
+                        </div>
+                        <div className={`flex justify-between text-xs ${actualPrice < price ? 'text-success' : 'text-error'}`}>
+                          <span>🔄 台底差额</span>
+                          <span className="font-medium">{actualPrice < price ? '-' : '+'}RM {Math.abs(actualPrice - price).toLocaleString()}</span>
+                        </div>
+                      </>
+                    )}
                     {purchaseCosts.length > 0 && (
                       <div className="flex justify-between text-xs">
                         <span>📋 一次性费用 ({purchaseCosts.length}笔)</span>
@@ -1104,7 +1129,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                     <div className="flex justify-between items-center border-t border-warning/30 pt-1.5">
                       <span className="text-xs font-bold">💰 总购入成本</span>
                       <span className="text-base font-bold text-warning">
-                        RM {(price + totalPurchaseCostsAmount).toLocaleString()}
+                        RM {((actualPrice > 0 ? actualPrice : price) + totalPurchaseCostsAmount).toLocaleString()}
                       </span>
                     </div>
                   </div>

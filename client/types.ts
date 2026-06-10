@@ -56,6 +56,8 @@ export interface Property {
   mgmt_fee_pct: number;       // Management fee percentage (e.g. 8 = 8%)
   mgmt_fee_type: 'percentage' | 'fixed';  // Management fee type
   mgmt_fee_amount: number;    // Fixed management fee amount (RM)
+  // Actual vs SPA price
+  actual_price: number;        // 实际成交价格 (台底)
   // Ownership
   owner_id: number;
   created_at: string;

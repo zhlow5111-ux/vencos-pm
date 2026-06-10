@@ -4,7 +4,7 @@ import './app.css';
 import './tasklet-shim';
 import { setAuthToken, clearAuthToken, getAuthToken } from './tasklet-shim';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Page, PortalMode, Property, Client, SaleDeal, RentalDeal, Invoice, MessageTemplate, BillingSchedule, Owner, SystemUser } from './types';
 import { BottomNav } from './components/BottomNav';
@@ -130,6 +130,8 @@ const App: React.FC = () => {
   const [currentPage, setCurrentPage] = useState<Page>('dashboard');
   const [modal, setModal] = useState<ModalState>(null);
   const [refreshKey, setRefreshKey] = useState(0);
+  const mainRef = useRef<HTMLDivElement>(null);
+  const savedScrollRef = useRef(0);
   const [theme, setTheme] = useState<'vencos-light' | 'vencos-dark'>(() => {
     const saved = localStorage.getItem('vencos-theme');
     if (saved === 'vencos-dark') return 'vencos-dark';
@@ -157,7 +159,22 @@ const App: React.FC = () => {
     }
   }, [user]);
 
-  const refresh = useCallback(() => setRefreshKey((k) => k + 1), []);
+  const refresh = useCallback(() => {
+    if (mainRef.current) savedScrollRef.current = mainRef.current.scrollTop;
+    setRefreshKey((k) => k + 1);
+  }, []);
+
+  // Restore scroll position after data refresh
+  useEffect(() => {
+    if (savedScrollRef.current > 0) {
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (mainRef.current) mainRef.current.scrollTop = savedScrollRef.current;
+          savedScrollRef.current = 0;
+        });
+      });
+    }
+  }, [refreshKey]);
 
   function handleLogin(u: { id: number; name: string; role: string; phone?: string }) {
     setUser(u);
@@ -275,7 +292,7 @@ const App: React.FC = () => {
     <div data-theme={theme} className="flex flex-col h-screen bg-base-200">
       {unifiedHeader}
 
-      <main className="flex-1 overflow-y-auto px-4 pt-3 pb-20">
+      <main ref={mainRef} className="flex-1 overflow-y-auto px-4 pt-3 pb-20">
         {currentPage === 'dashboard' && (
           <Dashboard onNavigate={setCurrentPage} onQuickAdd={handleQuickAdd} userId={user.role === 'stakeholder' ? user.id : undefined} userRole={user.role} />
         )}

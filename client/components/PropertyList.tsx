@@ -1262,7 +1262,8 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
           <div className="flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-base-content">
             {p.area_sqft > 0 && <span>{p.area_sqft.toLocaleString()} sqft</span>}
             {p.bedrooms > 0 && <span>{p.bedrooms}房{p.bathrooms}卫</span>}
-            {p.price > 0 && <span>售价: {formatCurrency(p.price)}</span>}
+            {p.price > 0 && <span>SPA: {formatCurrency(p.price)}</span>}
+            {p.actual_price > 0 && p.actual_price !== p.price && <span className="text-warning"> · 实际: {formatCurrency(p.actual_price)}</span>}
           </div>
         </div>
 

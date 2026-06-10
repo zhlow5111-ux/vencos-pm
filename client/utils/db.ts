@@ -550,14 +550,15 @@ export async function saveProperty(p: Partial<Property> & { name: string }): Pro
         mgmt_fee_pct=${p.mgmt_fee_pct || 0},
         mgmt_fee_type='${p.mgmt_fee_type || 'percentage'}',
         mgmt_fee_amount=${p.mgmt_fee_amount || 0},
+        actual_price=${p.actual_price || 0},
         owner_id=${p.owner_id || 0},
         updated_at='${now}'
       WHERE id=${p.id}
     `);
   } else {
     await window.tasklet.sqlExec(`
-      INSERT INTO vc_properties (id, name, address, type, status, listing_type, property_category, parent_id, unit_number, total_units, floor_count, price, rental_price, bedrooms, bathrooms, area_sqft, description, image_url, bank_code, bank_name, loan_amount, loan_balance, monthly_repayment, loan_start, loan_tenure_months, loan_interest_rate, loan_repayment_day, loan_account_no, loan_si_account, land_tax, land_tax_due, assessment_tax, assessment_tax_due, hakmilik_no, land_tax_ref, assessment_tax_ref, indah_water, indah_water_acc, service_charge, mgmt_company_name, mgmt_company_phone, mgmt_company_address, mgmt_fee_pct, mgmt_fee_type, mgmt_fee_amount, owner_id, created_at, updated_at)
-      VALUES (${id}, '${escapeSQL(p.name)}', '${escapeSQL(p.address || '')}', '${p.type || 'residential'}', '${p.status || 'available'}', '${p.listing_type || 'sale'}', '${p.property_category || 'standalone'}', ${p.parent_id || 0}, '${escapeSQL(p.unit_number || '')}', ${p.total_units || 0}, ${p.floor_count || 1}, ${p.price || 0}, ${p.rental_price || 0}, ${p.bedrooms || 0}, ${p.bathrooms || 0}, ${p.area_sqft || 0}, '${escapeSQL(p.description || '')}', '${escapeSQL(p.image_url || '')}', '${escapeSQL(p.bank_code || '')}', '${escapeSQL(p.bank_name || '')}', ${p.loan_amount || 0}, ${p.loan_balance || 0}, ${p.monthly_repayment || 0}, '${p.loan_start || ''}', ${p.loan_tenure_months || 0}, ${p.loan_interest_rate || 0}, ${p.loan_repayment_day || 0}, '${escapeSQL(p.loan_account_no || '')}', '${escapeSQL(p.loan_si_account || '')}', ${p.land_tax || 0}, '${p.land_tax_due || ''}', ${p.assessment_tax || 0}, '${p.assessment_tax_due || ''}', '${escapeSQL(p.hakmilik_no || '')}', '${escapeSQL(p.land_tax_ref || '')}', '${escapeSQL(p.assessment_tax_ref || '')}', ${p.indah_water || 0}, '${escapeSQL(p.indah_water_acc || '')}', ${p.service_charge || 0}, '${escapeSQL(p.mgmt_company_name || '')}', '${escapeSQL(p.mgmt_company_phone || '')}', '${escapeSQL(p.mgmt_company_address || '')}', ${p.mgmt_fee_pct || 0}, '${p.mgmt_fee_type || 'percentage'}', ${p.mgmt_fee_amount || 0}, ${p.owner_id || 0}, '${now}', '${now}')
+      INSERT INTO vc_properties (id, name, address, type, status, listing_type, property_category, parent_id, unit_number, total_units, floor_count, price, rental_price, bedrooms, bathrooms, area_sqft, description, image_url, bank_code, bank_name, loan_amount, loan_balance, monthly_repayment, loan_start, loan_tenure_months, loan_interest_rate, loan_repayment_day, loan_account_no, loan_si_account, land_tax, land_tax_due, assessment_tax, assessment_tax_due, hakmilik_no, land_tax_ref, assessment_tax_ref, indah_water, indah_water_acc, service_charge, mgmt_company_name, mgmt_company_phone, mgmt_company_address, mgmt_fee_pct, mgmt_fee_type, mgmt_fee_amount, actual_price, owner_id, created_at, updated_at)
+      VALUES (${id}, '${escapeSQL(p.name)}', '${escapeSQL(p.address || '')}', '${p.type || 'residential'}', '${p.status || 'available'}', '${p.listing_type || 'sale'}', '${p.property_category || 'standalone'}', ${p.parent_id || 0}, '${escapeSQL(p.unit_number || '')}', ${p.total_units || 0}, ${p.floor_count || 1}, ${p.price || 0}, ${p.rental_price || 0}, ${p.bedrooms || 0}, ${p.bathrooms || 0}, ${p.area_sqft || 0}, '${escapeSQL(p.description || '')}', '${escapeSQL(p.image_url || '')}', '${escapeSQL(p.bank_code || '')}', '${escapeSQL(p.bank_name || '')}', ${p.loan_amount || 0}, ${p.loan_balance || 0}, ${p.monthly_repayment || 0}, '${p.loan_start || ''}', ${p.loan_tenure_months || 0}, ${p.loan_interest_rate || 0}, ${p.loan_repayment_day || 0}, '${escapeSQL(p.loan_account_no || '')}', '${escapeSQL(p.loan_si_account || '')}', ${p.land_tax || 0}, '${p.land_tax_due || ''}', ${p.assessment_tax || 0}, '${p.assessment_tax_due || ''}', '${escapeSQL(p.hakmilik_no || '')}', '${escapeSQL(p.land_tax_ref || '')}', '${escapeSQL(p.assessment_tax_ref || '')}', ${p.indah_water || 0}, '${escapeSQL(p.indah_water_acc || '')}', ${p.service_charge || 0}, '${escapeSQL(p.mgmt_company_name || '')}', '${escapeSQL(p.mgmt_company_phone || '')}', '${escapeSQL(p.mgmt_company_address || '')}', ${p.mgmt_fee_pct || 0}, '${p.mgmt_fee_type || 'percentage'}', ${p.mgmt_fee_amount || 0}, ${p.actual_price || 0}, ${p.owner_id || 0}, '${now}', '${now}')
     `);
   }
   return id;
@@ -1897,7 +1898,7 @@ export async function getPropertyFinancials(): Promise<PropertyFinancial[]> {
       p.loan_interest_rate, p.loan_start, p.loan_tenure_months, p.loan_account_no,
       p.land_tax, p.assessment_tax, p.indah_water,
       p.mgmt_fee_type, p.mgmt_fee_amount, p.mgmt_fee_pct, p.service_charge,
-      p.price, p.rental_price, p.status
+      p.price, p.actual_price, p.rental_price, p.status
     FROM vc_properties p ORDER BY p.name
   `);
 
@@ -1958,9 +1959,11 @@ export async function getPropertyFinancials(): Promise<PropertyFinancial[]> {
 
     const price = Number(row.price || 0);
     const purchaseFees = costMap.get(id) || 0;
-    const totalPurchaseCost = price + purchaseFees;
+    const effectivePrice = (Number(row.actual_price) || 0) > 0 ? Number(row.actual_price) : price;
+    const totalPurchaseCost = effectivePrice + purchaseFees;
     const roi = totalPurchaseCost > 0 ? (annualNetIncome / totalPurchaseCost) * 100 : 0;
-    const purchasePrice_val = price;
+    const actualPriceVal = Number(p.actual_price) || 0;
+    const purchasePrice_val = actualPriceVal > 0 ? actualPriceVal : price;
     const purchaseFees_val = purchaseFees;
 
     let estimatedPayoffDate = '';
