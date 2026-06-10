@@ -1884,6 +1884,7 @@ export interface PropertyFinancial {
   loanAccountNo: string;
   tenureMonths: number;
   estimatedPayoffDate: string;
+  spaPrice: number;
   purchasePrice: number;
   purchaseFees: number;
   totalPurchaseCost: number;
@@ -1986,7 +1987,7 @@ export async function getPropertyFinancials(): Promise<PropertyFinancial[]> {
       interestRate: Number(row.loan_interest_rate || 0),
       loanStart, loanAccountNo: String(row.loan_account_no || ''),
       tenureMonths, estimatedPayoffDate,
-      purchasePrice: purchasePrice_val, purchaseFees: purchaseFees_val, totalPurchaseCost, roi,
+      spaPrice: price, purchasePrice: purchasePrice_val, purchaseFees: purchaseFees_val, totalPurchaseCost, roi,
       totalFloors: rentData.total || Number(row.floor_count || 1),
       occupiedFloors: rentData.occupied,
     });
@@ -2006,11 +2007,13 @@ export async function getFinancialSummary(): Promise<{
   occupancyRate: number;
   collectionRate: number;
   totalPurchaseValue: number;
+  totalSpaPrice: number;
   totalPurchasePrice: number;
   totalPurchaseFees: number;
 }> {
   const data = await getPropertyFinancials();
   const totalPurchaseValue = data.reduce((s, p) => s + p.totalPurchaseCost, 0);
+  const totalSpaPrice = data.reduce((s, p) => s + p.spaPrice, 0);
   const totalPurchasePrice = data.reduce((s, p) => s + p.purchasePrice, 0);
   const totalPurchaseFees = data.reduce((s, p) => s + p.purchaseFees, 0);
   const totalMonthlyRent = data.reduce((s, p) => s + p.monthlyRent, 0);
@@ -2042,6 +2045,7 @@ export async function getFinancialSummary(): Promise<{
     occupancyRate: totalFloors > 0 ? (occupiedFloors / totalFloors) * 100 : 0,
     collectionRate: totalInv > 0 ? (paidInv / totalInv) * 100 : 0,
     totalPurchaseValue,
+    totalSpaPrice,
     totalPurchasePrice,
     totalPurchaseFees,
   };

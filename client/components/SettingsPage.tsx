@@ -23,7 +23,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   onAddOwner, onEditOwner, onManageUserAccess,
   refreshKey,
 }) => {
-  const [tab, setTab] = useState<SettingsTab>('owners');
+  const [tab, setTabState] = useState<SettingsTab>(() => {
+    const saved = localStorage.getItem('vencos_settingsTab');
+    return (saved && ['templates', 'schedules', 'integrations', 'owners', 'users_permissions'].includes(saved)) ? saved as SettingsTab : 'owners';
+  });
+  const setTab = (t: SettingsTab) => { setTabState(t); localStorage.setItem('vencos_settingsTab', t); };
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [schedules, setSchedules] = useState<BillingSchedule[]>([]);
   const [owners, setOwners] = useState<Owner[]>([]);

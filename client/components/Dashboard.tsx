@@ -22,7 +22,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onQuickAdd, us
     assessment_tax: number; assessment_tax_due: string;
   }>>([]);
   const [loading, setLoading] = useState(true);
-  const [dashTab, setDashTab] = useState<'overview' | 'reports' | 'calendar'>('overview');
+  const [dashTab, setDashTabState] = useState<'overview' | 'reports' | 'calendar'>(() => {
+    const saved = localStorage.getItem('vencos_dashTab');
+    return (saved && ['overview', 'reports', 'calendar'].includes(saved)) ? saved as 'overview' | 'reports' | 'calendar' : 'overview';
+  });
+  const setDashTab = (t: 'overview' | 'reports' | 'calendar') => { setDashTabState(t); localStorage.setItem('vencos_dashTab', t); };
 
   useEffect(() => {
     Promise.all([getDashboardStats(), getExpiringLeases(90), getExpiringFloorLeases(90), getUpcomingExpenseDueDates()])
