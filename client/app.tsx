@@ -127,7 +127,10 @@ const App: React.FC = () => {
     return null;
   });
   const [portalMode, setPortalMode] = useState<PortalMode>('admin');
-  const [currentPage, setCurrentPage] = useState<Page>('dashboard');
+  const [currentPage, setCurrentPage] = useState<Page>(() => {
+    const saved = localStorage.getItem('vencos_currentPage');
+    return (saved as Page) || 'dashboard';
+  });
   const [modal, setModal] = useState<ModalState>(null);
   const [refreshKey, setRefreshKey] = useState(0);
   const mainRef = useRef<HTMLDivElement>(null);
@@ -138,6 +141,11 @@ const App: React.FC = () => {
     if (saved === 'vencos-light') return 'vencos-light';
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'vencos-dark' : 'vencos-light';
   });
+
+  // Persist currentPage to localStorage
+  useEffect(() => {
+    localStorage.setItem('vencos_currentPage', currentPage);
+  }, [currentPage]);
 
   // Apply theme on mount and change
   useEffect(() => {

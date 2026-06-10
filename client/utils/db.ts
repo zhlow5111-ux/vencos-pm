@@ -1962,8 +1962,7 @@ export async function getPropertyFinancials(): Promise<PropertyFinancial[]> {
     const effectivePrice = (Number(row.actual_price) || 0) > 0 ? Number(row.actual_price) : price;
     const totalPurchaseCost = effectivePrice + purchaseFees;
     const roi = totalPurchaseCost > 0 ? (annualNetIncome / totalPurchaseCost) * 100 : 0;
-    const actualPriceVal = Number(p.actual_price) || 0;
-    const purchasePrice_val = actualPriceVal > 0 ? actualPriceVal : price;
+    const purchasePrice_val = effectivePrice;
     const purchaseFees_val = purchaseFees;
 
     let estimatedPayoffDate = '';
