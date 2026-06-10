@@ -1112,8 +1112,8 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
               </Card>
               <Card>
                 <div className="text-xs text-base-content/50">总购入价值</div>
-                <div className="text-lg font-bold text-primary">{fmtCurrency(totalAssets)}</div>
-                <div className="text-[10px] text-base-content/40 mt-0.5">SPA合同价 {fmtCurrency(totalSpaPrice)}{totalSpaPrice !== totalPurchasePrice ? ` · 实际价格 ${fmtCurrency(totalPurchasePrice)} · 台底差额 ${fmtCurrency(totalSpaPrice - totalPurchasePrice)}` : ''} · 其他费用 {fmtCurrency(totalPurchaseFees)}</div>
+                <div className="text-lg font-bold text-primary">{fmtCurrency(totalPurchasePrice)}</div>
+                <div className="text-[10px] text-base-content/40 mt-0.5">SPA {fmtCurrency(totalSpaPrice)}{totalSpaPrice !== totalPurchasePrice ? ` · 台底 ${fmtCurrency(totalSpaPrice - totalPurchasePrice)}` : ''} · 其他 {fmtCurrency(totalPurchaseFees)}</div>
               </Card>
               <Card>
                 <div className="text-xs text-base-content/50">总贷款余额</div>
