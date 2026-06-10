@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Mail, MessageSquare, Calendar, Power, PowerOff, Trash2, Edit2, Wifi, WifiOff, Bell, Building2, User, Shield, Key, Users, UserPlus, Save, X, Eye, EyeOff, Send, CheckCircle, XCircle, Clock, LogOut, MapPin, Briefcase, Phone, Navigation } from 'lucide-react';
 import { MessageTemplate, BillingSchedule, Owner, SystemUser, UserRole, Agent, CHANNEL_TYPES, REMINDER_OPTIONS, OWNER_TYPES, USER_ROLES } from '../types';
-import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog, getProperties, addUserAccess, addUserOwnerAccess, forceLogoutUser, getAgents, saveAgent, deleteAgent, getAgentsByArea, getAllFloorUnits } from '../utils/db';
+import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog, getProperties, addUserAccess, addUserOwnerAccess, forceLogoutUser, getAgents, saveAgent, deleteAgent, getAgentsByArea, getAllFloorUnits, getPenaltyConfigs, savePenaltyConfig, deletePenaltyConfig } from '../utils/db';
+import { PenaltyConfig } from '../types';
 import { ConfirmModal } from './ConfirmModal';
 import { sendWhatsAppMessage } from '../utils/whatsapp';
 
-type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions';
+type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions' | 'penalty';
 
 interface SettingsPageProps {
   onAddTemplate: () => void;
@@ -25,7 +26,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 }) => {
   const [tab, setTabState] = useState<SettingsTab>(() => {
     const saved = localStorage.getItem('vencos_settingsTab');
-    return (saved && ['templates', 'schedules', 'integrations', 'owners', 'users_permissions'].includes(saved)) ? saved as SettingsTab : 'owners';
+    return (saved && ['templates', 'schedules', 'integrations', 'owners', 'users_permissions', 'penalty'].includes(saved)) ? saved as SettingsTab : 'owners';
   });
   const setTab = (t: SettingsTab) => { setTabState(t); localStorage.setItem('vencos_settingsTab', t); };
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -58,6 +59,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [agentSendResult, setAgentSendResult] = useState<Record<string, 'success' | 'failed'>>({});
   const [showSetupGuide, setShowSetupGuide] = useState(false);
 
+  // Properties for penalty config dropdown
+  const [properties, setProperties] = useState<{id: number; name: string}[]>([]);
+  // Penalty config state
+  const [penaltyConfigs, setPenaltyConfigs] = useState<PenaltyConfig[]>([]);
+  const [showPenaltyForm, setShowPenaltyForm] = useState(false);
+  const [editingPenalty, setEditingPenalty] = useState<PenaltyConfig | null>(null);
+  const [penaltyForm, setPenaltyForm] = useState({ property_id: 0, rate_pct: 10, grace_days: 7, calc_method: 'monthly_pct', min_amount: 0, max_amount: 0, enabled: 1 });
+
   const showWaToast = useCallback((msg: string) => {
     setWaToast(msg);
     setTimeout(() => setWaToast(''), 3000);
@@ -79,9 +88,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   async function loadData() {
     setLoading(true);
     try {
-      const [t, s, o, u, waCfg, logs, ag] = await Promise.all([
+      const [t, s, o, u, waCfg, logs, ag, pc] = await Promise.all([
         getTemplates(), getSchedules(), getOwners(), getSystemUsers(),
-        getWhatsAppConfig(), getMessageLog(20), getAgents(),
+        getWhatsAppConfig(), getMessageLog(20), getAgents(), getPenaltyConfigs(),
       ]);
       setTemplates(t);
       setSchedules(s);
@@ -91,6 +100,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         setWaConfig({ phone_number_id: waCfg.phone_number_id, access_token: waCfg.access_token, business_id: waCfg.business_id });
         setWaActive(waCfg.active);
       }
+      setPenaltyConfigs(pc);
+      try { const allP = await getProperties(); setProperties(allP.map(p => ({ id: p.id, name: p.name }))); } catch {}
       setWaLoaded(true);
       setMsgLog(logs);
       setAgents(ag);
@@ -111,6 +122,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     else if (type === 'owner') await deleteOwner(id);
     else if (type === 'user') await deleteSystemUser(id);
     else if (type === 'agent') await deleteAgent(id);
+    else if ((type as string) === 'penalty') await deletePenaltyConfig(id);
     await loadData();
   }
 
@@ -388,6 +400,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     { key: 'templates', label: '模板', icon: <Mail size={13} /> },
     { key: 'schedules', label: '排程', icon: <Calendar size={13} /> },
     { key: 'integrations', label: '集成', icon: <Wifi size={13} /> },
+    { key: 'penalty', label: '罚款', icon: <Bell size={13} /> },
   ];
 
   return (
@@ -1170,6 +1183,111 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           )}
         </div>
       )}
+      {tab === 'penalty' && (
+        <div className="space-y-3">
+          <div className="flex justify-between items-center">
+            <h3 className="font-bold text-sm">逾期罚款配置</h3>
+            <button className="btn btn-primary btn-sm gap-1" onClick={() => {
+              setEditingPenalty(null);
+              setPenaltyForm({ property_id: 0, rate_pct: 10, grace_days: 7, calc_method: 'monthly_pct', min_amount: 0, max_amount: 0, enabled: 1 });
+              setShowPenaltyForm(true);
+            }}><Plus size={14} /> 添加配置</button>
+          </div>
+
+          <div className="bg-info/10 rounded-xl p-3">
+            <p className="text-xs text-info">
+              💡 罚款公式: 账单金额 × 利率% × 逾期月数（扣除宽限期后）。系统会在账单页面手动生成罚款账单。
+            </p>
+          </div>
+
+          {penaltyConfigs.length === 0 ? (
+            <div className="text-center py-8 text-base-content/50">
+              <Bell size={32} className="mx-auto mb-2 opacity-30" />
+              <p className="text-sm">暂无罚款配置</p>
+              <p className="text-xs mt-1">点击"添加配置"设置全局或物业级别的逾期罚款规则</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {penaltyConfigs.map(pc => (
+                <div key={pc.id} className={`card bg-base-200 p-3 ${!pc.enabled ? 'opacity-50' : ''}`}>
+                  <div className="flex justify-between items-start">
+                    <div>
+                      <p className="font-bold text-sm">{pc.property_id === 0 ? '🌐 全局默认' : `🏠 ${pc.property_name}`}</p>
+                      <p className="text-xs text-base-content/60 mt-0.5">
+                        利率: <span className="font-bold text-primary">{pc.rate_pct}%/月</span>
+                        {' · '}宽限期: <span className="font-bold">{pc.grace_days}天</span>
+                        {pc.min_amount > 0 && <> · 最低: RM {pc.min_amount.toLocaleString()}</>}
+                        {pc.max_amount > 0 && <> · 最高: RM {pc.max_amount.toLocaleString()}</>}
+                      </p>
+                    </div>
+                    <div className="flex gap-1">
+                      <span className={`badge badge-xs ${pc.enabled ? 'badge-success' : 'badge-ghost'}`}>{pc.enabled ? '启用' : '停用'}</span>
+                      <button className="btn btn-ghost btn-xs" onClick={() => {
+                        setEditingPenalty(pc);
+                        setPenaltyForm({ property_id: pc.property_id, rate_pct: pc.rate_pct, grace_days: pc.grace_days, calc_method: pc.calc_method, min_amount: pc.min_amount, max_amount: pc.max_amount, enabled: pc.enabled });
+                        setShowPenaltyForm(true);
+                      }}><Edit2 size={12} /></button>
+                      <button className="btn btn-ghost btn-xs text-error" onClick={() => setDeleteModal({ type: 'penalty' as any, id: pc.id, msg: '确定删除此罚款配置？' })}><Trash2 size={12} /></button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Penalty Form Modal */}
+          {showPenaltyForm && (
+            <div className="modal modal-open">
+              <div className="modal-box max-w-sm">
+                <h3 className="font-bold text-lg mb-3">{editingPenalty ? '编辑罚款配置' : '新增罚款配置'}</h3>
+                <div className="space-y-3">
+                  <div className="form-control">
+                    <label className="label py-0.5"><span className="label-text text-xs">适用范围</span></label>
+                    <select className="select select-bordered select-sm" value={penaltyForm.property_id} onChange={e => setPenaltyForm({...penaltyForm, property_id: Number(e.target.value)})}>
+                      <option value={0}>🌐 全局默认（所有物业）</option>
+                      {properties.map(p => <option key={p.id} value={p.id}>🏠 {p.name}</option>)}
+                    </select>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="form-control">
+                      <label className="label py-0.5"><span className="label-text text-xs">利率 (%/月)</span></label>
+                      <input type="number" className="input input-bordered input-sm" step="0.1" min="0" value={penaltyForm.rate_pct} onChange={e => setPenaltyForm({...penaltyForm, rate_pct: Number(e.target.value)})} />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-0.5"><span className="label-text text-xs">宽限期 (天)</span></label>
+                      <input type="number" className="input input-bordered input-sm" min="0" value={penaltyForm.grace_days} onChange={e => setPenaltyForm({...penaltyForm, grace_days: Number(e.target.value)})} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="form-control">
+                      <label className="label py-0.5"><span className="label-text text-xs">最低罚款 (RM)</span></label>
+                      <input type="number" className="input input-bordered input-sm" min="0" value={penaltyForm.min_amount} onChange={e => setPenaltyForm({...penaltyForm, min_amount: Number(e.target.value)})} />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-0.5"><span className="label-text text-xs">最高罚款 (RM)</span></label>
+                      <input type="number" className="input input-bordered input-sm" min="0" value={penaltyForm.max_amount} onChange={e => setPenaltyForm({...penaltyForm, max_amount: Number(e.target.value)})} />
+                    </div>
+                  </div>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" className="toggle toggle-sm toggle-primary" checked={penaltyForm.enabled === 1} onChange={e => setPenaltyForm({...penaltyForm, enabled: e.target.checked ? 1 : 0})} />
+                    <span className="text-xs">启用此配置</span>
+                  </label>
+                </div>
+                <div className="modal-action">
+                  <button className="btn btn-ghost btn-sm" onClick={() => setShowPenaltyForm(false)}>取消</button>
+                  <button className="btn btn-primary btn-sm" onClick={async () => {
+                    await savePenaltyConfig(editingPenalty ? { ...penaltyForm, id: editingPenalty.id } : penaltyForm);
+                    setShowPenaltyForm(false);
+                    await loadData();
+                  }}>保存</button>
+                </div>
+              </div>
+              <div className="modal-backdrop" onClick={() => setShowPenaltyForm(false)} />
+            </div>
+          )}
+        </div>
+      )}
+
       <ConfirmModal
         open={deleteModal !== null}
         message={deleteModal?.msg || ''}

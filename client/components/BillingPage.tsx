@@ -1,7 +1,7 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, CheckCircle, AlertTriangle, Clock, FileText, Trash2, Zap, Calendar, Download, Printer, MessageCircle, Send, Smartphone, Eye } from 'lucide-react';
-import { Invoice, InvoiceStatus, INVOICE_STATUSES } from '../types';
-import { getInvoices, markInvoicePaid, markInvoiceOverdue, deleteInvoice, generateMonthlyInvoices, previewMonthlyInvoices, getInvoiceSummaryByMonth, getFloorUnits, getTemplates, MergedPreviewItem } from '../utils/db';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { Plus, CheckCircle, AlertTriangle, Clock, FileText, Trash2, Zap, Calendar, Download, Printer, MessageCircle, Send, Smartphone, Eye, Paperclip, Image, Upload } from 'lucide-react';
+import { Invoice, InvoiceStatus, INVOICE_STATUSES, PropertyDocument } from '../types';
+import { getInvoices, markInvoicePaid, markInvoiceOverdue, deleteInvoice, generateMonthlyInvoices, previewMonthlyInvoices, getInvoiceSummaryByMonth, getFloorUnits, getTemplates, MergedPreviewItem, savePaymentReceipt, getReceiptsForInvoice, readFileFromDiskChunked, generatePenaltyInvoices } from '../utils/db';
 import { downloadCsv } from '../utils/export';
 import { ConfirmModal } from './ConfirmModal';
 import { printInvoice } from './PrintableInvoice';
@@ -70,6 +70,27 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
     open: boolean; targets: Array<{ invoice: Invoice; phone: string; message: string }>; sending: boolean; progress: number; results: { success: number; failed: number };
   }>({ open: false, targets: [], sending: false, progress: 0, results: { success: 0, failed: 0 } });
 
+  // === Payment confirmation modal state ===
+  const [payModal, setPayModal] = useState<Invoice | null>(null);
+  const [payMethod, setPayMethod] = useState('银行转账');
+  const [payRef, setPayRef] = useState('');
+  const [payFile, setPayFile] = useState<File | null>(null);
+  const [payFileData, setPayFileData] = useState<string>('');
+  const [payUploading, setPayUploading] = useState(false);
+  const [payUploadProgress, setPayUploadProgress] = useState(0);
+  const payFileInputRef = useRef<HTMLInputElement>(null);
+
+  // === Receipt viewing modal state ===
+  const [receiptModal, setReceiptModal] = useState<PropertyDocument | null>(null);
+  const [receiptData, setReceiptData] = useState<string>('');
+  const [receiptLoading, setReceiptLoading] = useState(false);
+
+  // === Track which invoices have receipts ===
+  const [invoiceReceipts, setInvoiceReceipts] = useState<Record<number, boolean>>({});
+
+  // === Penalty generation state ===
+  const [penaltyGenerating, setPenaltyGenerating] = useState(false);
+
   const showToast = useCallback((msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(''), 3000);
@@ -88,6 +109,19 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
       ]);
       setInvoices(data);
       setMonthlySummary(summary);
+
+      // Check receipts for paid invoices
+      const receiptStatus: Record<number, boolean> = {};
+      const paidInvs = data.filter(i => i.status === 'paid');
+      await Promise.all(paidInvs.map(async (inv) => {
+        try {
+          const receipts = await getReceiptsForInvoice(inv.id);
+          receiptStatus[inv.id] = receipts.length > 0;
+        } catch {
+          receiptStatus[inv.id] = false;
+        }
+      }));
+      setInvoiceReceipts(receiptStatus);
     } catch (e) {
       console.error(e);
     }
@@ -114,9 +148,85 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
     overdue: invoices.filter((i) => i.status === 'overdue').reduce((s, i) => s + i.amount, 0),
   };
 
-  async function handleMarkPaid(id: number) {
-    await markInvoicePaid(id);
-    await loadData();
+  // Open payment confirmation modal instead of directly marking paid
+  function handleMarkPaid(id: number) {
+    const inv = invoices.find(i => i.id === id);
+    if (!inv) return;
+    setPayModal(inv);
+    setPayMethod('银行转账');
+    setPayRef('');
+    setPayFile(null);
+    setPayFileData('');
+    setPayUploadProgress(0);
+  }
+
+  async function handlePayConfirm() {
+    if (!payModal) return;
+    setPayUploading(true);
+    try {
+      // 1. Mark as paid with payment method + ref
+      await markInvoicePaid(payModal.id, {
+        payment_method: payMethod,
+        payment_ref: payRef,
+      });
+
+      // 2. Upload receipt file if provided
+      if (payFile && payFileData) {
+        await savePaymentReceipt(
+          payModal.id,
+          payModal.property_id,
+          payFile.name,
+          payFileData,
+          payFile.size,
+          payFile.type,
+          (pct) => setPayUploadProgress(pct)
+        );
+      }
+
+      showToast('✅ 收款确认成功');
+      setPayModal(null);
+      await loadData();
+    } catch (e) {
+      console.error(e);
+      showToast('❌ 收款确认失败');
+    }
+    setPayUploading(false);
+  }
+
+  function handlePayFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setPayFile(file);
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = reader.result as string;
+      // Extract base64 data (remove the data:...;base64, prefix)
+      const base64 = result.split(',')[1] || '';
+      setPayFileData(base64);
+    };
+    reader.readAsDataURL(file);
+  }
+
+  async function handleViewReceipt(inv: Invoice) {
+    setReceiptLoading(true);
+    setReceiptModal(null);
+    try {
+      const receipts = await getReceiptsForInvoice(inv.id);
+      if (receipts.length === 0) {
+        showToast('未找到收款凭证');
+        setReceiptLoading(false);
+        return;
+      }
+      const doc = receipts[0];
+      setReceiptModal(doc);
+      // Load file data
+      const dataUrl = await readFileFromDiskChunked(doc.file_data, doc.file_mime);
+      setReceiptData(dataUrl);
+    } catch (e) {
+      console.error(e);
+      showToast('加载凭证失败');
+    }
+    setReceiptLoading(false);
   }
 
   async function handleMarkOverdue(id: number) {
@@ -175,6 +285,23 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
       showToast('生成失败，请重试');
     }
     setGenerating(false);
+  }
+
+  async function handleGeneratePenalties() {
+    setPenaltyGenerating(true);
+    try {
+      const count = await generatePenaltyInvoices();
+      if (count > 0) {
+        showToast(`⚡ 已生成 ${count} 张罚款账单`);
+        await loadData();
+      } else {
+        showToast('暂无需要生成的罚款账单');
+      }
+    } catch (e) {
+      console.error(e);
+      showToast('生成罚款失败');
+    }
+    setPenaltyGenerating(false);
   }
 
   async function handleSendWhatsApp(inv: Invoice) {
@@ -296,6 +423,17 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
     return `${y}年${parseInt(mo)}月`;
   }
 
+  function getPayMethodLabel(method: string): string {
+    const map: Record<string, string> = {
+      '银行转账': '银行转账',
+      '现金': '现金',
+      '支票': '支票',
+      '在线转账': 'FPX/DuitNow',
+      '其他': '其他',
+    };
+    return map[method] || method || '';
+  }
+
   // Group invoices by billing_month when filter is 'all'
   const groupedInvoices: Map<string, Invoice[]> = new Map();
   if (filter === 'all') {
@@ -315,12 +453,20 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
   return (
     <div className="space-y-4">
       {/* Auto Generate & Export Buttons */}
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap">
         <button
           className="btn btn-primary btn-sm flex-1 gap-2"
           onClick={() => { setGenModalOpen(true); setGenStep(1); setPreviewData([]); setExcludedCharges(new Set()); setPreviewAdjustments({}); setAdjInputs({}); }}
         >
           <Zap size={16} /> 一键生成账单
+        </button>
+        <button
+          className="btn btn-warning btn-sm gap-1"
+          onClick={handleGeneratePenalties}
+          disabled={penaltyGenerating}
+          title="生成逾期罚款账单"
+        >
+          {penaltyGenerating ? <span className="loading loading-spinner loading-xs" /> : '⚡'} 生成罚款
         </button>
         <button
           className="btn btn-success btn-sm gap-1"
@@ -680,6 +826,161 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
         </div>
       )}
 
+      {/* Payment Confirmation Modal */}
+      {payModal && (
+        <div className="modal modal-open" style={{ zIndex: 9999 }}>
+          <div className="modal-box max-w-sm">
+            <h3 className="font-bold text-lg flex items-center gap-2">
+              <CheckCircle size={20} className="text-success" /> 确认收款
+            </h3>
+            <p className="text-sm text-base-content/70 mt-1">
+              {payModal.invoice_no} · {payModal.tenant_name || '租户'} · RM {payModal.amount.toLocaleString()}
+            </p>
+
+            <div className="space-y-3 mt-4">
+              {/* Payment method */}
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-xs">付款方式</span></label>
+                <select
+                  className="select select-bordered select-sm w-full"
+                  value={payMethod}
+                  onChange={(e) => setPayMethod(e.target.value)}
+                >
+                  <option value="银行转账">银行转账</option>
+                  <option value="现金">现金</option>
+                  <option value="支票">支票</option>
+                  <option value="在线转账">在线转账 (FPX/DuitNow)</option>
+                  <option value="其他">其他</option>
+                </select>
+              </div>
+
+              {/* Reference number */}
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-xs">参考号码 (可选)</span></label>
+                <input
+                  type="text"
+                  className="input input-bordered input-sm w-full"
+                  placeholder="如：转账参考号、支票号等"
+                  value={payRef}
+                  onChange={(e) => setPayRef(e.target.value)}
+                />
+              </div>
+
+              {/* File upload for bank slip */}
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-xs">收款凭证 (可选)</span></label>
+                <input
+                  ref={payFileInputRef}
+                  type="file"
+                  className="hidden"
+                  accept="image/*,application/pdf"
+                  onChange={handlePayFileSelect}
+                />
+                {payFile ? (
+                  <div className="flex items-center gap-2 bg-base-200 rounded-lg px-3 py-2">
+                    <Paperclip size={14} className="text-primary shrink-0" />
+                    <span className="text-sm truncate flex-1">{payFile.name}</span>
+                    <span className="text-xs text-base-content/50">{(payFile.size / 1024).toFixed(0)} KB</span>
+                    <button
+                      className="btn btn-ghost btn-xs text-error"
+                      onClick={() => { setPayFile(null); setPayFileData(''); if (payFileInputRef.current) payFileInputRef.current.value = ''; }}
+                    >✕</button>
+                  </div>
+                ) : (
+                  <button
+                    className="btn btn-outline btn-sm gap-2 w-full"
+                    onClick={() => payFileInputRef.current?.click()}
+                  >
+                    <Upload size={14} /> 上传银行转账凭证 / 收据
+                  </button>
+                )}
+              </div>
+
+              {/* Upload progress */}
+              {payUploading && payFile && (
+                <div className="space-y-1">
+                  <div className="flex items-center justify-between text-xs text-base-content/70">
+                    <span>上传中...</span>
+                    <span>{payUploadProgress}%</span>
+                  </div>
+                  <progress className="progress progress-primary w-full" value={payUploadProgress} max={100} />
+                </div>
+              )}
+            </div>
+
+            <div className="modal-action">
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => setPayModal(null)}
+                disabled={payUploading}
+              >
+                取消
+              </button>
+              <button
+                className="btn btn-success btn-sm gap-1"
+                onClick={handlePayConfirm}
+                disabled={payUploading}
+              >
+                {payUploading ? <span className="loading loading-spinner loading-xs" /> : <CheckCircle size={14} />}
+                确认收款
+              </button>
+            </div>
+          </div>
+          <div className="modal-backdrop" onClick={() => { if (!payUploading) setPayModal(null); }} />
+        </div>
+      )}
+
+      {/* Receipt Viewing Modal */}
+      {(receiptModal || receiptLoading) && (
+        <div className="modal modal-open" style={{ zIndex: 9999 }}>
+          <div className="modal-box max-w-lg">
+            <h3 className="font-bold text-lg flex items-center gap-2">
+              <Image size={20} className="text-primary" /> 收款凭证
+            </h3>
+            {receiptLoading ? (
+              <div className="flex justify-center py-12">
+                <span className="loading loading-spinner loading-md" />
+              </div>
+            ) : receiptModal ? (
+              <div className="mt-3 space-y-3">
+                <div className="text-sm text-base-content/70">
+                  <p>文件: {receiptModal.file_name}</p>
+                  <p>上传时间: {receiptModal.created_at?.slice(0, 10) || '-'}</p>
+                  {receiptModal.notes && <p>备注: {receiptModal.notes}</p>}
+                </div>
+                {receiptData ? (
+                  receiptModal.file_mime?.startsWith('image/') ? (
+                    <div className="flex justify-center">
+                      <img src={receiptData} alt="收款凭证" className="max-w-full max-h-[60vh] rounded-lg shadow" />
+                    </div>
+                  ) : receiptModal.file_mime === 'application/pdf' ? (
+                    <div className="flex justify-center">
+                      <iframe src={receiptData} className="w-full h-[60vh] rounded-lg border" title="收款凭证 PDF" />
+                    </div>
+                  ) : (
+                    <div className="text-center py-4">
+                      <a href={receiptData} download={receiptModal.file_name} className="btn btn-primary btn-sm gap-1">
+                        <Download size={14} /> 下载文件
+                      </a>
+                    </div>
+                  )
+                ) : (
+                  <div className="text-center py-8 text-base-content/50">
+                    <p>无法加载文件</p>
+                  </div>
+                )}
+              </div>
+            ) : null}
+            <div className="modal-action">
+              <button className="btn btn-ghost btn-sm" onClick={() => { setReceiptModal(null); setReceiptData(''); }}>
+                关闭
+              </button>
+            </div>
+          </div>
+          <div className="modal-backdrop" onClick={() => { setReceiptModal(null); setReceiptData(''); }} />
+        </div>
+      )}
+
       {/* WhatsApp Send Modal */}
       {waModal.open && waModal.invoice && (
         <div className="modal modal-open" style={{ zIndex: 9999 }}>
@@ -811,10 +1112,11 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
   );
 
   function renderInvoiceCard(inv: Invoice) {
+    const isPenalty = inv.is_penalty === 1;
     return (
       <div
         key={inv.id}
-        className="bg-base-200 rounded-xl p-3 space-y-2"
+        className={`bg-base-200 rounded-xl p-3 space-y-2 ${isPenalty ? 'border-l-4 border-error' : ''}`}
       >
         {/* Header row */}
         <div className="flex items-start justify-between">
@@ -823,6 +1125,9 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
               {STATUS_ICONS[inv.status]}
               <span className="font-semibold text-sm truncate">{inv.invoice_no}</span>
               <span className={`badge badge-xs ${getStatusBadge(inv.status)}`}>{getStatusLabel(inv.status)}</span>
+              {isPenalty && (
+                <span className="badge badge-xs badge-error">罚款</span>
+              )}
               {inv.floor_label && (
                 <span className="badge badge-xs badge-outline">{inv.floor_label}楼</span>
               )}
@@ -833,7 +1138,12 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
             <p className="text-xs text-base-content mt-1 truncate">
               {inv.property_name || '未指定物业'} · {inv.tenant_name || (inv.floor_label ? `${inv.floor_label}楼租户` : '未指定租户')}
             </p>
-            {inv.rent_amount > 0 && inv.charges_amount > 0 && (
+            {isPenalty && inv.description && (
+              <p className="text-xs text-error/80 mt-0.5">
+                {inv.description}
+              </p>
+            )}
+            {!isPenalty && inv.rent_amount > 0 && inv.charges_amount > 0 && (
               <p className="text-xs text-base-content/60 mt-0.5">
                 租金 RM{inv.rent_amount.toLocaleString()} + 附加费 RM{inv.charges_amount.toLocaleString()}
                 {(() => {
@@ -849,7 +1159,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
               </p>
             )}
             {/* Show adjustments line items if present */}
-            {(() => {
+            {!isPenalty && (() => {
               try {
                 const adjs = JSON.parse(inv.adjustments || '[]');
                 if (Array.isArray(adjs) && adjs.length > 0) {
@@ -864,7 +1174,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
             })()}
           </div>
           <div className="text-right shrink-0">
-            <p className="font-bold text-sm">RM {inv.amount.toLocaleString()}</p>
+            <p className={`font-bold text-sm ${isPenalty ? 'text-error' : ''}`}>RM {inv.amount.toLocaleString()}</p>
             <p className="text-xs text-base-content">到期 {inv.due_date || '-'}</p>
           </div>
         </div>
@@ -872,7 +1182,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
 
 
         {/* Actions */}
-        <div className="flex items-center gap-1 pl-6">
+        <div className="flex items-center gap-1 pl-6 flex-wrap">
           {inv.status === 'pending' && (
             <>
               <button className="btn btn-xs btn-success gap-1" onClick={() => handleMarkPaid(inv.id)}>
@@ -888,8 +1198,25 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
               <CheckCircle size={12} /> 确认收款
             </button>
           )}
-          {inv.status === 'paid' && inv.paid_date && (
-            <span className="text-xs text-success">✓ 已于 {inv.paid_date.slice(0, 10)} 收款</span>
+          {inv.status === 'paid' && (
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="text-xs text-success">✓ 已于 {(inv.paid_date || '').slice(0, 10)} 收款</span>
+              {inv.payment_method && (
+                <span className="badge badge-xs badge-ghost">{getPayMethodLabel(inv.payment_method)}</span>
+              )}
+              {inv.payment_ref && (
+                <span className="text-xs text-base-content/50">Ref: {inv.payment_ref}</span>
+              )}
+              {invoiceReceipts[inv.id] && (
+                <button
+                  className="btn btn-xs btn-ghost text-primary gap-1"
+                  onClick={() => handleViewReceipt(inv)}
+                  title="查看收款凭证"
+                >
+                  <Paperclip size={12} /> 凭证
+                </button>
+              )}
+            </div>
           )}
           <button className="btn btn-xs btn-ghost gap-1" onClick={() => printInvoice(inv)} title="打印账单">
             <Printer size={12} /> 打印

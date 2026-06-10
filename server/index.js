@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 23;
+  const SCHEMA_VERSION = 24;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -92,6 +92,10 @@ function initDatabase() {
         charges_detail TEXT NOT NULL DEFAULT '[]',
         auto_generated INTEGER NOT NULL DEFAULT 0,
         merged_data TEXT NOT NULL DEFAULT '',
+        payment_method TEXT NOT NULL DEFAULT '',
+        payment_ref TEXT NOT NULL DEFAULT '',
+        is_penalty INTEGER NOT NULL DEFAULT 0,
+        penalty_parent_id INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       )`,
       `CREATE TABLE IF NOT EXISTS vc_message_templates (
@@ -398,6 +402,14 @@ function initDatabase() {
       max_amount REAL NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1,
       created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
     )`);
+  }
+
+  // V24: Payment receipt fields + penalty invoice fields on vc_invoices
+  if (currentVer < 24) {
+    safeExec(`ALTER TABLE vc_invoices ADD COLUMN payment_method TEXT NOT NULL DEFAULT ''`);
+    safeExec(`ALTER TABLE vc_invoices ADD COLUMN payment_ref TEXT NOT NULL DEFAULT ''`);
+    safeExec(`ALTER TABLE vc_invoices ADD COLUMN is_penalty INTEGER NOT NULL DEFAULT 0`);
+    safeExec(`ALTER TABLE vc_invoices ADD COLUMN penalty_parent_id INTEGER NOT NULL DEFAULT 0`);
   }
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);

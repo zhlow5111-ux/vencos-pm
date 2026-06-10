@@ -1,8 +1,8 @@
-import { Property, FloorUnit, Client, SaleDeal, RentalDeal, DashboardStats, Invoice, MessageTemplate, BillingSchedule, PropertyDocument, Owner, SystemUser, UserAccess, LoanPayment, MaintenanceTicket, Worker, ChangeLog, RenovationExpense, PurchaseCost, RecurringCharge, TenantHistory, ArrearsPayment, Meter, Agent } from '../types';
+import { Property, FloorUnit, Client, SaleDeal, RentalDeal, DashboardStats, Invoice, MessageTemplate, BillingSchedule, PropertyDocument, Owner, SystemUser, UserAccess, LoanPayment, MaintenanceTicket, Worker, ChangeLog, RenovationExpense, PurchaseCost, RecurringCharge, TenantHistory, ArrearsPayment, Meter, Agent, PenaltyConfig } from '../types';
 import { escapeSQL, nowISO, generateId } from './helpers';
 
 // ========== Init DB ==========
-const SCHEMA_VERSION = 19;
+const SCHEMA_VERSION = 24;
 
 export async function initDB(): Promise<void> {
   // Step 1: Check schema version (2 SQL calls)
@@ -434,6 +434,26 @@ export async function initDB(): Promise<void> {
 
   // === V21: Add merged_data column to invoices for merged billing ===
   try { await window.tasklet.sqlExec(`ALTER TABLE vc_invoices ADD COLUMN merged_data TEXT NOT NULL DEFAULT ''`); } catch {}
+  }
+
+  // === V22: Company-based user access ===
+  if (currentVer < 22) {
+    try { await window.tasklet.sqlExec(`CREATE TABLE IF NOT EXISTS vc_user_owner_access (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, owner_id INTEGER NOT NULL, access_level TEXT NOT NULL DEFAULT 'readonly', UNIQUE(user_id, owner_id))`); } catch {}
+  }
+
+  // === V23: SPA vs actual price + penalty config + invoice attachments ===
+  if (currentVer < 23) {
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_properties ADD COLUMN actual_price REAL NOT NULL DEFAULT 0`); } catch {}
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_documents ADD COLUMN linked_invoice_id INTEGER NOT NULL DEFAULT 0`); } catch {}
+    try { await window.tasklet.sqlExec(`CREATE TABLE IF NOT EXISTS vc_penalty_config (id INTEGER PRIMARY KEY, property_id INTEGER NOT NULL DEFAULT 0, rate_pct REAL NOT NULL DEFAULT 0, grace_days INTEGER NOT NULL DEFAULT 7, calc_method TEXT NOT NULL DEFAULT 'monthly_pct', min_amount REAL NOT NULL DEFAULT 0, max_amount REAL NOT NULL DEFAULT 0, enabled INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '')`); } catch {}
+  }
+
+  // === V24: Payment receipt fields + penalty invoice fields ===
+  if (currentVer < 24) {
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_invoices ADD COLUMN payment_method TEXT NOT NULL DEFAULT ''`); } catch {}
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_invoices ADD COLUMN payment_ref TEXT NOT NULL DEFAULT ''`); } catch {}
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_invoices ADD COLUMN is_penalty INTEGER NOT NULL DEFAULT 0`); } catch {}
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_invoices ADD COLUMN penalty_parent_id INTEGER NOT NULL DEFAULT 0`); } catch {}
   }
 
   // Mark schema as current version
@@ -948,8 +968,8 @@ export async function saveDocument(doc: Partial<PropertyDocument> & { file_data?
   } else {
     const docId = Date.now();
     await window.tasklet.sqlExec(`
-      INSERT INTO vc_documents (id, property_id, doc_type, file_name, file_data, file_size, file_mime, notes, linked_client_id, linked_deal_id, created_at, updated_at)
-      VALUES (${docId}, ${doc.property_id || 0}, '${doc.doc_type || 'other'}', '${escapeSQL(doc.file_name || '')}', '${escapeSQL(filePath)}', ${doc.file_size || 0}, '${escapeSQL(doc.file_mime || '')}', '${escapeSQL(doc.notes || '')}', ${doc.linked_client_id || 0}, ${doc.linked_deal_id || 0}, '${now}', '${now}')
+      INSERT INTO vc_documents (id, property_id, doc_type, file_name, file_data, file_size, file_mime, notes, linked_client_id, linked_deal_id, linked_invoice_id, created_at, updated_at)
+      VALUES (${docId}, ${doc.property_id || 0}, '${doc.doc_type || 'other'}', '${escapeSQL(doc.file_name || '')}', '${escapeSQL(filePath)}', ${doc.file_size || 0}, '${escapeSQL(doc.file_mime || '')}', '${escapeSQL(doc.notes || '')}', ${doc.linked_client_id || 0}, ${doc.linked_deal_id || 0}, ${(doc as any).linked_invoice_id || 0}, '${now}', '${now}')
     `);
   }
 }
@@ -1228,9 +1248,11 @@ export async function deleteInvoice(id: number): Promise<void> {
   await window.tasklet.sqlExec(`DELETE FROM vc_invoices WHERE id=${id}`);
 }
 
-export async function markInvoicePaid(id: number): Promise<void> {
+export async function markInvoicePaid(id: number, opts?: { payment_method?: string; payment_ref?: string }): Promise<void> {
   const now = nowISO();
-  await window.tasklet.sqlExec(`UPDATE vc_invoices SET status='paid', paid_date='${now}', updated_at='${now}' WHERE id=${id}`);
+  const method = escapeSQL(opts?.payment_method || '');
+  const ref = escapeSQL(opts?.payment_ref || '');
+  await window.tasklet.sqlExec(`UPDATE vc_invoices SET status='paid', paid_date='${now}', payment_method='${method}', payment_ref='${ref}', updated_at='${now}' WHERE id=${id}`);
 }
 
 export async function markInvoiceOverdue(id: number): Promise<void> {
@@ -2460,4 +2482,141 @@ export async function getAgentsByArea(address: string): Promise<Agent[]> {
     return areas.some(area => area && addrLower.includes(area));
   });
   return matched;
+}
+
+// ========== Payment Receipts (via vc_documents) ==========
+export async function getReceiptsForInvoice(invoiceId: number): Promise<PropertyDocument[]> {
+  const rows = await window.tasklet.sqlQuery(`
+    SELECT d.*, p.name as property_name, c.name as linked_client_name
+    FROM vc_documents d
+    LEFT JOIN vc_properties p ON d.property_id = p.id
+    LEFT JOIN vc_clients c ON d.linked_client_id = c.id
+    WHERE d.linked_invoice_id = ${invoiceId}
+    ORDER BY d.created_at DESC
+  `);
+  return rows as unknown as PropertyDocument[];
+}
+
+export async function savePaymentReceipt(invoiceId: number, propertyId: number, fileName: string, fileData: string, fileSize: number, fileMime: string, onProgress?: (pct: number) => void): Promise<void> {
+  await saveDocument({
+    property_id: propertyId,
+    doc_type: 'other',
+    file_name: fileName,
+    file_data: fileData,
+    file_size: fileSize,
+    file_mime: fileMime,
+    notes: `收款凭证 - 账单 #${invoiceId}`,
+    linked_invoice_id: invoiceId,
+  } as any, onProgress);
+}
+
+// ========== Penalty Config ==========
+export async function getPenaltyConfigs(): Promise<PenaltyConfig[]> {
+  const rows = await window.tasklet.sqlQuery(`
+    SELECT pc.*, p.name as property_name
+    FROM vc_penalty_config pc
+    LEFT JOIN vc_properties p ON pc.property_id = p.id
+    ORDER BY pc.property_id ASC
+  `);
+  return (rows as any[]).map(r => ({
+    id: Number(r.id),
+    property_id: Number(r.property_id || 0),
+    property_name: String(r.property_name || '全局默认'),
+    rate_pct: Number(r.rate_pct || 0),
+    grace_days: Number(r.grace_days || 0),
+    calc_method: String(r.calc_method || 'monthly_pct'),
+    min_amount: Number(r.min_amount || 0),
+    max_amount: Number(r.max_amount || 0),
+    enabled: Number(r.enabled ?? 1),
+    created_at: String(r.created_at || ''),
+    updated_at: String(r.updated_at || ''),
+  }));
+}
+
+export async function savePenaltyConfig(c: Partial<PenaltyConfig>): Promise<void> {
+  const now = nowISO();
+  if (c.id) {
+    await window.tasklet.sqlExec(`
+      UPDATE vc_penalty_config SET
+        property_id=${c.property_id || 0},
+        rate_pct=${c.rate_pct || 0},
+        grace_days=${c.grace_days || 0},
+        calc_method='${escapeSQL(c.calc_method || 'monthly_pct')}',
+        min_amount=${c.min_amount || 0},
+        max_amount=${c.max_amount || 0},
+        enabled=${c.enabled ?? 1},
+        updated_at='${now}'
+      WHERE id=${c.id}
+    `);
+  } else {
+    await window.tasklet.sqlExec(`
+      INSERT INTO vc_penalty_config (id, property_id, rate_pct, grace_days, calc_method, min_amount, max_amount, enabled, created_at, updated_at)
+      VALUES (${Date.now()}, ${c.property_id || 0}, ${c.rate_pct || 0}, ${c.grace_days || 0}, '${escapeSQL(c.calc_method || 'monthly_pct')}', ${c.min_amount || 0}, ${c.max_amount || 0}, ${c.enabled ?? 1}, '${now}', '${now}')
+    `);
+  }
+}
+
+export async function deletePenaltyConfig(id: number): Promise<void> {
+  await window.tasklet.sqlExec(`DELETE FROM vc_penalty_config WHERE id=${id}`);
+}
+
+export async function generatePenaltyInvoices(): Promise<number> {
+  // Get all penalty configs
+  const configs = await getPenaltyConfigs();
+  if (configs.length === 0) return 0;
+
+  // Get overdue invoices that are NOT already penalty invoices
+  const overdueRows = await window.tasklet.sqlQuery(`
+    SELECT i.*, p.name as property_name, c.name as tenant_name
+    FROM vc_invoices i
+    LEFT JOIN vc_properties p ON i.property_id = p.id
+    LEFT JOIN vc_clients c ON i.tenant_id = c.id
+    WHERE i.status = 'overdue' AND i.is_penalty = 0
+  `);
+  const overdueInvoices = overdueRows as any[];
+  if (overdueInvoices.length === 0) return 0;
+
+  let generated = 0;
+  const now = nowISO();
+  const today = new Date();
+
+  for (const inv of overdueInvoices) {
+    // Find applicable config: property-specific first, then global (property_id=0)
+    const propConfig = configs.find(c => c.property_id === Number(inv.property_id) && c.enabled);
+    const globalConfig = configs.find(c => c.property_id === 0 && c.enabled);
+    const config = propConfig || globalConfig;
+    if (!config) continue;
+
+    // Calculate overdue days
+    const dueDate = new Date(inv.due_date);
+    if (isNaN(dueDate.getTime())) continue;
+    const overdueDays = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
+    if (overdueDays <= config.grace_days) continue;
+
+    // Check if penalty already generated for this invoice
+    const existing = await window.tasklet.sqlQuery(
+      `SELECT id FROM vc_invoices WHERE penalty_parent_id = ${inv.id} AND is_penalty = 1`
+    );
+    if ((existing as any[]).length > 0) continue;
+
+    // Calculate penalty amount
+    const effectiveDays = overdueDays - config.grace_days;
+    const months = effectiveDays / 30;
+    let penaltyAmount = Math.round(Number(inv.amount) * (config.rate_pct / 100) * months);
+
+    // Apply min/max
+    if (config.min_amount > 0 && penaltyAmount < config.min_amount) penaltyAmount = config.min_amount;
+    if (config.max_amount > 0 && penaltyAmount > config.max_amount) penaltyAmount = config.max_amount;
+    if (penaltyAmount <= 0) continue;
+
+    // Generate penalty invoice
+    const penaltyId = Date.now() + generated;
+    const invNo = 'PEN-' + penaltyId.toString().slice(-8);
+    await window.tasklet.sqlExec(`
+      INSERT INTO vc_invoices (id, invoice_no, property_id, tenant_id, amount, due_date, status, description, floor_label, billing_month, is_penalty, penalty_parent_id, created_at, updated_at)
+      VALUES (${penaltyId}, '${invNo}', ${inv.property_id}, ${inv.tenant_id}, ${penaltyAmount}, '${now.slice(0,10)}', 'pending', '逾期罚款 - ${escapeSQL(String(inv.invoice_no || ''))} (逾期${effectiveDays}天, ${config.rate_pct}%/月)', '${escapeSQL(String(inv.floor_label || ''))}', '${escapeSQL(String(inv.billing_month || ''))}', 1, ${inv.id}, '${now}', '${now}')
+    `);
+    generated++;
+  }
+  return generated;
 }

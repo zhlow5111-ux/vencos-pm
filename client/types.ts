@@ -212,6 +212,10 @@ export interface PropertyDocument {
   linked_client_id: number;
   linked_client_name: string;
   linked_deal_id: number;
+  linked_invoice_id: number;
+  file_data: string;
+  file_size: number;
+  file_mime: string;
   created_at: string;
   updated_at: string;
 }
@@ -300,6 +304,26 @@ export interface Invoice {
   adjustments: string;
   charges_detail?: string;
   auto_generated: number;
+  merged_data: string;
+  payment_method: string;
+  payment_ref: string;
+  is_penalty: number;
+  penalty_parent_id: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// ========== Penalty Config ==========
+export interface PenaltyConfig {
+  id: number;
+  property_id: number;
+  property_name?: string;
+  rate_pct: number;
+  grace_days: number;
+  calc_method: string;
+  min_amount: number;
+  max_amount: number;
+  enabled: number;
   created_at: string;
   updated_at: string;
 }
