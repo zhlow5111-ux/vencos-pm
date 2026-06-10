@@ -167,12 +167,19 @@ const App: React.FC = () => {
   // Restore scroll position after data refresh
   useEffect(() => {
     if (savedScrollRef.current > 0) {
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          if (mainRef.current) mainRef.current.scrollTop = savedScrollRef.current;
-          savedScrollRef.current = 0;
-        });
-      });
+      const target = savedScrollRef.current;
+      savedScrollRef.current = 0;
+      // Retry until scrollable height is sufficient or timeout
+      let attempts = 0;
+      const tryRestore = () => {
+        if (mainRef.current && mainRef.current.scrollHeight > target) {
+          mainRef.current.scrollTop = target;
+        } else if (attempts < 20) {
+          attempts++;
+          setTimeout(tryRestore, 100);
+        }
+      };
+      requestAnimationFrame(tryRestore);
     }
   }, [refreshKey]);
 
@@ -181,15 +188,20 @@ const App: React.FC = () => {
     localStorage.setItem('vencos_user', JSON.stringify(u));
   }
 
+  // Save scroll position when opening any modal
+  const openModal = useCallback((m: ModalState) => {
+    if (mainRef.current) savedScrollRef.current = mainRef.current.scrollTop;
+    setModal(m);
+  }, []);
   function handleModalClose() { setModal(null); refresh(); }
   function handleModalSaved() { setModal(null); refresh(); }
-  function handlePropertySaved(updatedProperty: Property) { setModal({ type: 'property', data: updatedProperty }); refresh(); }
+  function handlePropertySaved(updatedProperty: Property) { openModal({ type: 'property', data: updatedProperty }); refresh(); }
 
   function handleQuickAdd(type: 'property' | 'client' | 'sale' | 'rental') {
-    if (type === 'property') { setCurrentPage('properties'); setModal({ type: 'property' }); }
-    else if (type === 'client') { setCurrentPage('clients'); setModal({ type: 'client' }); }
-    else if (type === 'sale') { setCurrentPage('sales'); setModal({ type: 'sale' }); }
-    else { setCurrentPage('rentals'); setModal({ type: 'rental' }); }
+    if (type === 'property') { setCurrentPage('properties'); openModal({ type: 'property' }); }
+    else if (type === 'client') { setCurrentPage('clients'); openModal({ type: 'client' }); }
+    else if (type === 'sale') { setCurrentPage('sales'); openModal({ type: 'sale' }); }
+    else { setCurrentPage('rentals'); openModal({ type: 'rental' }); }
   }
 
   function handleLogout() {
@@ -298,37 +310,37 @@ const App: React.FC = () => {
         )}
         {currentPage === 'properties' && (
           <PropertyList
-            onAdd={() => setModal({ type: 'property' })}
-            onEdit={(p) => setModal({ type: 'property', data: p })}
+            onAdd={() => openModal({ type: 'property' })}
+            onEdit={(p) => openModal({ type: 'property', data: p })}
             refreshKey={refreshKey}
             userId={user.role === 'stakeholder' ? user.id : undefined}
           />
         )}
         {currentPage === 'sales' && (
           <SalesPipeline
-            onAdd={() => setModal({ type: 'sale' })}
-            onEdit={(d) => setModal({ type: 'sale', data: d })}
+            onAdd={() => openModal({ type: 'sale' })}
+            onEdit={(d) => openModal({ type: 'sale', data: d })}
             refreshKey={refreshKey}
           />
         )}
         {currentPage === 'rentals' && (
           <RentalPipeline
-            onAdd={() => setModal({ type: 'rental' })}
-            onEdit={(d) => setModal({ type: 'rental', data: d })}
+            onAdd={() => openModal({ type: 'rental' })}
+            onEdit={(d) => openModal({ type: 'rental', data: d })}
             refreshKey={refreshKey}
           />
         )}
         {currentPage === 'clients' && (
           <ClientList
-            onAdd={() => setModal({ type: 'client' })}
-            onEdit={(c) => setModal({ type: 'client', data: c })}
+            onAdd={() => openModal({ type: 'client' })}
+            onEdit={(c) => openModal({ type: 'client', data: c })}
             refreshKey={refreshKey}
           />
         )}
         {currentPage === 'billing' && (
           <BillingPage
-            onAdd={() => setModal({ type: 'invoice' })}
-            onEdit={(inv) => setModal({ type: 'invoice', data: inv })}
+            onAdd={() => openModal({ type: 'invoice' })}
+            onEdit={(inv) => openModal({ type: 'invoice', data: inv })}
             refreshKey={refreshKey}
             userId={user.role === 'stakeholder' ? user.id : undefined}
           />
@@ -341,13 +353,13 @@ const App: React.FC = () => {
         )}
         {currentPage === 'settings' && (
           <SettingsPage
-            onAddTemplate={() => setModal({ type: 'template' })}
-            onEditTemplate={(t) => setModal({ type: 'template', data: t })}
-            onAddSchedule={() => setModal({ type: 'schedule' })}
-            onEditSchedule={(s) => setModal({ type: 'schedule', data: s })}
-            onAddOwner={() => setModal({ type: 'owner' })}
-            onEditOwner={(o) => setModal({ type: 'owner', data: o })}
-            onManageUserAccess={(u: SystemUser) => setModal({ type: 'access', data: u })}
+            onAddTemplate={() => openModal({ type: 'template' })}
+            onEditTemplate={(t) => openModal({ type: 'template', data: t })}
+            onAddSchedule={() => openModal({ type: 'schedule' })}
+            onEditSchedule={(s) => openModal({ type: 'schedule', data: s })}
+            onAddOwner={() => openModal({ type: 'owner' })}
+            onEditOwner={(o) => openModal({ type: 'owner', data: o })}
+            onManageUserAccess={(u: SystemUser) => openModal({ type: 'access', data: u })}
             refreshKey={refreshKey}
           />
         )}
