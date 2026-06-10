@@ -167,22 +167,21 @@ const App: React.FC = () => {
     setRefreshKey((k) => k + 1);
   }, []);
 
-  // Restore scroll position after data refresh
+  // Restore scroll after refresh (for non-modal refreshes)
   useEffect(() => {
     if (savedScrollRef.current > 0) {
       const target = savedScrollRef.current;
       savedScrollRef.current = 0;
-      // Retry until scrollable height is sufficient or timeout
       let attempts = 0;
       const tryRestore = () => {
         if (mainRef.current && mainRef.current.scrollHeight > target) {
           mainRef.current.scrollTop = target;
-        } else if (attempts < 20) {
+        } else if (attempts < 30) {
           attempts++;
           setTimeout(tryRestore, 100);
         }
       };
-      requestAnimationFrame(tryRestore);
+      setTimeout(tryRestore, 50);
     }
   }, [refreshKey]);
 
@@ -196,9 +195,36 @@ const App: React.FC = () => {
     if (mainRef.current) savedScrollRef.current = mainRef.current.scrollTop;
     setModal(m);
   }, []);
-  function handleModalClose() { setModal(null); refresh(); }
-  function handleModalSaved() { setModal(null); refresh(); }
-  function handlePropertySaved(updatedProperty: Property) { openModal({ type: 'property', data: updatedProperty }); refresh(); }
+
+  const restoreScroll = useCallback((target: number) => {
+    if (target <= 0) return;
+    let attempts = 0;
+    const tryRestore = () => {
+      if (mainRef.current && mainRef.current.scrollHeight > target) {
+        mainRef.current.scrollTop = target;
+      } else if (attempts < 30) {
+        attempts++;
+        setTimeout(tryRestore, 100);
+      }
+    };
+    setTimeout(tryRestore, 150);
+  }, []);
+
+  function handleModalClose() {
+    const target = savedScrollRef.current;
+    savedScrollRef.current = 0;
+    setModal(null);
+    setRefreshKey((k) => k + 1);
+    restoreScroll(target);
+  }
+  function handleModalSaved() {
+    const target = savedScrollRef.current;
+    savedScrollRef.current = 0;
+    setModal(null);
+    setRefreshKey((k) => k + 1);
+    restoreScroll(target);
+  }
+  function handlePropertySaved(updatedProperty: Property) { setModal({ type: 'property', data: updatedProperty }); setRefreshKey((k) => k + 1); }
 
   function handleQuickAdd(type: 'property' | 'client' | 'sale' | 'rental') {
     if (type === 'property') { setCurrentPage('properties'); openModal({ type: 'property' }); }
