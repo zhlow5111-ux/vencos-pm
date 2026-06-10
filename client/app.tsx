@@ -160,7 +160,10 @@ const App: React.FC = () => {
   }, [user]);
 
   const refresh = useCallback(() => {
-    if (mainRef.current) savedScrollRef.current = mainRef.current.scrollTop;
+    // Only save scroll if not already saved (e.g., by openModal)
+    if (savedScrollRef.current === 0 && mainRef.current) {
+      savedScrollRef.current = mainRef.current.scrollTop;
+    }
     setRefreshKey((k) => k + 1);
   }, []);
 
