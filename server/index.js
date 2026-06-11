@@ -420,6 +420,16 @@ function initDatabase() {
   }
 
   if (currentVer < 26) {
+    safeExec(`ALTER TABLE vc_loan_payments ADD COLUMN payment_type TEXT NOT NULL DEFAULT 'normal'`);
+    db.exec(`CREATE TABLE IF NOT EXISTS vc_valuations (
+      id INTEGER PRIMARY KEY,
+      property_id INTEGER NOT NULL DEFAULT 0,
+      valuation_date TEXT NOT NULL DEFAULT '',
+      market_value REAL NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'manual',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT ''
+    )`);
     db.exec(`CREATE TABLE IF NOT EXISTS vc_tenancy_charges (
       id INTEGER PRIMARY KEY,
       property_id INTEGER NOT NULL DEFAULT 0,

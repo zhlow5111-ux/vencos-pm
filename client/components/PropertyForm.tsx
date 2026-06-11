@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Save, Landmark, UserCheck, Home, Receipt, Building2, Plus, Trash2, Edit, DollarSign, FileText, Upload, Download, Eye, Clock } from 'lucide-react';
 import { Property, Owner, PurchaseCost, PurchaseCostCategory, PROPERTY_TYPES, PROPERTY_STATUSES, LISTING_TYPES, BANK_CODES, OWNER_TYPES, PURCHASE_COST_CATEGORIES, DOC_TYPES, PropertyDocument, TenantHistory, ArrearsPayment, DocType, Meter } from '../types';
-import { saveProperty, getPropertyById, getOwners, ensureFloorUnits, getPurchaseCosts, savePurchaseCost, deletePurchaseCost, getDocuments, saveDocument, deleteDocument, getTenantHistory, getRentalIncomeByProperty, getArrearsPayments, saveArrearsPayment, deleteArrearsPayment, getArrearsBalance, getMeters, saveMeter, deleteMeter, getLoanPayments, addLoanPayment, deleteLoanPayment, LoanPayment } from '../utils/db';
+import { saveProperty, getPropertyById, getOwners, ensureFloorUnits, getPurchaseCosts, savePurchaseCost, deletePurchaseCost, getDocuments, saveDocument, deleteDocument, getTenantHistory, getRentalIncomeByProperty, getArrearsPayments, saveArrearsPayment, deleteArrearsPayment, getArrearsBalance, getMeters, saveMeter, deleteMeter, getLoanPayments, addLoanPayment, deleteLoanPayment, LoanPayment, getValuations, saveValuation, deleteValuation, Valuation } from '../utils/db';
 import { calculateEstimatedBalance, calculateLoanProjection, PrepaymentRecord } from '../utils/helpers';
 import { ConfirmModal } from './ConfirmModal';
 
@@ -11,7 +11,7 @@ interface Props {
   onSaved: (updatedProperty: Property) => void;
 }
 
-type FormTab = 'basic' | 'loan' | 'expenses' | 'owner' | 'docs' | 'history';
+type FormTab = 'basic' | 'loan' | 'expenses' | 'owner' | 'docs' | 'history' | 'valuation';
 
 export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) => {
   const isEdit = !!property;
@@ -71,6 +71,15 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
   const [prepayDate, setPrepayDate] = useState('');
   const [prepayNotes, setPrepayNotes] = useState('');
   const [savingPrepay, setSavingPrepay] = useState(false);
+
+  // Valuation state
+  const [valuations, setValuations] = useState<Valuation[]>([]);
+  const [showValForm, setShowValForm] = useState(false);
+  const [valAmount, setValAmount] = useState('');
+  const [valDate, setValDate] = useState('');
+  const [valNotes, setValNotes] = useState('');
+  const [savingVal, setSavingVal] = useState(false);
+  const [editingValId, setEditingValId] = useState<number | null>(null);
   const [hakmilikNo, setHakmilikNo] = useState(property?.hakmilik_no || '');
   const [landTaxRef, setLandTaxRef] = useState(property?.land_tax_ref || '');
   const [assessmentTaxRef, setAssessmentTaxRef] = useState(property?.assessment_tax_ref || '');
@@ -141,6 +150,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
     if (property?.id) {
       getPurchaseCosts(property.id).then(setPurchaseCosts);
       getLoanPayments(property.id).then(all => setPrepayments((all as any[]).filter(lp => lp.payment_type === 'prepayment')));
+      getValuations(property.id).then(setValuations);
     }
   }, [property?.id]);
 
@@ -472,6 +482,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
     { key: 'loan', label: '贷款', icon: <Landmark size={14} /> },
     { key: 'expenses', label: '费用', icon: <Receipt size={14} /> },
     { key: 'owner', label: '持有人', icon: <UserCheck size={14} /> },
+    { key: 'valuation', label: '市值', icon: <DollarSign size={14} /> },
     { key: 'docs', label: '文件', icon: <FileText size={14} /> },
     { key: 'history', label: '历史', icon: <Clock size={14} /> },
   ];
@@ -1315,6 +1326,150 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                   <p className="text-xs">暂无持有人</p>
                   <p className="text-[10px] mt-0.5">请先到 ⚙️ 系统设置 → 持有人管理 中创建</p>
                 </div>
+              )}
+            </>
+          )}
+
+          {/* ===== VALUATION TAB ===== */}
+          {tab === 'valuation' && (
+            <>
+              <div className="bg-success/5 border border-success/20 rounded-lg p-3">
+                <p className="text-xs font-medium text-success flex items-center gap-1"><DollarSign size={13} /> 年度市值记录</p>
+                <p className="text-[10px] text-base-content mt-0.5">记录物业的市场价值变动，追踪资产增值情况</p>
+              </div>
+
+              {/* Summary card */}
+              {property?.actual_price && property.actual_price > 0 && valuations.length > 0 && (() => {
+                const latestVal = valuations[0];
+                const purchasePrice = property.actual_price;
+                const appreciation = latestVal.market_value - purchasePrice;
+                const appreciationPct = (appreciation / purchasePrice * 100).toFixed(1);
+                return (
+                  <div className="bg-base-200 rounded-xl p-3 space-y-1">
+                    <p className="text-xs font-semibold">📊 增值概况</p>
+                    <div className="grid grid-cols-2 gap-1 text-xs">
+                      <span className="text-base-content/60">实际买价:</span>
+                      <span className="font-medium text-right">RM {purchasePrice.toLocaleString()}</span>
+                      <span className="text-base-content/60">最新市值:</span>
+                      <span className="font-medium text-right text-success">RM {latestVal.market_value.toLocaleString()}</span>
+                      <span className="text-base-content/60">增值:</span>
+                      <span className={`font-bold text-right ${appreciation >= 0 ? 'text-success' : 'text-error'}`}>
+                        {appreciation >= 0 ? '+' : ''}RM {appreciation.toLocaleString()} ({appreciation >= 0 ? '+' : ''}{appreciationPct}%)
+                      </span>
+                      <span className="text-base-content/60">估价日期:</span>
+                      <span className="text-right">{latestVal.valuation_date}</span>
+                    </div>
+                  </div>
+                );
+              })()}
+
+              {/* Add/Edit form */}
+              {property?.id && (
+                <div className="flex justify-end">
+                  <button type="button" className="btn btn-xs btn-success btn-outline gap-0.5" onClick={() => {
+                    setShowValForm(true);
+                    setEditingValId(null);
+                    setValAmount('');
+                    setValDate(new Date().toISOString().slice(0, 10));
+                    setValNotes('');
+                  }}>
+                    <Plus size={11} /> 新增市值记录
+                  </button>
+                </div>
+              )}
+
+              {showValForm && (
+                <div className="bg-success/10 rounded-lg p-3 space-y-2">
+                  <p className="text-xs font-semibold">{editingValId ? '编辑市值' : '新增市值记录'}</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="form-control">
+                      <label className="text-[10px] text-base-content/60 block">市值 (RM)</label>
+                      <input type="number" className="input input-bordered input-sm w-full" placeholder="0" value={valAmount} onChange={e => setValAmount(e.target.value)} />
+                    </div>
+                    <div className="form-control">
+                      <label className="text-[10px] text-base-content/60 block">估价日期</label>
+                      <input type="date" className="input input-bordered input-sm w-full" value={valDate} onChange={e => setValDate(e.target.value)} />
+                    </div>
+                  </div>
+                  <input className="input input-bordered input-sm w-full" placeholder="备注/来源 (选填)" value={valNotes} onChange={e => setValNotes(e.target.value)} />
+                  <div className="flex gap-1.5 justify-end">
+                    <button type="button" className="btn btn-xs btn-ghost" onClick={() => { setShowValForm(false); setEditingValId(null); }}>取消</button>
+                    <button type="button" className="btn btn-xs btn-success" disabled={savingVal || !valAmount || Number(valAmount) <= 0 || !valDate} onClick={async () => {
+                      setSavingVal(true);
+                      try {
+                        await saveValuation({
+                          id: editingValId || undefined,
+                          property_id: property!.id,
+                          valuation_date: valDate,
+                          market_value: Number(valAmount),
+                          source: 'manual',
+                          notes: valNotes,
+                        });
+                        setValuations(await getValuations(property!.id));
+                        setShowValForm(false);
+                        setEditingValId(null);
+                      } catch (err) { console.error(err); }
+                      setSavingVal(false);
+                    }}>
+                      {savingVal ? '保存中...' : '保存'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Valuation timeline */}
+              {valuations.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold">📅 历史记录</p>
+                  {valuations.map((v, idx) => {
+                    const prev = valuations[idx + 1];
+                    const change = prev ? v.market_value - prev.market_value : 0;
+                    const changePct = prev ? (change / prev.market_value * 100).toFixed(1) : '';
+                    return (
+                      <div key={v.id} className="relative pl-6 border-l-2 border-success/30 pb-3">
+                        <div className="absolute left-[-5px] top-0 w-2.5 h-2.5 rounded-full bg-success border-2 border-white"></div>
+                        <div className="bg-base-200/50 rounded-lg p-2.5">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <span className="text-xs font-bold text-success">RM {v.market_value.toLocaleString()}</span>
+                              {prev && (
+                                <span className={`text-[10px] ml-1.5 ${change >= 0 ? 'text-success' : 'text-error'}`}>
+                                  {change >= 0 ? '↑' : '↓'} {change >= 0 ? '+' : ''}RM {change.toLocaleString()} ({change >= 0 ? '+' : ''}{changePct}%)
+                                </span>
+                              )}
+                              {idx === 0 && <span className="badge badge-success badge-xs ml-1.5">最新</span>}
+                            </div>
+                            <div className="flex items-center gap-1">
+                              {idx === 0 && (
+                                <button type="button" className="btn btn-ghost btn-xs px-1" onClick={() => {
+                                  setEditingValId(v.id);
+                                  setValAmount(String(v.market_value));
+                                  setValDate(v.valuation_date);
+                                  setValNotes(v.notes);
+                                  setShowValForm(true);
+                                }}>
+                                  <Edit size={11} />
+                                </button>
+                              )}
+                              <button type="button" className="btn btn-ghost btn-xs text-error px-1" onClick={async () => {
+                                await deleteValuation(v.id);
+                                setValuations(await getValuations(property!.id));
+                              }}>
+                                <Trash2 size={11} />
+                              </button>
+                            </div>
+                          </div>
+                          <p className="text-[10px] text-base-content/60 mt-0.5">
+                            {v.valuation_date} · {v.source === 'manual' ? '手动输入' : v.source}
+                            {v.notes && ` · ${v.notes}`}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                !showValForm && <p className="text-xs text-base-content/50 text-center py-4">暂无市值记录。点击上方按钮添加第一笔。</p>
               )}
             </>
           )}

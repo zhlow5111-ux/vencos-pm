@@ -462,6 +462,16 @@ export async function initDB(): Promise<void> {
   }
 
   if (currentVer < 26) {
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_loan_payments ADD COLUMN payment_type TEXT NOT NULL DEFAULT 'normal'`); } catch {}
+    await window.tasklet.sqlExec(`CREATE TABLE IF NOT EXISTS vc_valuations (
+      id INTEGER PRIMARY KEY,
+      property_id INTEGER NOT NULL DEFAULT 0,
+      valuation_date TEXT NOT NULL DEFAULT '',
+      market_value REAL NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'manual',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT ''
+    )`);
     await window.tasklet.sqlExec(`CREATE TABLE IF NOT EXISTS vc_tenancy_charges (
       id INTEGER PRIMARY KEY,
       property_id INTEGER NOT NULL DEFAULT 0,
@@ -860,7 +870,7 @@ export async function getLoanPayments(propertyId: number): Promise<LoanPayment[]
   return rows as unknown as LoanPayment[];
 }
 
-export async function addLoanPayment(propertyId: number, amount: number, paymentDate: string, referenceNo: string, notes: string): Promise<void> {
+export async function addLoanPayment(propertyId: number, amount: number, paymentDate: string, referenceNo: string, notes: string, paymentType: string = 'normal'): Promise<void> {
   const now = nowISO();
   // Get current balance
   const prop = await window.tasklet.sqlQuery(`SELECT loan_balance FROM vc_properties WHERE id=${propertyId}`);
@@ -868,8 +878,8 @@ export async function addLoanPayment(propertyId: number, amount: number, payment
   const balanceAfter = Math.max(0, currentBalance - amount);
 
   await window.tasklet.sqlExec(`
-    INSERT INTO vc_loan_payments (id, property_id, amount, payment_date, reference_no, notes, balance_after, created_at)
-    VALUES (${Date.now()}, ${propertyId}, ${amount}, '${paymentDate}', '${escapeSQL(referenceNo)}', '${escapeSQL(notes)}', ${balanceAfter}, '${now}')
+    INSERT INTO vc_loan_payments (id, property_id, amount, payment_date, reference_no, notes, balance_after, payment_type, created_at)
+    VALUES (${Date.now()}, ${propertyId}, ${amount}, '${paymentDate}', '${escapeSQL(referenceNo)}', '${escapeSQL(notes)}', ${balanceAfter}, '${escapeSQL(paymentType)}', '${now}')
   `);
 
   // Update property loan balance
@@ -2755,4 +2765,51 @@ export async function deleteTenancyCharge(id: number): Promise<void> {
     try { await window.tasklet.runCommand(`rm -f '${r.file_data}'`); } catch {}
   }
   await window.tasklet.sqlExec(`DELETE FROM vc_tenancy_charges WHERE id=${id}`);
+}
+
+// ========== Valuations ==========
+export interface Valuation {
+  id: number;
+  property_id: number;
+  valuation_date: string;
+  market_value: number;
+  source: string;
+  notes: string;
+  created_at: string;
+}
+
+export async function getValuations(propertyId: number): Promise<Valuation[]> {
+  const rows = await window.tasklet.sqlQuery(`SELECT * FROM vc_valuations WHERE property_id=${propertyId} ORDER BY valuation_date DESC, created_at DESC`);
+  return (rows as Record<string, unknown>[]).map(r => ({
+    id: Number(r.id),
+    property_id: Number(r.property_id),
+    valuation_date: String(r.valuation_date || ''),
+    market_value: Number(r.market_value || 0),
+    source: String(r.source || 'manual'),
+    notes: String(r.notes || ''),
+    created_at: String(r.created_at || ''),
+  }));
+}
+
+export async function saveValuation(v: Partial<Valuation>): Promise<void> {
+  const now = nowISO();
+  if (v.id) {
+    await window.tasklet.sqlExec(`
+      UPDATE vc_valuations SET
+        valuation_date='${escapeSQL(v.valuation_date || '')}',
+        market_value=${v.market_value || 0},
+        source='${escapeSQL(v.source || 'manual')}',
+        notes='${escapeSQL(v.notes || '')}'
+      WHERE id=${v.id}
+    `);
+  } else {
+    await window.tasklet.sqlExec(`
+      INSERT INTO vc_valuations (property_id, valuation_date, market_value, source, notes, created_at)
+      VALUES (${v.property_id || 0}, '${escapeSQL(v.valuation_date || '')}', ${v.market_value || 0}, '${escapeSQL(v.source || 'manual')}', '${escapeSQL(v.notes || '')}', '${now}')
+    `);
+  }
+}
+
+export async function deleteValuation(id: number): Promise<void> {
+  await window.tasklet.sqlExec(`DELETE FROM vc_valuations WHERE id=${id}`);
 }
