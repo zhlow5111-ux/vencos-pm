@@ -2,7 +2,7 @@ import { Property, FloorUnit, Client, SaleDeal, RentalDeal, DashboardStats, Invo
 import { escapeSQL, nowISO, generateId } from './helpers';
 
 // ========== Init DB ==========
-const SCHEMA_VERSION = 25;
+const SCHEMA_VERSION = 26;
 
 export async function initDB(): Promise<void> {
   // Step 1: Check schema version (2 SQL calls)
@@ -459,6 +459,28 @@ export async function initDB(): Promise<void> {
   // V25: Activity tracking
   if (currentVer < 25) {
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_users ADD COLUMN last_active TEXT NOT NULL DEFAULT ''`); } catch {}
+  }
+
+  if (currentVer < 26) {
+    await window.tasklet.sqlExec(`CREATE TABLE IF NOT EXISTS vc_tenancy_charges (
+      id INTEGER PRIMARY KEY,
+      property_id INTEGER NOT NULL DEFAULT 0,
+      floor_unit_id INTEGER NOT NULL DEFAULT 0,
+      charge_type TEXT NOT NULL DEFAULT 'other',
+      charge_name TEXT NOT NULL DEFAULT '',
+      amount REAL NOT NULL DEFAULT 0,
+      payment_date TEXT NOT NULL DEFAULT '',
+      tenant_name TEXT NOT NULL DEFAULT '',
+      lease_start TEXT NOT NULL DEFAULT '',
+      lease_end TEXT NOT NULL DEFAULT '',
+      file_name TEXT NOT NULL DEFAULT '',
+      file_data TEXT NOT NULL DEFAULT '',
+      file_size INTEGER NOT NULL DEFAULT 0,
+      file_mime TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT ''
+    )`);
   }
 
   // Mark schema as current version
@@ -2638,4 +2660,99 @@ export async function updateLastActive(userId: number): Promise<void> {
   try {
     await window.tasklet.sqlExec(`UPDATE vc_users SET last_active='${nowISO()}' WHERE id=${userId}`);
   } catch {}
+}
+
+// ========== Tenancy Charges ==========
+export interface TenancyCharge {
+  id: number;
+  property_id: number;
+  floor_unit_id: number;
+  charge_type: string;
+  charge_name: string;
+  amount: number;
+  payment_date: string;
+  tenant_name: string;
+  lease_start: string;
+  lease_end: string;
+  file_name: string;
+  file_data: string;
+  file_size: number;
+  file_mime: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function getTenancyCharges(propertyId: number, floorUnitId?: number): Promise<TenancyCharge[]> {
+  let sql = `SELECT * FROM vc_tenancy_charges WHERE property_id=${propertyId}`;
+  if (floorUnitId) sql += ` AND floor_unit_id=${floorUnitId}`;
+  sql += ` ORDER BY created_at DESC`;
+  const rows = await window.tasklet.sqlQuery(sql);
+  return (rows as Record<string, unknown>[]).map(r => ({
+    id: Number(r.id),
+    property_id: Number(r.property_id),
+    floor_unit_id: Number(r.floor_unit_id),
+    charge_type: String(r.charge_type || ''),
+    charge_name: String(r.charge_name || ''),
+    amount: Number(r.amount || 0),
+    payment_date: String(r.payment_date || ''),
+    tenant_name: String(r.tenant_name || ''),
+    lease_start: String(r.lease_start || ''),
+    lease_end: String(r.lease_end || ''),
+    file_name: String(r.file_name || ''),
+    file_data: String(r.file_data || ''),
+    file_size: Number(r.file_size || 0),
+    file_mime: String(r.file_mime || ''),
+    notes: String(r.notes || ''),
+    created_at: String(r.created_at || ''),
+    updated_at: String(r.updated_at || ''),
+  }));
+}
+
+export async function saveTenancyCharge(charge: Partial<TenancyCharge> & { file_data_raw?: string }, onProgress?: (pct: number) => void): Promise<void> {
+  const now = nowISO();
+  // Store file on disk if present
+  let filePath = '';
+  if (charge.file_data_raw) {
+    const chargeId = charge.id || Date.now();
+    const safeFileName = (charge.file_name || 'file').replace(/[^a-zA-Z0-9._-]/g, '_');
+    filePath = `/agent/home/uploads/tenancy_charges/${charge.property_id || 0}/${chargeId}_${safeFileName}.b64`;
+    await writeFileChunked(filePath, charge.file_data_raw, onProgress);
+  }
+
+  if (charge.id) {
+    const fileUpdate = filePath ? `file_data='${escapeSQL(filePath)}',` : '';
+    const sizeUpdate = charge.file_size !== undefined && filePath ? `file_size=${charge.file_size},` : '';
+    const mimeUpdate = charge.file_mime && filePath ? `file_mime='${escapeSQL(charge.file_mime)}',` : '';
+    const nameUpdate = charge.file_name && filePath ? `file_name='${escapeSQL(charge.file_name)}',` : '';
+    await window.tasklet.sqlExec(`
+      UPDATE vc_tenancy_charges SET
+        charge_type='${escapeSQL(charge.charge_type || 'other')}',
+        charge_name='${escapeSQL(charge.charge_name || '')}',
+        amount=${charge.amount || 0},
+        payment_date='${escapeSQL(charge.payment_date || '')}',
+        ${nameUpdate}
+        ${fileUpdate}
+        ${sizeUpdate}
+        ${mimeUpdate}
+        notes='${escapeSQL(charge.notes || '')}',
+        updated_at='${now}'
+      WHERE id=${charge.id}
+    `);
+  } else {
+    await window.tasklet.sqlExec(`
+      INSERT INTO vc_tenancy_charges (property_id, floor_unit_id, charge_type, charge_name, amount, payment_date, tenant_name, lease_start, lease_end, file_name, file_data, file_size, file_mime, notes, created_at, updated_at)
+      VALUES (${charge.property_id || 0}, ${charge.floor_unit_id || 0}, '${escapeSQL(charge.charge_type || 'other')}', '${escapeSQL(charge.charge_name || '')}', ${charge.amount || 0}, '${escapeSQL(charge.payment_date || '')}', '${escapeSQL(charge.tenant_name || '')}', '${escapeSQL(charge.lease_start || '')}', '${escapeSQL(charge.lease_end || '')}', '${escapeSQL(charge.file_name || '')}', '${escapeSQL(filePath)}', ${charge.file_size || 0}, '${escapeSQL(charge.file_mime || '')}', '${escapeSQL(charge.notes || '')}', '${now}', '${now}')
+    `);
+  }
+}
+
+export async function deleteTenancyCharge(id: number): Promise<void> {
+  // Get file path before deleting to clean up
+  const rows = await window.tasklet.sqlQuery(`SELECT file_data FROM vc_tenancy_charges WHERE id=${id}`);
+  const r = (rows as Record<string, unknown>[])[0];
+  if (r && String(r.file_data || '').startsWith('/agent/')) {
+    try { await window.tasklet.runCommand(`rm -f '${r.file_data}'`); } catch {}
+  }
+  await window.tasklet.sqlExec(`DELETE FROM vc_tenancy_charges WHERE id=${id}`);
 }

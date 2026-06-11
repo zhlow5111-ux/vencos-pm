@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 25;
+  const SCHEMA_VERSION = 26;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -417,6 +417,28 @@ function initDatabase() {
   // V25: Activity tracking - last_active column
   if (currentVer < 25) {
     safeExec(`ALTER TABLE vc_users ADD COLUMN last_active TEXT NOT NULL DEFAULT ''`);
+  }
+
+  if (currentVer < 26) {
+    db.exec(`CREATE TABLE IF NOT EXISTS vc_tenancy_charges (
+      id INTEGER PRIMARY KEY,
+      property_id INTEGER NOT NULL DEFAULT 0,
+      floor_unit_id INTEGER NOT NULL DEFAULT 0,
+      charge_type TEXT NOT NULL DEFAULT 'other',
+      charge_name TEXT NOT NULL DEFAULT '',
+      amount REAL NOT NULL DEFAULT 0,
+      payment_date TEXT NOT NULL DEFAULT '',
+      tenant_name TEXT NOT NULL DEFAULT '',
+      lease_start TEXT NOT NULL DEFAULT '',
+      lease_end TEXT NOT NULL DEFAULT '',
+      file_name TEXT NOT NULL DEFAULT '',
+      file_data TEXT NOT NULL DEFAULT '',
+      file_size INTEGER NOT NULL DEFAULT 0,
+      file_mime TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT '',
+      updated_at TEXT NOT NULL DEFAULT ''
+    )`);
   }
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);

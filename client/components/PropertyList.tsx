@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Search, Edit, Trash2, Landmark, UserCheck, Save, AlertTriangle, Building2, CalendarDays, Phone, X, CheckSquare, DollarSign, Construction, LogOut, Download } from 'lucide-react';
 import { Property, FloorUnit, RenovationExpense, PROPERTY_TYPES, PROPERTY_STATUSES, RENOVATION_CATEGORIES, RecurringCharge, COMMON_CHARGES } from '../types';
-import { getProperties, deleteProperty, getAllFloorUnits, saveFloorUnit, getFloorUnits, getRenovationExpenses, saveRenovationExpense, deleteRenovationExpense, getTotalPurchaseCosts, archiveTenantToHistory, getRecurringCharges, saveRecurringCharge, deleteRecurringCharge } from '../utils/db';
+import { getProperties, deleteProperty, getAllFloorUnits, saveFloorUnit, getFloorUnits, getRenovationExpenses, saveRenovationExpense, deleteRenovationExpense, getTotalPurchaseCosts, archiveTenantToHistory, getRecurringCharges, saveRecurringCharge, deleteRecurringCharge, getTenancyCharges, saveTenancyCharge, deleteTenancyCharge, readFileFromDiskChunked, TenancyCharge } from '../utils/db';
 import { formatCurrency, calculateEstimatedBalance } from '../utils/helpers';
 import { downloadCsv } from '../utils/export';
 import { ConfirmModal } from './ConfirmModal';
@@ -56,6 +56,13 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
   const [tenantRcList, setTenantRcList] = useState<RecurringCharge[]>([]);
   const [tenantRcForm, setTenantRcForm] = useState<{charge_name: string; custom_name: string; amount: number; frequency: string; notes: string} | null>(null);
   const [savingRc, setSavingRc] = useState(false);
+
+  // Tenancy charges state
+  const [tcList, setTcList] = useState<TenancyCharge[]>([]);
+  const [tcForm, setTcForm] = useState<{charge_type: string; charge_name: string; amount: number; payment_date: string; notes: string; file_name: string; file_data_raw: string; file_size: number; file_mime: string} | null>(null);
+  const [savingTc, setSavingTc] = useState(false);
+  const [tcViewingFile, setTcViewingFile] = useState<{name: string; dataUrl: string} | null>(null);
+  const [tcShowHistory, setTcShowHistory] = useState(false);
 
   // Renovation expenses state
   const [renoExpenses, setRenoExpenses] = useState<Record<number, RenovationExpense[]>>({});
@@ -157,6 +164,9 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
     setShowAltAddr(false);
     setTenantRcList([]);
     setTenantRcForm(null);
+    setTcList([]);
+    setTcForm(null);
+    setTcShowHistory(false);
   }
 
   // Open form for EDITING existing tenant (pre-fill + pre-select their floors)
@@ -194,6 +204,9 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
       notes: first.notes,
     });
     setShowAltAddr(!!(first.tenant_address));
+    getTenancyCharges(propertyId).then(charges => setTcList(charges));
+    setTcForm(null);
+    setTcShowHistory(false);
     getRecurringCharges(propertyId).then(charges => {
       const floorLabels = tenantFloors.map(f => f.floor_label);
       setTenantRcList(charges.filter(c => floorLabels.includes(c.floor_label) || c.floor_label === ''));
@@ -400,6 +413,70 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
       setTenantRcList(prev => prev.filter(r => r.id !== id));
     } catch (e) {
       console.error('Delete RC failed:', e);
+    }
+  }
+
+  // ========== Tenancy Charge Helpers ==========
+  const CHARGE_TYPE_OPTIONS = [
+    { value: 'agreement_fee', label: '租约费 Agreement Fee' },
+    { value: 'stamping_fee', label: '印花税 Stamping Fee' },
+    { value: 'sst', label: 'SST (6%)' },
+    { value: 'other', label: '其他 Other' },
+  ];
+
+  async function handleSaveTc() {
+    if (!tenantForm || !tcForm || tcForm.amount <= 0) return;
+    setSavingTc(true);
+    try {
+      const firstFloorId = tenantForm.selectedFloorIds[0] || 0;
+      await saveTenancyCharge({
+        property_id: tenantForm.propertyId,
+        floor_unit_id: firstFloorId,
+        charge_type: tcForm.charge_type,
+        charge_name: tcForm.charge_type === 'other' ? tcForm.charge_name : CHARGE_TYPE_OPTIONS.find(o => o.value === tcForm.charge_type)?.label || tcForm.charge_type,
+        amount: tcForm.amount,
+        payment_date: tcForm.payment_date,
+        tenant_name: tenantForm.tenant_name,
+        lease_start: tenantForm.lease_start,
+        lease_end: tenantForm.lease_end,
+        file_name: tcForm.file_name,
+        file_data_raw: tcForm.file_data_raw,
+        file_size: tcForm.file_size,
+        file_mime: tcForm.file_mime,
+        notes: tcForm.notes,
+      });
+      const charges = await getTenancyCharges(tenantForm.propertyId);
+      setTcList(charges);
+      setTcForm(null);
+    } catch (err) {
+      console.error('Failed to save tenancy charge:', err);
+    }
+    setSavingTc(false);
+  }
+
+  async function handleDeleteTc(id: number) {
+    try {
+      await deleteTenancyCharge(id);
+      setTcList(prev => prev.filter(c => c.id !== id));
+    } catch (err) {
+      console.error('Failed to delete tenancy charge:', err);
+    }
+  }
+
+  async function handleViewTcFile(charge: TenancyCharge) {
+    try {
+      const mime = charge.file_mime || 'application/octet-stream';
+      let dataUrl: string;
+      if (charge.file_data && charge.file_data.startsWith('/agent/')) {
+        dataUrl = await readFileFromDiskChunked(charge.file_data, mime);
+      } else if (charge.file_data) {
+        dataUrl = `data:${mime};base64,${charge.file_data}`;
+      } else {
+        return;
+      }
+      setTcViewingFile({ name: charge.file_name, dataUrl });
+    } catch (err) {
+      console.error('Failed to load file:', err);
     }
   }
 
@@ -968,6 +1045,166 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                   </div>
                 )}
               </div>
+
+              {/* ===== Tenancy One-Time Charges ===== */}
+              {tenantForm.propertyId > 0 && (
+                <div className="bg-base-100 rounded-xl p-3 border border-base-300 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-base-content flex items-center gap-1">📋 租约费用 Tenancy Charges</p>
+                    {tenantForm.tenant_name && (
+                      <button type="button" className="btn btn-xs btn-primary gap-0.5" onClick={() => setTcForm({ charge_type: 'agreement_fee', charge_name: '', amount: 0, payment_date: '', notes: '', file_name: '', file_data_raw: '', file_size: 0, file_mime: '' })}>
+                        <Plus size={11} /> 新增
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Add form */}
+                  {tcForm && (
+                    <div className="bg-warning/5 border border-warning/20 rounded-lg p-2.5 space-y-2">
+                      <select className="select select-bordered select-xs w-full" value={tcForm.charge_type} onChange={e => setTcForm({...tcForm, charge_type: e.target.value})}>
+                        {CHARGE_TYPE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                      </select>
+                      {tcForm.charge_type === 'other' && (
+                        <input className="input input-bordered input-xs w-full" placeholder="费用名称" value={tcForm.charge_name} onChange={e => setTcForm({...tcForm, charge_name: e.target.value})} />
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-base-content/60 block">金额 (RM)</label>
+                          <input type="number" className="input input-bordered input-xs w-full" placeholder="0" value={tcForm.amount || ''} onChange={e => setTcForm({...tcForm, amount: Number(e.target.value)})} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-base-content/60 block">付款日期</label>
+                          <input type="date" className="input input-bordered input-xs w-full" value={tcForm.payment_date} onChange={e => setTcForm({...tcForm, payment_date: e.target.value})} />
+                        </div>
+                      </div>
+                      <input className="input input-bordered input-xs w-full" placeholder="备注 (选填)" value={tcForm.notes} onChange={e => setTcForm({...tcForm, notes: e.target.value})} />
+                      {/* File upload */}
+                      <div>
+                        <label className="text-[10px] text-base-content/60 block mb-0.5">📎 上传单据</label>
+                        {tcForm.file_name ? (
+                          <div className="flex items-center gap-1.5 bg-success/10 rounded px-2 py-1">
+                            <span className="text-[10px] text-success truncate flex-1">{tcForm.file_name}</span>
+                            <button type="button" className="btn btn-ghost btn-xs px-1 text-error" onClick={() => setTcForm({...tcForm, file_name: '', file_data_raw: '', file_size: 0, file_mime: ''})}>✕</button>
+                          </div>
+                        ) : (
+                          <input type="file" className="file-input file-input-bordered file-input-xs w-full" accept="image/*,.pdf,.doc,.docx" onChange={e => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            const reader = new FileReader();
+                            reader.onload = () => {
+                              const result = reader.result as string;
+                              const base64 = result.split(',')[1] || '';
+                              setTcForm(prev => prev ? {...prev, file_name: file.name, file_data_raw: base64, file_size: file.size, file_mime: file.type} : prev);
+                            };
+                            reader.readAsDataURL(file);
+                          }} />
+                        )}
+                      </div>
+                      <div className="flex gap-1.5 justify-end">
+                        <button type="button" className="btn btn-xs btn-ghost" onClick={() => setTcForm(null)}>取消</button>
+                        <button type="button" className="btn btn-xs btn-primary" disabled={savingTc || tcForm.amount <= 0} onClick={handleSaveTc}>
+                          {savingTc ? '保存中...' : '保存'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Current tenant charges */}
+                  {(() => {
+                    const currentCharges = tcList.filter(c => c.tenant_name === tenantForm.tenant_name);
+                    const historyCharges = tcList.filter(c => c.tenant_name && c.tenant_name !== tenantForm.tenant_name);
+                    return (
+                      <>
+                        {currentCharges.length > 0 ? (
+                          <div className="space-y-1.5">
+                            {currentCharges.map(c => (
+                              <div key={c.id} className="flex items-center gap-2 bg-base-200/50 rounded-lg px-2.5 py-1.5">
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="text-xs font-medium">{c.charge_name || c.charge_type}</span>
+                                    {c.file_name && (
+                                      <button type="button" className="text-info hover:text-info-focus" title="查看单据" onClick={() => handleViewTcFile(c)}>
+                                        <Download size={11} />
+                                      </button>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 text-[10px] text-base-content/60">
+                                    <span className="font-bold text-primary">RM {c.amount.toLocaleString()}</span>
+                                    {c.payment_date && <span>· {c.payment_date}</span>}
+                                    {c.notes && <span className="truncate">· {c.notes}</span>}
+                                  </div>
+                                </div>
+                                <button type="button" className="btn btn-ghost btn-xs text-error px-1" onClick={() => handleDeleteTc(c.id)}>
+                                  <Trash2 size={11} />
+                                </button>
+                              </div>
+                            ))}
+                            <div className="text-right">
+                              <span className="text-xs font-bold text-primary">合计: RM {currentCharges.reduce((s, c) => s + c.amount, 0).toLocaleString()}</span>
+                            </div>
+                          </div>
+                        ) : (
+                          !tcForm && <p className="text-[10px] text-base-content/50 text-center">暂无租约费用记录</p>
+                        )}
+
+                        {/* History from past tenants */}
+                        {historyCharges.length > 0 && (
+                          <div className="border-t border-base-300 pt-2">
+                            <button type="button" className="btn btn-xs btn-ghost w-full text-base-content/60" onClick={() => setTcShowHistory(!tcShowHistory)}>
+                              📁 历史租约费用 ({historyCharges.length}笔) {tcShowHistory ? '▲' : '▼'}
+                            </button>
+                            {tcShowHistory && (
+                              <div className="mt-1.5 space-y-1 max-h-40 overflow-y-auto">
+                                {historyCharges.map(c => (
+                                  <div key={c.id} className="flex items-center gap-2 bg-base-200/30 rounded px-2 py-1 opacity-70">
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex items-center gap-1">
+                                        <span className="text-[10px] font-medium">{c.charge_name || c.charge_type}</span>
+                                        {c.file_name && (
+                                          <button type="button" className="text-info" title="查看" onClick={() => handleViewTcFile(c)}>
+                                            <Download size={10} />
+                                          </button>
+                                        )}
+                                      </div>
+                                      <p className="text-[9px] text-base-content/50">
+                                        👤 {c.tenant_name} · RM {c.amount.toLocaleString()} · {c.payment_date || '未注明日期'}
+                                        {c.lease_start && ` · 租期 ${c.lease_start} → ${c.lease_end || '?'}`}
+                                      </p>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+
+                  {!tenantForm.tenant_name && (
+                    <p className="text-[10px] text-info">请先填写租户名称</p>
+                  )}
+                </div>
+              )}
+
+              {/* File viewer modal */}
+              {tcViewingFile && (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setTcViewingFile(null)}>
+                  <div className="bg-white rounded-xl max-w-lg w-full max-h-[80vh] overflow-auto p-4" onClick={e => e.stopPropagation()}>
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-semibold truncate">{tcViewingFile.name}</h3>
+                      <button className="btn btn-sm btn-ghost" onClick={() => setTcViewingFile(null)}>✕</button>
+                    </div>
+                    {tcViewingFile.dataUrl.startsWith('data:image') ? (
+                      <img src={tcViewingFile.dataUrl} alt={tcViewingFile.name} className="w-full rounded" />
+                    ) : (
+                      <div className="text-center py-8">
+                        <a href={tcViewingFile.dataUrl} download={tcViewingFile.name} className="btn btn-primary btn-sm">下载文件</a>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
 
               {/* Recurring Charges per tenant */}
               {tenantForm.propertyId > 0 && (
