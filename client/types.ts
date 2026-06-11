@@ -615,6 +615,8 @@ export const COMMON_CHARGES = [
   'Public Liabilities Maintenance 公共责任维护',
   'Sewerage & Garbage Cleaning 排污垃圾',
   'Maintenance of Lift 电梯维护',
+  'Indah Water 水务',
+  'Sinking Fund 偿债基金',
   'Other 其他',
 ];
 
