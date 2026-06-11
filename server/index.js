@@ -618,6 +618,141 @@ app.post('/api/command', authMiddleware, (req, res) => {
   }
 });
 
+// ========== AI Valuation ==========
+app.post('/api/ai-valuation', authMiddleware, async (req, res) => {
+  try {
+    const { address, propertyType, areaSqft } = req.body;
+    if (!address) return res.status(400).json({ error: 'Address required' });
+
+    // Extract area keywords from address (take last 2-3 words that are likely area names)
+    const addrParts = address.replace(/[,.\-\/]/g, ' ').split(/\s+/).filter(w => w.length > 2);
+    // Try to find meaningful area name (skip numbers, unit, lot, etc.)
+    const skipWords = new Set(['no', 'lot', 'jalan', 'lorong', 'blok', 'block', 'unit', 'tingkat', 'floor', 'level', 'taman', 'persiaran', 'lebuh']);
+    const areaWords = addrParts.filter(w => !skipWords.has(w.toLowerCase()) && !/^\d+/.test(w));
+    // Use last 2-3 meaningful words as area search
+    const areaSearch = areaWords.slice(-3).join(' ') || addrParts.slice(-2).join(' ');
+
+    const typeMap = { residential: 'residential', commercial: 'commercial', industrial: 'industrial', land: 'land' };
+    const searchType = typeMap[propertyType] || 'residential';
+
+    // Search queries
+    const queries = [
+      `${areaSearch} property price per sqft ${searchType} 2024 2025`,
+      `${areaSearch} ${searchType} transaction price brickz edgeprop`,
+    ];
+
+    const allResults = [];
+
+    for (const query of queries) {
+      try {
+        const url = `https://lite.duckduckgo.com/lite/?q=${encodeURIComponent(query)}`;
+        const resp = await fetch(url, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!resp.ok) continue;
+        const html = await resp.text();
+
+        // Extract result titles and links
+        const titleMatches = [...html.matchAll(/<a[^>]*class="result-link"[^>]*href="([^"]*)"[^>]*>(.*?)<\/a>/gs)];
+        
+        // Extract RM values with context from the whole page
+        const rmContexts = [...html.matchAll(/.{0,100}RM\s*[\d,]+(?:\.\d+)?.{0,100}/g)];
+        for (const m of rmContexts) {
+          const text = m[0].replace(/<[^>]*>/g, '').trim();
+          if (text.length > 10) allResults.push(text);
+        }
+
+        // Extract title info
+        for (const tm of titleMatches) {
+          const title = tm[2].replace(/<[^>]*>/g, '').trim();
+          const href = tm[1];
+          if (title.length > 5) {
+            allResults.push(`[SOURCE] ${title} | ${href}`);
+          }
+        }
+      } catch (e) {
+        // continue to next query
+      }
+    }
+
+    // Parse extracted data for prices
+    const prices = [];
+    const psfValues = [];
+    const sources = [];
+
+    for (const text of allResults) {
+      if (text.startsWith('[SOURCE]')) {
+        const parts = text.replace('[SOURCE] ', '').split(' | ');
+        sources.push({ title: parts[0], url: parts[1] || '' });
+        continue;
+      }
+
+      // Extract median/average price per sqft
+      const psfMatch = text.match(/(?:median|average|mean)?\s*(?:price\s*)?(?:per\s*sq(?:uare)?\s*f(?:oo|ee)?t|psf|per\s*sqft)\s*(?:is|of|at|:)?\s*RM\s*([\d,]+(?:\.\d+)?)/i)
+        || text.match(/RM\s*([\d,]+(?:\.\d+)?)\s*(?:per\s*sq(?:uare)?\s*f(?:oo|ee)?t|psf|\/\s*sqft)/i);
+      if (psfMatch) {
+        const val = parseFloat(psfMatch[1].replace(/,/g, ''));
+        if (val > 50 && val < 5000) psfValues.push(val);
+      }
+
+      // Extract property prices (full values RM xxx,xxx)
+      const priceMatches = text.matchAll(/RM\s*([\d,]+(?:\.\d+)?)/g);
+      for (const pm of priceMatches) {
+        const val = parseFloat(pm[1].replace(/,/g, ''));
+        if (val >= 50000 && val <= 50000000) prices.push(val);
+      }
+    }
+
+    // Calculate estimates
+    const uniquePsf = [...new Set(psfValues)];
+    const uniquePrices = [...new Set(prices)].sort((a, b) => a - b);
+    
+    let estimatedValue = null;
+    let medianPsf = null;
+    let method = '';
+
+    if (uniquePsf.length > 0) {
+      // Use PSF * area method (most accurate)
+      medianPsf = uniquePsf.reduce((a, b) => a + b, 0) / uniquePsf.length;
+      const sqft = areaSqft || 1000;
+      estimatedValue = Math.round(medianPsf * sqft / 1000) * 1000;
+      method = 'psf';
+    } else if (uniquePrices.length >= 2) {
+      // Use median of found prices
+      const mid = Math.floor(uniquePrices.length / 2);
+      estimatedValue = uniquePrices.length % 2 === 0
+        ? Math.round((uniquePrices[mid - 1] + uniquePrices[mid]) / 2 / 1000) * 1000
+        : uniquePrices[mid];
+      method = 'median';
+    }
+
+    // Deduplicate sources
+    const seenUrls = new Set();
+    const uniqueSources = sources.filter(s => {
+      if (seenUrls.has(s.url)) return false;
+      seenUrls.add(s.url);
+      return true;
+    }).slice(0, 8);
+
+    res.json({
+      area: areaSearch,
+      estimatedValue,
+      medianPsf: medianPsf ? Math.round(medianPsf * 100) / 100 : null,
+      method,
+      priceRange: uniquePrices.length >= 2 ? { min: uniquePrices[0], max: uniquePrices[uniquePrices.length - 1] } : null,
+      psfValues: uniquePsf.slice(0, 5),
+      samplePrices: uniquePrices.slice(0, 10),
+      sources: uniqueSources,
+      dataPoints: uniquePsf.length + uniquePrices.length,
+      searchArea: areaSearch,
+    });
+  } catch (err) {
+    console.error('AI valuation error:', err);
+    res.status(500).json({ error: 'Valuation search failed' });
+  }
+});
+
 // ========== Serve Frontend ==========
 const distPath = path.join(__dirname, '../dist');
 app.use(express.static(distPath));

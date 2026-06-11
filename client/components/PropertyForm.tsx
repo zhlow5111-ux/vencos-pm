@@ -79,6 +79,10 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
   const [valDate, setValDate] = useState('');
   const [valNotes, setValNotes] = useState('');
   const [savingVal, setSavingVal] = useState(false);
+  // AI valuation state
+  const [aiValLoading, setAiValLoading] = useState(false);
+  const [aiValResult, setAiValResult] = useState<any>(null);
+  const [showAiVal, setShowAiVal] = useState(false);
   const [editingValId, setEditingValId] = useState<number | null>(null);
 
   // RPGT calculator state
@@ -1390,7 +1394,31 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
 
               {/* Add/Edit form */}
               {property?.id && (
-                <div className="flex justify-end">
+                <div className="flex justify-end gap-1.5">
+                  <button type="button" className={`btn btn-xs btn-info btn-outline gap-0.5 ${aiValLoading ? 'loading' : ''}`} disabled={aiValLoading} onClick={async () => {
+                    setAiValLoading(true);
+                    try {
+                      const token = localStorage.getItem('token');
+                      const resp = await fetch('/api/ai-valuation', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                        body: JSON.stringify({
+                          address: property?.address || property?.name || '',
+                          propertyType: property?.type || 'residential',
+                          areaSqft: property?.area_sqft || 1000,
+                        }),
+                      });
+                      const data = await resp.json();
+                      setAiValResult(data);
+                      setShowAiVal(true);
+                    } catch (err) {
+                      console.error('AI valuation error:', err);
+                      alert('AI估价搜索失败，请稍后重试');
+                    }
+                    setAiValLoading(false);
+                  }}>
+                    {aiValLoading ? '搜索中...' : '🔍 AI 估价'}
+                  </button>
                   <button type="button" className="btn btn-xs btn-success btn-outline gap-0.5" onClick={() => {
                     setShowValForm(true);
                     setEditingValId(null);
@@ -1978,6 +2006,127 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
               );
             })()}
           </div>
+        </div>
+      )}
+
+      {/* AI Valuation Modal */}
+      {showAiVal && aiValResult && (
+        <div className="modal modal-open">
+          <div className="modal-box max-w-md">
+            <button className="btn btn-sm btn-circle btn-ghost absolute right-2 top-2" onClick={() => setShowAiVal(false)}>✕</button>
+            <h3 className="font-bold text-base flex items-center gap-1.5">🔍 AI 估价结果</h3>
+            <p className="text-xs text-base-content/60 mt-0.5">搜索区域: {aiValResult.searchArea || aiValResult.area}</p>
+
+            {aiValResult.estimatedValue ? (
+              <div className="mt-3 space-y-3">
+                {/* Main estimate */}
+                <div className="bg-info/10 border border-info/30 rounded-lg p-4 text-center">
+                  <p className="text-xs text-base-content/60">AI 参考市值</p>
+                  <p className="text-2xl font-bold text-info mt-0.5">RM {aiValResult.estimatedValue.toLocaleString()}</p>
+                  {aiValResult.medianPsf && (
+                    <p className="text-xs text-base-content/60 mt-1">
+                      均价 RM {aiValResult.medianPsf.toLocaleString()}/sqft × {property?.area_sqft?.toLocaleString() || '?'} sqft
+                    </p>
+                  )}
+                  {aiValResult.method === 'median' && (
+                    <p className="text-xs text-base-content/60 mt-1">基于区域成交价中位数</p>
+                  )}
+                </div>
+
+                {/* Price range */}
+                {aiValResult.priceRange && (
+                  <div className="bg-base-200 rounded-lg p-3">
+                    <p className="text-xs font-semibold mb-1">📊 区域价格范围</p>
+                    <div className="grid grid-cols-2 gap-1 text-xs">
+                      <span className="text-base-content/60">最低:</span>
+                      <span className="text-right">RM {aiValResult.priceRange.min.toLocaleString()}</span>
+                      <span className="text-base-content/60">最高:</span>
+                      <span className="text-right">RM {aiValResult.priceRange.max.toLocaleString()}</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* PSF data */}
+                {aiValResult.psfValues && aiValResult.psfValues.length > 0 && (
+                  <div className="bg-base-200 rounded-lg p-3">
+                    <p className="text-xs font-semibold mb-1">💰 每平方尺均价 (PSF)</p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {aiValResult.psfValues.map((psf: number, i: number) => (
+                        <span key={i} className="badge badge-sm badge-info badge-outline">RM {psf.toLocaleString()}/sqft</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Compare with purchase price */}
+                {property?.actual_price && property.actual_price > 0 && (
+                  <div className="bg-base-200 rounded-lg p-3">
+                    <p className="text-xs font-semibold mb-1">📈 与买入价对比</p>
+                    <div className="grid grid-cols-2 gap-1 text-xs">
+                      <span className="text-base-content/60">实际买价:</span>
+                      <span className="text-right">RM {property.actual_price.toLocaleString()}</span>
+                      <span className="text-base-content/60">AI 估值:</span>
+                      <span className="text-right text-info font-medium">RM {aiValResult.estimatedValue.toLocaleString()}</span>
+                      <span className="text-base-content/60">增值:</span>
+                      {(() => {
+                        const diff = aiValResult.estimatedValue - property.actual_price;
+                        const pct = (diff / property.actual_price * 100).toFixed(1);
+                        return <span className={`text-right font-bold ${diff >= 0 ? 'text-success' : 'text-error'}`}>
+                          {diff >= 0 ? '+' : ''}RM {diff.toLocaleString()} ({diff >= 0 ? '+' : ''}{pct}%)
+                        </span>;
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sources */}
+                {aiValResult.sources && aiValResult.sources.length > 0 && (
+                  <div>
+                    <p className="text-xs font-semibold mb-1">📎 数据来源 ({aiValResult.dataPoints} 条数据)</p>
+                    <div className="space-y-0.5 max-h-32 overflow-y-auto">
+                      {aiValResult.sources.map((s: any, i: number) => (
+                        <a key={i} href={s.url} target="_blank" rel="noopener noreferrer" className="block text-[10px] text-info hover:underline truncate">
+                          {s.title}
+                        </a>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Disclaimer */}
+                <div className="bg-warning/10 border border-warning/30 rounded p-2">
+                  <p className="text-[10px] text-warning">⚠️ AI估价仅供参考，基于公开交易数据。实际市值请以专业估价师报告为准。</p>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-4 text-center py-6">
+                <p className="text-sm text-base-content/60">😔 未找到足够的价格数据</p>
+                <p className="text-xs text-base-content/40 mt-1">请尝试使用更详细的地址，或手动输入市值</p>
+              </div>
+            )}
+
+            <div className="modal-action">
+              <button className="btn btn-sm btn-ghost" onClick={() => setShowAiVal(false)}>关闭</button>
+              {aiValResult.estimatedValue && (
+                <button className="btn btn-sm btn-info" onClick={async () => {
+                  try {
+                    await saveValuation({
+                      property_id: property!.id,
+                      valuation_date: new Date().toISOString().slice(0, 10),
+                      market_value: aiValResult.estimatedValue,
+                      source: 'ai_search',
+                      notes: `AI估价 - 区域: ${aiValResult.searchArea}${aiValResult.medianPsf ? ', PSF: RM' + aiValResult.medianPsf : ''}`,
+                    });
+                    setValuations(await getValuations(property!.id));
+                    setShowAiVal(false);
+                  } catch (err) { console.error(err); }
+                }}>
+                  ✅ 采纳此估值
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="modal-backdrop bg-black/40" onClick={() => setShowAiVal(false)}></div>
         </div>
       )}
 
