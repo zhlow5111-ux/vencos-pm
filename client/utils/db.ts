@@ -2600,7 +2600,8 @@ export async function generatePenaltyInvoices(): Promise<number> {
     if ((existing as any[]).length > 0) continue;
 
     // Calculate penalty amount
-    const effectiveDays = overdueDays - config.grace_days;
+    // Grace period is just a trigger threshold — once exceeded, ALL overdue days count
+    const effectiveDays = overdueDays;
     const months = effectiveDays / 30;
     let penaltyAmount = Math.round(Number(inv.amount) * (config.rate_pct / 100) * months);
 
