@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Search, Edit, Trash2, Landmark, UserCheck, Save, AlertTriangle, Building2, CalendarDays, Phone, X, CheckSquare, DollarSign, Construction, LogOut, Download } from 'lucide-react';
 import { Property, FloorUnit, RenovationExpense, PROPERTY_TYPES, PROPERTY_STATUSES, RENOVATION_CATEGORIES, RecurringCharge, COMMON_CHARGES } from '../types';
-import { getProperties, deleteProperty, getAllFloorUnits, saveFloorUnit, getFloorUnits, getRenovationExpenses, saveRenovationExpense, deleteRenovationExpense, getTotalPurchaseCosts, archiveTenantToHistory, getRecurringCharges, saveRecurringCharge, deleteRecurringCharge, getTenancyCharges, saveTenancyCharge, deleteTenancyCharge, readFileFromDiskChunked, TenancyCharge } from '../utils/db';
+import { getProperties, deleteProperty, getAllFloorUnits, saveFloorUnit, getFloorUnits, getRenovationExpenses, saveRenovationExpense, deleteRenovationExpense, getTotalPurchaseCosts, archiveTenantToHistory, getRecurringCharges, saveRecurringCharge, deleteRecurringCharge, getTenancyCharges, saveTenancyCharge, deleteTenancyCharge, readFileFromDiskChunked, TenancyCharge, getAllLatestValuations } from '../utils/db';
 import { formatCurrency, calculateEstimatedBalance } from '../utils/helpers';
 import { downloadCsv } from '../utils/export';
 import { ConfirmModal } from './ConfirmModal';
@@ -42,6 +42,7 @@ interface TenantFormData {
 
 export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userId }) => {
   const [properties, setProperties] = useState<Property[]>([]);
+  const [valuationMap, setValuationMap] = useState<Map<number, number>>(new Map());
   const [floorUnits, setFloorUnits] = useState<FloorUnit[]>([]);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -85,10 +86,11 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
 
   useEffect(() => {
     setLoading(true);
-    Promise.all([getProperties(userId), getAllFloorUnits()])
-      .then(([props, floors]) => {
+    Promise.all([getProperties(userId), getAllFloorUnits(), getAllLatestValuations()])
+      .then(([props, floors, valMap]) => {
         setProperties(props);
         setFloorUnits(floors);
+        setValuationMap(valMap);
       })
       .finally(() => setLoading(false));
   }, [refreshKey, userId]);
@@ -1501,6 +1503,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
             {p.bedrooms > 0 && <span>{p.bedrooms}房{p.bathrooms}卫</span>}
             {p.price > 0 && <span>SPA: {formatCurrency(p.price)}</span>}
             {p.actual_price > 0 && p.actual_price !== p.price && <span className="text-warning"> · 实际: {formatCurrency(p.actual_price)}</span>}
+            {valuationMap.has(p.id) && <span className="text-success"> · 市值: {formatCurrency(valuationMap.get(p.id)!)}</span>}
           </div>
         </div>
 

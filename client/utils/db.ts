@@ -2101,7 +2101,7 @@ export async function getFinancialSummary(): Promise<{
     }
     // For properties without valuations, use purchasePrice (actual_price) as fallback
     for (const p of data) {
-      if (!valuedIds.has(p.propertyId)) {
+      if (!valuedIds.has(p.id)) {
         totalMarketValue += p.purchasePrice || p.spaPrice || 0;
       }
     }
@@ -2845,6 +2845,23 @@ export async function saveValuation(v: Partial<Valuation>): Promise<void> {
       INSERT INTO vc_valuations (property_id, valuation_date, market_value, source, notes, created_at)
       VALUES (${v.property_id || 0}, '${escapeSQL(v.valuation_date || '')}', ${v.market_value || 0}, '${escapeSQL(v.source || 'manual')}', '${escapeSQL(v.notes || '')}', '${now}')
     `);
+  }
+}
+
+export async function getAllLatestValuations(): Promise<Map<number, number>> {
+  try {
+    const rows = await window.tasklet.sqlQuery(`
+      SELECT v.property_id, v.market_value FROM vc_valuations v
+      INNER JOIN (SELECT property_id, MAX(valuation_date) as max_date FROM vc_valuations GROUP BY property_id) latest
+      ON v.property_id = latest.property_id AND v.valuation_date = latest.max_date
+    `);
+    const map = new Map<number, number>();
+    for (const r of rows as Record<string, unknown>[]) {
+      map.set(Number(r.property_id), Number(r.market_value || 0));
+    }
+    return map;
+  } catch {
+    return new Map();
   }
 }
 
