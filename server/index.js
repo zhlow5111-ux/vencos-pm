@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 26;
+  const SCHEMA_VERSION = 27;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -449,6 +449,19 @@ function initDatabase() {
       created_at TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT ''
     )`);
+  }
+
+  if (currentVer < 27) {
+    db.exec(`CREATE TABLE IF NOT EXISTS vc_valuations (
+      id INTEGER PRIMARY KEY,
+      property_id INTEGER NOT NULL DEFAULT 0,
+      valuation_date TEXT NOT NULL DEFAULT '',
+      market_value REAL NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'manual',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT ''
+    )`);
+    safeExec(`UPDATE vc_properties SET loan_balance = loan_amount WHERE loan_amount > 0 AND (loan_balance <= 0 OR loan_balance > loan_amount * 2)`);
   }
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);

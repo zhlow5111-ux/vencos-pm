@@ -40,7 +40,13 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
   const [bankCode, setBankCode] = useState(property?.bank_code || '');
   const [bankName, setBankName] = useState(property?.bank_name || '');
   const [loanAmount, setLoanAmount] = useState(property?.loan_amount || 0);
-  const [loanBalance, setLoanBalance] = useState(property?.loan_balance || 0);
+  const [loanBalance, setLoanBalance] = useState(() => {
+    const bal = property?.loan_balance || 0;
+    const amt = property?.loan_amount || 0;
+    // Auto-init: if balance is 0 or absurdly high, use loan_amount
+    if (amt > 0 && (bal <= 0 || bal > amt * 2)) return amt;
+    return bal;
+  });
   const [monthlyRepayment, setMonthlyRepayment] = useState(property?.monthly_repayment || 0);
   const [loanStart, setLoanStart] = useState(property?.loan_start || '');
   const [loanTenure, setLoanTenure] = useState(property?.loan_tenure_months || 0);
@@ -1368,7 +1374,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
               </div>
 
               {/* Summary card */}
-              {property?.actual_price && property.actual_price > 0 && valuations.length > 0 && (() => {
+              {(property?.actual_price ?? 0) > 0 && valuations.length > 0 && (() => {
                 const latestVal = valuations[0];
                 const purchasePrice = property.actual_price;
                 const appreciation = latestVal.market_value - purchasePrice;
@@ -1398,7 +1404,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                   <button type="button" className={`btn btn-xs btn-info btn-outline gap-0.5 ${aiValLoading ? 'loading' : ''}`} disabled={aiValLoading} onClick={async () => {
                     setAiValLoading(true);
                     try {
-                      const token = localStorage.getItem('token');
+                      const token = localStorage.getItem('vencos_token');
                       const resp = await fetch('/api/ai-valuation', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },

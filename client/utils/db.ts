@@ -2,7 +2,7 @@ import { Property, FloorUnit, Client, SaleDeal, RentalDeal, DashboardStats, Invo
 import { escapeSQL, nowISO, generateId } from './helpers';
 
 // ========== Init DB ==========
-const SCHEMA_VERSION = 26;
+const SCHEMA_VERSION = 27;
 
 export async function initDB(): Promise<void> {
   // Step 1: Check schema version (2 SQL calls)
@@ -491,6 +491,19 @@ export async function initDB(): Promise<void> {
       created_at TEXT NOT NULL DEFAULT '',
       updated_at TEXT NOT NULL DEFAULT ''
     )`);
+  }
+
+  if (currentVer < 27) {
+    await window.tasklet.sqlExec(`CREATE TABLE IF NOT EXISTS vc_valuations (
+      id INTEGER PRIMARY KEY,
+      property_id INTEGER NOT NULL DEFAULT 0,
+      valuation_date TEXT NOT NULL DEFAULT '',
+      market_value REAL NOT NULL DEFAULT 0,
+      source TEXT NOT NULL DEFAULT 'manual',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT ''
+    )`);
+    try { await window.tasklet.sqlExec(`UPDATE vc_properties SET loan_balance = loan_amount WHERE loan_amount > 0 AND (loan_balance <= 0 OR loan_balance > loan_amount * 2)`); } catch {}
   }
 
   // Mark schema as current version
@@ -2070,8 +2083,22 @@ export async function getFinancialSummary(): Promise<{
   totalSpaPrice: number;
   totalPurchasePrice: number;
   totalPurchaseFees: number;
+  totalMarketValue: number;
 }> {
   const data = await getPropertyFinancials();
+
+  // Get latest market value per property from vc_valuations
+  let totalMarketValue = 0;
+  try {
+    const valRows = await window.tasklet.sqlQuery(`
+      SELECT v.property_id, v.market_value FROM vc_valuations v
+      INNER JOIN (SELECT property_id, MAX(valuation_date) as max_date FROM vc_valuations GROUP BY property_id) latest
+      ON v.property_id = latest.property_id AND v.valuation_date = latest.max_date
+    `);
+    for (const r of valRows as Record<string, unknown>[]) {
+      totalMarketValue += Number(r.market_value || 0);
+    }
+  } catch {}
   const totalPurchaseValue = data.reduce((s, p) => s + p.totalPurchaseCost, 0);
   const totalSpaPrice = data.reduce((s, p) => s + p.spaPrice, 0);
   const totalPurchasePrice = data.reduce((s, p) => s + p.purchasePrice, 0);
@@ -2108,6 +2135,7 @@ export async function getFinancialSummary(): Promise<{
     totalSpaPrice,
     totalPurchasePrice,
     totalPurchaseFees,
+    totalMarketValue,
   };
 }
 
