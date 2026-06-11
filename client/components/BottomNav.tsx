@@ -12,18 +12,18 @@ const MAIN_NAV: { page: Page; label: string; Icon: React.FC<{ size?: number; cla
   { page: 'dashboard', label: '总览', Icon: LayoutDashboard },
   { page: 'properties', label: '物业', Icon: Building2 },
   { page: 'billing', label: '账单', Icon: Receipt },
-  { page: 'clients', label: '客户', Icon: Users },
+  { page: 'settings', label: '设置', Icon: Settings },
 ];
 
 const MORE_NAV: { page: Page; label: string; desc: string; Icon: React.FC<{ size?: number; className?: string }> }[] = [
+  { page: 'clients', label: '客户管理', desc: '客户列表 / 买家 / 卖家 / 租客', Icon: Users },
   { page: 'sales', label: '买卖管道', desc: '物业买卖流程追踪', Icon: TrendingUp },
   { page: 'rentals', label: '租赁管道', desc: '租赁流程追踪', Icon: Key },
   { page: 'maintenance', label: '维修工单', desc: '租户维修请求管理', Icon: Wrench },
   { page: 'agents', label: '中介管理', desc: '中介列表 / 空置物业匹配 / 群发通知', Icon: Briefcase },
-  { page: 'settings', label: '系统设置', desc: '模板 / 排程 / 集成 / 用户', Icon: Settings },
 ];
 
-const MORE_PAGES = new Set<Page>(['sales', 'rentals', 'maintenance', 'settings', 'agents']);
+const MORE_PAGES = new Set<Page>(['clients', 'sales', 'rentals', 'maintenance', 'agents']);
 
 export const BottomNav: React.FC<BottomNavProps> = ({ currentPage, onNavigate, userRole }) => {
   const [showMore, setShowMore] = useState(false);
