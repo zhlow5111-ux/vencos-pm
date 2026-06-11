@@ -29,6 +29,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
   const [floorCount, setFloorCount] = useState(property?.floor_count || 1);
   const [price, setPrice] = useState(property?.price || 0);
   const [actualPrice, setActualPrice] = useState(property?.actual_price || 0);
+  const [spaDate, setSpaDate] = useState(property?.spa_date || '');
   const [rentalPrice, setRentalPrice] = useState(property?.rental_price || 0);
   const [bedrooms, setBedrooms] = useState(property?.bedrooms || 0);
   const [bathrooms, setBathrooms] = useState(property?.bathrooms || 0);
@@ -74,7 +75,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
   // RPGT calculator state
   const [showRpgt, setShowRpgt] = useState(false);
   const [rpgtSellingPrice, setRpgtSellingPrice] = useState('');
-  const [rpgtPurchaseDate, setRpgtPurchaseDate] = useState(property?.loan_start || '');
+  const [rpgtPurchaseDate, setRpgtPurchaseDate] = useState(property?.spa_date || property?.loan_start || '');
   const [rpgtOwnerType, setRpgtOwnerType] = useState<'individual' | 'company'>('individual');
   const [rpgtExtraDeductions, setRpgtExtraDeductions] = useState('');
 
@@ -437,6 +438,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
         mgmt_fee_type: mgmtFeeType,
         mgmt_fee_amount: mgmtFeeAmount,
         actual_price: actualPrice,
+        spa_date: spaDate,
         owner_id: ownerId,
       });
       // Ensure floor units exist
@@ -591,6 +593,10 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                   台底差额: RM {Math.abs(actualPrice - price).toLocaleString()} ({actualPrice < price ? '实际低于合同' : '实际高于合同'})
                 </div>
               )}
+              <div className="form-control">
+                <label className="label"><span className="label-text text-xs">📅 SPA 签署日期</span></label>
+                <input type="date" className="input input-bordered input-sm w-full" value={spaDate} onChange={(e) => setSpaDate(e.target.value)} />
+              </div>
               {type !== 'land' && (
               <div className="grid grid-cols-3 gap-2">
                 <div className="form-control">
@@ -1420,7 +1426,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                 {/* RPGT Calculator button */}
                 {property?.id && (actualPrice || price) > 0 && (
                   <button type="button" className="btn btn-sm btn-outline btn-warning w-full gap-1" onClick={() => {
-                    setRpgtPurchaseDate(property.loan_start || '');
+                    setRpgtPurchaseDate(spaDate || property.loan_start || '');
                     setRpgtSellingPrice('');
                     setRpgtExtraDeductions('');
                     setShowRpgt(true);
@@ -2348,7 +2354,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
             </div>
             <div className="space-y-2">
               <div>
-                <label className="text-xs text-base-content/60 block">购入日期</label>
+                <label className="text-xs text-base-content/60 block">购入日期 (SPA签署日期)</label>
                 <input type="date" className="input input-bordered input-sm w-full" value={rpgtPurchaseDate} onChange={e => setRpgtPurchaseDate(e.target.value)} />
               </div>
               <div>

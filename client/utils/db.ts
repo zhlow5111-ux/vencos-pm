@@ -2,7 +2,7 @@ import { Property, FloorUnit, Client, SaleDeal, RentalDeal, DashboardStats, Invo
 import { escapeSQL, nowISO, generateId } from './helpers';
 
 // ========== Init DB ==========
-const SCHEMA_VERSION = 28;
+const SCHEMA_VERSION = 29;
 
 export async function initDB(): Promise<void> {
   // Step 1: Check schema version (2 SQL calls)
@@ -521,26 +521,32 @@ export async function initDB(): Promise<void> {
     // loan_balance can legitimately exceed loan_amount — no auto-reset
   }
 
-  if (currentVer < 28) {
-    // Add loan_id to vc_loan_payments
+  if (currentVer < 29) {
+    // Add loan_id to vc_loan_payments (V28)
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_loan_payments ADD COLUMN loan_id INTEGER NOT NULL DEFAULT 0`); } catch {}
-    // Migrate existing property-level loans into vc_loans table
-    const propsWithLoans = await window.tasklet.sqlQuery(
-      `SELECT id, bank_code, bank_name, loan_amount, loan_balance, monthly_repayment,
-       loan_start, loan_tenure_months, loan_interest_rate, loan_repayment_day,
-       loan_account_no, loan_si_account FROM vc_properties WHERE loan_amount > 0`
-    ) as any[];
-    for (const p of propsWithLoans) {
-      const existing = await window.tasklet.sqlQuery(`SELECT id FROM vc_loans WHERE property_id=${p.id} LIMIT 1`) as any[];
-      if (existing.length === 0) {
-        const mNow = nowISO();
-        const loanId = Date.now() + p.id;
-        await window.tasklet.sqlExec(`INSERT INTO vc_loans (id, property_id, loan_label, bank_code, bank_name, loan_amount, loan_balance, monthly_repayment, rate_type, base_rate, spread, effective_rate, loan_start, loan_tenure_months, loan_repayment_day, loan_account_no, loan_si_account, notes, created_at, updated_at)
-          VALUES (${loanId}, ${p.id}, '房屋贷款', '${escapeSQL(String(p.bank_code || ''))}', '${escapeSQL(String(p.bank_name || ''))}', ${p.loan_amount || 0}, ${p.loan_balance || 0}, ${p.monthly_repayment || 0}, 'SBR', ${p.loan_interest_rate || 0}, 0, ${p.loan_interest_rate || 0}, '${p.loan_start || ''}', ${p.loan_tenure_months || 0}, ${p.loan_repayment_day || 0}, '${escapeSQL(String(p.loan_account_no || ''))}', '${escapeSQL(String(p.loan_si_account || ''))}', '', '${mNow}', '${mNow}')`);
-        // Link existing payments to the new loan
-        await window.tasklet.sqlExec(`UPDATE vc_loan_payments SET loan_id=${loanId} WHERE property_id=${p.id} AND loan_id=0`);
+    // Add spa_date to properties (V29)
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_properties ADD COLUMN spa_date TEXT NOT NULL DEFAULT ''`); } catch {}
+
+    // Migrate existing property-level loans into vc_loans table (re-runnable: checks for existing)
+    try {
+      const propsWithLoans = await window.tasklet.sqlQuery(
+        `SELECT id, bank_code, bank_name, loan_amount, loan_balance, monthly_repayment,
+         loan_start, loan_tenure_months, loan_interest_rate, loan_repayment_day,
+         loan_account_no, loan_si_account FROM vc_properties
+         WHERE loan_amount > 0 OR COALESCE(bank_name, '') != '' OR monthly_repayment > 0`
+      ) as any[];
+      for (const p of propsWithLoans) {
+        const existing = await window.tasklet.sqlQuery(`SELECT id FROM vc_loans WHERE property_id=${p.id} LIMIT 1`) as any[];
+        if (existing.length === 0) {
+          const mNow = nowISO();
+          const loanId = Date.now() + Math.floor(Math.random() * 10000) + p.id;
+          await window.tasklet.sqlExec(`INSERT INTO vc_loans (id, property_id, loan_label, bank_code, bank_name, loan_amount, loan_balance, monthly_repayment, rate_type, base_rate, spread, effective_rate, loan_start, loan_tenure_months, loan_repayment_day, loan_account_no, loan_si_account, notes, created_at, updated_at)
+            VALUES (${loanId}, ${p.id}, '房屋贷款', '${escapeSQL(String(p.bank_code || ''))}', '${escapeSQL(String(p.bank_name || ''))}', ${p.loan_amount || 0}, ${p.loan_balance || 0}, ${p.monthly_repayment || 0}, 'SBR', ${p.loan_interest_rate || 0}, 0, ${p.loan_interest_rate || 0}, '${escapeSQL(String(p.loan_start || ''))}', ${p.loan_tenure_months || 0}, ${p.loan_repayment_day || 0}, '${escapeSQL(String(p.loan_account_no || ''))}', '${escapeSQL(String(p.loan_si_account || ''))}', '', '${mNow}', '${mNow}')`);
+          // Link existing payments to the new loan
+          await window.tasklet.sqlExec(`UPDATE vc_loan_payments SET loan_id=${loanId} WHERE property_id=${p.id} AND loan_id=0`);
+        }
       }
-    }
+    } catch (migErr) { console.error('Loan migration error:', migErr); }
   }
 
   // Mark schema as current version
@@ -658,14 +664,15 @@ export async function saveProperty(p: Partial<Property> & { name: string }): Pro
         mgmt_fee_type='${p.mgmt_fee_type || 'percentage'}',
         mgmt_fee_amount=${p.mgmt_fee_amount || 0},
         actual_price=${p.actual_price || 0},
+        spa_date='${escapeSQL((p as any).spa_date || '')}',
         owner_id=${p.owner_id || 0},
         updated_at='${now}'
       WHERE id=${p.id}
     `);
   } else {
     await window.tasklet.sqlExec(`
-      INSERT INTO vc_properties (id, name, address, type, status, listing_type, property_category, parent_id, unit_number, total_units, floor_count, price, rental_price, bedrooms, bathrooms, area_sqft, description, image_url, bank_code, bank_name, loan_amount, loan_balance, monthly_repayment, loan_start, loan_tenure_months, loan_interest_rate, loan_repayment_day, loan_account_no, loan_si_account, land_tax, land_tax_due, assessment_tax, assessment_tax_due, hakmilik_no, land_tax_ref, assessment_tax_ref, indah_water, indah_water_acc, service_charge, mgmt_company_name, mgmt_company_phone, mgmt_company_address, mgmt_fee_pct, mgmt_fee_type, mgmt_fee_amount, actual_price, owner_id, created_at, updated_at)
-      VALUES (${id}, '${escapeSQL(p.name)}', '${escapeSQL(p.address || '')}', '${p.type || 'residential'}', '${p.status || 'available'}', '${p.listing_type || 'sale'}', '${p.property_category || 'standalone'}', ${p.parent_id || 0}, '${escapeSQL(p.unit_number || '')}', ${p.total_units || 0}, ${p.floor_count || 1}, ${p.price || 0}, ${p.rental_price || 0}, ${p.bedrooms || 0}, ${p.bathrooms || 0}, ${p.area_sqft || 0}, '${escapeSQL(p.description || '')}', '${escapeSQL(p.image_url || '')}', '${escapeSQL(p.bank_code || '')}', '${escapeSQL(p.bank_name || '')}', ${p.loan_amount || 0}, ${p.loan_balance || 0}, ${p.monthly_repayment || 0}, '${p.loan_start || ''}', ${p.loan_tenure_months || 0}, ${p.loan_interest_rate || 0}, ${p.loan_repayment_day || 0}, '${escapeSQL(p.loan_account_no || '')}', '${escapeSQL(p.loan_si_account || '')}', ${p.land_tax || 0}, '${p.land_tax_due || ''}', ${p.assessment_tax || 0}, '${p.assessment_tax_due || ''}', '${escapeSQL(p.hakmilik_no || '')}', '${escapeSQL(p.land_tax_ref || '')}', '${escapeSQL(p.assessment_tax_ref || '')}', ${p.indah_water || 0}, '${escapeSQL(p.indah_water_acc || '')}', ${p.service_charge || 0}, '${escapeSQL(p.mgmt_company_name || '')}', '${escapeSQL(p.mgmt_company_phone || '')}', '${escapeSQL(p.mgmt_company_address || '')}', ${p.mgmt_fee_pct || 0}, '${p.mgmt_fee_type || 'percentage'}', ${p.mgmt_fee_amount || 0}, ${p.actual_price || 0}, ${p.owner_id || 0}, '${now}', '${now}')
+      INSERT INTO vc_properties (id, name, address, type, status, listing_type, property_category, parent_id, unit_number, total_units, floor_count, price, rental_price, bedrooms, bathrooms, area_sqft, description, image_url, bank_code, bank_name, loan_amount, loan_balance, monthly_repayment, loan_start, loan_tenure_months, loan_interest_rate, loan_repayment_day, loan_account_no, loan_si_account, land_tax, land_tax_due, assessment_tax, assessment_tax_due, hakmilik_no, land_tax_ref, assessment_tax_ref, indah_water, indah_water_acc, service_charge, mgmt_company_name, mgmt_company_phone, mgmt_company_address, mgmt_fee_pct, mgmt_fee_type, mgmt_fee_amount, actual_price, spa_date, owner_id, created_at, updated_at)
+      VALUES (${id}, '${escapeSQL(p.name)}', '${escapeSQL(p.address || '')}', '${p.type || 'residential'}', '${p.status || 'available'}', '${p.listing_type || 'sale'}', '${p.property_category || 'standalone'}', ${p.parent_id || 0}, '${escapeSQL(p.unit_number || '')}', ${p.total_units || 0}, ${p.floor_count || 1}, ${p.price || 0}, ${p.rental_price || 0}, ${p.bedrooms || 0}, ${p.bathrooms || 0}, ${p.area_sqft || 0}, '${escapeSQL(p.description || '')}', '${escapeSQL(p.image_url || '')}', '${escapeSQL(p.bank_code || '')}', '${escapeSQL(p.bank_name || '')}', ${p.loan_amount || 0}, ${p.loan_balance || 0}, ${p.monthly_repayment || 0}, '${p.loan_start || ''}', ${p.loan_tenure_months || 0}, ${p.loan_interest_rate || 0}, ${p.loan_repayment_day || 0}, '${escapeSQL(p.loan_account_no || '')}', '${escapeSQL(p.loan_si_account || '')}', ${p.land_tax || 0}, '${p.land_tax_due || ''}', ${p.assessment_tax || 0}, '${p.assessment_tax_due || ''}', '${escapeSQL(p.hakmilik_no || '')}', '${escapeSQL(p.land_tax_ref || '')}', '${escapeSQL(p.assessment_tax_ref || '')}', ${p.indah_water || 0}, '${escapeSQL(p.indah_water_acc || '')}', ${p.service_charge || 0}, '${escapeSQL(p.mgmt_company_name || '')}', '${escapeSQL(p.mgmt_company_phone || '')}', '${escapeSQL(p.mgmt_company_address || '')}', ${p.mgmt_fee_pct || 0}, '${p.mgmt_fee_type || 'percentage'}', ${p.mgmt_fee_amount || 0}, ${p.actual_price || 0}, '${escapeSQL((p as any).spa_date || '')}', ${p.owner_id || 0}, '${now}', '${now}')
     `);
   }
   return id;
@@ -1068,24 +1075,13 @@ export async function readFileFromDiskChunked(b64Path: string, mime: string): Pr
   // Read the .b64 marker/data file
   const marker = await window.tasklet.readFileFromDisk(b64Path);
   if (marker.startsWith('BIN:')) {
-    // Large file stored as binary — encode back to base64 in chunks
+    // Large file stored as binary — encode to base64 for data URL
     const binPath = marker.substring(4);
-    // Get file size
-    const sizeResult = await window.tasklet.runCommand(`stat -c%s '${binPath}' 2>/dev/null || echo 0`);
-    const fileSize = parseInt(sizeResult.log.trim()) || 0;
-    if (fileSize === 0) throw new Error('文件不存在或已损坏');
-    // Read in 80KB binary chunks (≈107KB base64 output each)
-    const READ_CHUNK = 80000; // bytes of binary per chunk
-    const totalChunks = Math.ceil(fileSize / READ_CHUNK);
-    let base64Result = '';
-    for (let i = 0; i < totalChunks; i++) {
-      const skip = i * READ_CHUNK;
-      const result = await window.tasklet.runCommand(
-        `dd if='${binPath}' bs=1 skip=${skip} count=${READ_CHUNK} 2>/dev/null | base64 -w0`
-      );
-      base64Result += result.log.trim();
-    }
-    return `data:${mime};base64,${base64Result}`;
+    // Use single base64 command (works for files up to ~10MB)
+    const result = await window.tasklet.runCommand(`base64 -w0 '${binPath}' 2>/dev/null`);
+    const b64 = result.log.trim();
+    if (!b64) throw new Error('文件不存在或已损坏');
+    return `data:${mime};base64,${b64}`;
   }
   // Small file: marker IS the base64 data
   return `data:${mime};base64,${marker}`;
