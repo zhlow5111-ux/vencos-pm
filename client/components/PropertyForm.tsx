@@ -498,7 +498,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
     { key: 'basic', label: '基本信息', icon: <Home size={14} /> },
     { key: 'loan', label: '贷款', icon: <Landmark size={14} /> },
     { key: 'expenses', label: '费用', icon: <Receipt size={14} /> },
-    { key: 'owner', label: '持有人', icon: <UserCheck size={14} /> },
+    // Owner is now in basic tab
     { key: 'valuation', label: '市值', icon: <DollarSign size={14} /> },
     { key: 'docs', label: '文件', icon: <FileText size={14} /> },
     { key: 'history', label: '历史', icon: <Clock size={14} /> },
@@ -560,6 +560,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                     {PROPERTY_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                 </div>
+                {type !== 'land' && (
                 <div className="form-control">
                   <label className="label"><span className="label-text text-xs">楼层数 Floor Count</span></label>
                   <select className="select select-bordered select-sm w-full" value={floorCount} onChange={(e) => setFloorCount(Number(e.target.value))}>
@@ -568,9 +569,10 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                     ))}
                   </select>
                 </div>
+                )}
               </div>
 
-              {floorCount > 1 && (
+              {type !== 'land' && floorCount > 1 && (
                 <div className="bg-info/5 border border-info/20 rounded-lg p-2.5">
                   <p className="text-xs text-info font-medium">🏢 多层物业 — 每层可独立出租给不同租户</p>
                   <p className="text-[10px] text-base-content mt-0.5">保存后可在物业列表中为每层设置租户信息</p>
@@ -607,6 +609,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                   台底差额: RM {Math.abs(actualPrice - price).toLocaleString()} ({actualPrice < price ? '实际低于合同' : '实际高于合同'})
                 </div>
               )}
+              {type !== 'land' && (
               <div className="grid grid-cols-3 gap-2">
                 <div className="form-control">
                   <label className="label"><span className="label-text text-xs">房间</span></label>
@@ -651,11 +654,84 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                   )}
                 </div>
               </div>
+              )}
+
+              {/* ── 面积 (for land, show standalone) ── */}
+              {type === 'land' && (
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text text-xs">面积</span>
+                  <button
+                    type="button"
+                    className="btn btn-ghost btn-xs px-1.5 text-[10px] font-semibold"
+                    onClick={() => {
+                      const cur = Number(areaInput) || 0;
+                      if (areaUnit === 'sqft') {
+                        setAreaUnit('m2');
+                        setAreaInput(cur ? (cur * 0.092903).toFixed(1) : '');
+                      } else {
+                        setAreaUnit('sqft');
+                        setAreaInput(cur ? String(Math.round(cur / 0.092903)) : '');
+                      }
+                    }}
+                  >
+                    {areaUnit === 'sqft' ? 'sqft ⇄ m²' : 'm² ⇄ sqft'}
+                  </button>
+                </label>
+                <input
+                  type="number"
+                  className="input input-bordered input-sm w-full"
+                  value={areaInput}
+                  onChange={(e) => setAreaInput(e.target.value)}
+                />
+                {areaInput && Number(areaInput) > 0 && (
+                  <span className="text-[10px] text-base-content/60 mt-0.5">
+                    = {areaUnit === 'sqft'
+                      ? `${(Number(areaInput) * 0.092903).toFixed(1)} m²`
+                      : `${Math.round(Number(areaInput) / 0.092903).toLocaleString()} sqft`}
+                  </span>
+                )}
+              </div>
+              )}
 
               <div className="form-control">
                 <label className="label"><span className="label-text text-xs">描述</span></label>
                 <textarea className="textarea textarea-bordered textarea-sm w-full" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
               </div>
+
+              {/* ── 持有人 (moved from separate tab) ── */}
+              <div className="divider text-xs text-base-content/40 my-1">持有人</div>
+              <div className="form-control">
+                <label className="label"><span className="label-text text-xs">选择持有人</span></label>
+                <select className="select select-bordered select-sm w-full" value={ownerId} onChange={(e) => setOwnerId(Number(e.target.value))}>
+                  <option value={0}>-- 未指定 --</option>
+                  {owners.map((o) => (
+                    <option key={o.id} value={o.id}>
+                      {o.owner_type === 'company' ? '🏢 ' : '👤 '}{o.name}
+                      {o.registration_no ? ` (${o.registration_no})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              {selectedOwner && (
+                <div className="bg-base-200 rounded-lg p-2.5 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">{selectedOwner.owner_type === 'company' ? '🏢' : '👤'}</span>
+                    <div>
+                      <p className="font-semibold text-xs">{selectedOwner.name}</p>
+                      <p className="text-[10px] text-base-content">
+                        {OWNER_TYPES.find((t) => t.value === selectedOwner.owner_type)?.label}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 gap-0.5 text-[11px] text-base-content">
+                    {selectedOwner.registration_no && <div className="flex justify-between"><span>注册号:</span><span>{selectedOwner.registration_no}</span></div>}
+                    {selectedOwner.contact_person && <div className="flex justify-between"><span>联系人:</span><span>{selectedOwner.contact_person}</span></div>}
+                    {selectedOwner.phone && <div className="flex justify-between"><span>电话:</span><span>{selectedOwner.phone}</span></div>}
+                    {selectedOwner.email && <div className="flex justify-between"><span>邮箱:</span><span>{selectedOwner.email}</span></div>}
+                  </div>
+                </div>
+              )}
             </>
           )}
 
@@ -1294,66 +1370,6 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                       RM {(landTax + assessmentTax * 2 + serviceCharge * 12).toLocaleString()}
                     </span>
                   </div>
-                </div>
-              )}
-            </>
-          )}
-
-          {/* ===== OWNER TAB ===== */}
-          {tab === 'owner' && (
-            <>
-              <div className="bg-primary/5 border border-primary/20 rounded-lg p-3">
-                <p className="text-xs font-medium text-primary flex items-center gap-1"><UserCheck size={13} /> 物业持有人</p>
-                <p className="text-[10px] text-base-content mt-0.5">选择此物业的持有公司或个人。需先在设置页面中创建持有人。</p>
-              </div>
-
-              <div className="form-control">
-                <label className="label"><span className="label-text text-xs">选择持有人</span></label>
-                <select className="select select-bordered select-sm w-full" value={ownerId} onChange={(e) => setOwnerId(Number(e.target.value))}>
-                  <option value={0}>-- 未指定 --</option>
-                  {owners.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.owner_type === 'company' ? '🏢 ' : '👤 '}{o.name}
-                      {o.registration_no ? ` (${o.registration_no})` : ''}
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              {/* Show selected owner info */}
-              {selectedOwner && (
-                <div className="bg-base-200 rounded-lg p-3 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className="text-lg">{selectedOwner.owner_type === 'company' ? '🏢' : '👤'}</span>
-                    <div>
-                      <p className="font-semibold text-sm">{selectedOwner.name}</p>
-                      <p className="text-[10px] text-base-content">
-                        {OWNER_TYPES.find((t) => t.value === selectedOwner.owner_type)?.label}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 gap-0.5 text-xs text-base-content">
-                    {selectedOwner.registration_no && (
-                      <div className="flex justify-between"><span>注册号:</span><span>{selectedOwner.registration_no}</span></div>
-                    )}
-                    {selectedOwner.contact_person && (
-                      <div className="flex justify-between"><span>联系人:</span><span>{selectedOwner.contact_person}</span></div>
-                    )}
-                    {selectedOwner.phone && (
-                      <div className="flex justify-between"><span>电话:</span><span>{selectedOwner.phone}</span></div>
-                    )}
-                    {selectedOwner.email && (
-                      <div className="flex justify-between"><span>邮箱:</span><span>{selectedOwner.email}</span></div>
-                    )}
-                  </div>
-                </div>
-              )}
-
-              {owners.length === 0 && (
-                <div className="text-center py-6 text-base-content">
-                  <UserCheck size={28} className="mx-auto mb-2 opacity-50" />
-                  <p className="text-xs">暂无持有人</p>
-                  <p className="text-[10px] mt-0.5">请先到 ⚙️ 系统设置 → 持有人管理 中创建</p>
                 </div>
               )}
             </>
