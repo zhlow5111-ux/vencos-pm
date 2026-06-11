@@ -1429,6 +1429,12 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                     setRpgtPurchaseDate(spaDate || property.loan_start || '');
                     setRpgtSellingPrice('');
                     setRpgtExtraDeductions('');
+                    // Auto-detect owner type from selected owner
+                    if (selectedOwner?.owner_type === 'company') {
+                      setRpgtOwnerType('company');
+                    } else {
+                      setRpgtOwnerType('individual');
+                    }
                     setShowRpgt(true);
                   }}>
                     📊 RPGT 产业盈利税计算器

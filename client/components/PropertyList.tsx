@@ -1337,17 +1337,15 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
           )}
         </div>
 
-        {/* All vacant → big CTA */}
-        {allVacant ? (
+        {/* All vacant → compact CTA (hidden for 出售 properties) */}
+        {allVacant && p.listing_type !== 'sell' ? (
           <div
-            className="border-2 border-dashed border-primary/20 rounded-xl p-3 text-center cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all"
+            className="border border-dashed border-primary/20 rounded-lg px-3 py-1.5 flex items-center gap-2 cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all"
             onClick={() => openNewTenantForm(p.id)}
           >
-            <Plus size={16} className="mx-auto text-primary/50 mb-0.5" />
+            <Plus size={12} className="text-primary/50 shrink-0" />
             <span className="text-xs text-primary font-semibold">填写租户资料</span>
-            <p className="text-[10px] text-base-content/50 mt-0.5">
-              选择楼层 → 输入租户、租金、押金、租期
-            </p>
+            <span className="text-[10px] text-base-content/40">选择楼层 → 输入租户、租金、押金、租期</span>
           </div>
         ) : (
           <div className="space-y-2">
