@@ -571,9 +571,10 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
                 <div className="text-xs text-base-content/50 mt-0.5 truncate">{S(p.address)}</div>
                 {owner && <div className="text-xs text-base-content/40 mt-0.5">{S(owner.name)}</div>}
                 <div className="text-sm font-semibold text-success mt-1">{fmtCurrency(propRent)}/月</div>
-                <div className="flex flex-wrap gap-x-3 text-[11px] text-base-content/45 mt-0.5">
-                  <span>购入: {fmtCurrency(N(p.actual_price) || N(p.price))}</span>
-                  {valuationMap.has(propId) && <span className="text-primary/70">市值: {fmtCurrency(valuationMap.get(propId)!)}</span>}
+                <div className="flex flex-wrap gap-x-1 text-[11px] text-base-content/45 mt-0.5">
+                  {N(p.price) > 0 && <span>SPA: {fmtCurrency(N(p.price))}</span>}
+                  {N(p.actual_price) > 0 && N(p.actual_price) !== N(p.price) && <span className="text-warning/70"> · 实际: {fmtCurrency(N(p.actual_price))}</span>}
+                  {valuationMap.has(propId) && <span className="text-success/70"> · 市值: {fmtCurrency(valuationMap.get(propId)!)}</span>}
                 </div>
               </div>
               <div className="ml-2 mt-1">
