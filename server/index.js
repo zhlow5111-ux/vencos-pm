@@ -461,7 +461,7 @@ function initDatabase() {
       notes TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT ''
     )`);
-    safeExec(`UPDATE vc_properties SET loan_balance = loan_amount WHERE loan_amount > 0 AND (loan_balance <= 0 OR loan_balance > loan_amount * 2)`);
+    // loan_balance can legitimately exceed loan_amount (e.g. business loans) — no auto-reset
   }
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);

@@ -503,7 +503,7 @@ export async function initDB(): Promise<void> {
       notes TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT ''
     )`);
-    try { await window.tasklet.sqlExec(`UPDATE vc_properties SET loan_balance = loan_amount WHERE loan_amount > 0 AND (loan_balance <= 0 OR loan_balance > loan_amount * 2)`); } catch {}
+    // loan_balance can legitimately exceed loan_amount — no auto-reset
   }
 
   // Mark schema as current version
@@ -2087,7 +2087,7 @@ export async function getFinancialSummary(): Promise<{
 }> {
   const data = await getPropertyFinancials();
 
-  // Get latest market value per property from vc_valuations
+  // Get latest market value per property from vc_valuations; fallback to actual_price
   let totalMarketValue = 0;
   try {
     const valRows = await window.tasklet.sqlQuery(`
@@ -2095,10 +2095,20 @@ export async function getFinancialSummary(): Promise<{
       INNER JOIN (SELECT property_id, MAX(valuation_date) as max_date FROM vc_valuations GROUP BY property_id) latest
       ON v.property_id = latest.property_id AND v.valuation_date = latest.max_date
     `);
+    const valuedIds = new Set((valRows as Record<string, unknown>[]).map(r => Number(r.property_id)));
     for (const r of valRows as Record<string, unknown>[]) {
       totalMarketValue += Number(r.market_value || 0);
     }
-  } catch {}
+    // For properties without valuations, use purchasePrice (actual_price) as fallback
+    for (const p of data) {
+      if (!valuedIds.has(p.propertyId)) {
+        totalMarketValue += p.purchasePrice || p.spaPrice || 0;
+      }
+    }
+  } catch {
+    // If valuations table doesn't exist, use all purchase prices
+    totalMarketValue = data.reduce((s, p) => s + (p.purchasePrice || p.spaPrice || 0), 0);
+  }
   const totalPurchaseValue = data.reduce((s, p) => s + p.totalPurchaseCost, 0);
   const totalSpaPrice = data.reduce((s, p) => s + p.spaPrice, 0);
   const totalPurchasePrice = data.reduce((s, p) => s + p.purchasePrice, 0);
