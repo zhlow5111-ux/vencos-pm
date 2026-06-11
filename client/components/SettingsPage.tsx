@@ -65,7 +65,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   const [penaltyConfigs, setPenaltyConfigs] = useState<PenaltyConfig[]>([]);
   const [showPenaltyForm, setShowPenaltyForm] = useState(false);
   const [editingPenalty, setEditingPenalty] = useState<PenaltyConfig | null>(null);
-  const [penaltyForm, setPenaltyForm] = useState({ property_id: 0, rate_pct: 10, grace_days: 7, calc_method: 'monthly_pct', min_amount: 0, max_amount: 0, enabled: 1 });
+  const [penaltyForm, setPenaltyForm] = useState({ property_id: 0, rate_pct: 10, grace_days: 0, calc_method: 'monthly_pct', min_amount: 0, max_amount: 0, enabled: 1 });
 
   const showWaToast = useCallback((msg: string) => {
     setWaToast(msg);
@@ -1189,7 +1189,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
             <h3 className="font-bold text-sm">逾期罚款配置</h3>
             <button className="btn btn-primary btn-sm gap-1" onClick={() => {
               setEditingPenalty(null);
-              setPenaltyForm({ property_id: 0, rate_pct: 10, grace_days: 7, calc_method: 'monthly_pct', min_amount: 0, max_amount: 0, enabled: 1 });
+              setPenaltyForm({ property_id: 0, rate_pct: 10, grace_days: 0, calc_method: 'monthly_pct', min_amount: 0, max_amount: 0, enabled: 1 });
               setShowPenaltyForm(true);
             }}><Plus size={14} /> 添加配置</button>
           </div>

@@ -570,13 +570,6 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                   台底差额: RM {Math.abs(actualPrice - price).toLocaleString()} ({actualPrice < price ? '实际低于合同' : '实际高于合同'})
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-2">
-                <div className="form-control">
-                  <label className="label"><span className="label-text text-xs">月租 (RM)</span></label>
-                  <input type="number" className="input input-bordered input-sm w-full" value={rentalPrice || ''} onChange={(e) => setRentalPrice(Number(e.target.value))} />
-                </div>
-              </div>
-
               <div className="grid grid-cols-3 gap-2">
                 <div className="form-control">
                   <label className="label"><span className="label-text text-xs">房间</span></label>
