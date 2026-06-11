@@ -337,11 +337,11 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
         <div className="space-y-2">
           <div className="flex justify-between items-end">
             <span className="text-xs text-base-content/60">总购入价值</span>
-            <span className="text-sm font-semibold">{fmtCurrency(totalAssets)}</span>
+            <span className="text-lg font-bold">{fmtCurrency(totalAssets)}</span>
           </div>
-          <div className="flex justify-between items-end">
-            <span className="text-xs text-base-content/60">总市值</span>
-            <span className="text-xl font-bold text-primary">{fmtCurrency(totalMarketValue)}</span>
+          <div className="flex justify-between items-center">
+            <span className="text-xs text-base-content/60">总市值 <span className="text-[10px] text-base-content/40">(参考)</span></span>
+            <span className="text-xs font-semibold text-primary/70">{fmtCurrency(totalMarketValue)}</span>
           </div>
           {totalMarketValue !== totalAssets && (() => {
             const diff = totalMarketValue - totalAssets;
@@ -571,6 +571,10 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
                 <div className="text-xs text-base-content/50 mt-0.5 truncate">{S(p.address)}</div>
                 {owner && <div className="text-xs text-base-content/40 mt-0.5">{S(owner.name)}</div>}
                 <div className="text-sm font-semibold text-success mt-1">{fmtCurrency(propRent)}/月</div>
+                <div className="flex flex-wrap gap-x-3 text-[11px] text-base-content/45 mt-0.5">
+                  <span>购入: {fmtCurrency(N(p.actual_price) || N(p.price))}</span>
+                  {valuationMap.has(propId) && <span className="text-primary/70">市值: {fmtCurrency(valuationMap.get(propId)!)}</span>}
+                </div>
               </div>
               <div className="ml-2 mt-1">
                 {expanded ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
