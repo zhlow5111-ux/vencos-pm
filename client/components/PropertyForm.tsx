@@ -1,8 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Save, Landmark, UserCheck, Home, Receipt, Building2, Plus, Trash2, Edit, DollarSign, FileText, Upload, Download, Eye, Clock } from 'lucide-react';
 import { Property, Owner, PurchaseCost, PurchaseCostCategory, PROPERTY_TYPES, PROPERTY_STATUSES, LISTING_TYPES, BANK_CODES, OWNER_TYPES, PURCHASE_COST_CATEGORIES, DOC_TYPES, PropertyDocument, TenantHistory, ArrearsPayment, DocType, Meter } from '../types';
-import { saveProperty, getPropertyById, getOwners, ensureFloorUnits, getPurchaseCosts, savePurchaseCost, deletePurchaseCost, getDocuments, saveDocument, deleteDocument, getTenantHistory, getRentalIncomeByProperty, getArrearsPayments, saveArrearsPayment, deleteArrearsPayment, getArrearsBalance, getMeters, saveMeter, deleteMeter } from '../utils/db';
-import { calculateEstimatedBalance } from '../utils/helpers';
+import { saveProperty, getPropertyById, getOwners, ensureFloorUnits, getPurchaseCosts, savePurchaseCost, deletePurchaseCost, getDocuments, saveDocument, deleteDocument, getTenantHistory, getRentalIncomeByProperty, getArrearsPayments, saveArrearsPayment, deleteArrearsPayment, getArrearsBalance, getMeters, saveMeter, deleteMeter, getLoanPayments, addLoanPayment, deleteLoanPayment, LoanPayment } from '../utils/db';
+import { calculateEstimatedBalance, calculateLoanProjection, PrepaymentRecord } from '../utils/helpers';
 import { ConfirmModal } from './ConfirmModal';
 
 interface Props {
@@ -63,6 +63,14 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
   // New fields
   const [loanAccountNo, setLoanAccountNo] = useState(property?.loan_account_no || '');
   const [loanSiAccount, setLoanSiAccount] = useState(property?.loan_si_account || '');
+
+  // Prepayment state
+  const [prepayments, setPrepayments] = useState<LoanPayment[]>([]);
+  const [showPrepayForm, setShowPrepayForm] = useState(false);
+  const [prepayAmount, setPrepayAmount] = useState('');
+  const [prepayDate, setPrepayDate] = useState('');
+  const [prepayNotes, setPrepayNotes] = useState('');
+  const [savingPrepay, setSavingPrepay] = useState(false);
   const [hakmilikNo, setHakmilikNo] = useState(property?.hakmilik_no || '');
   const [landTaxRef, setLandTaxRef] = useState(property?.land_tax_ref || '');
   const [assessmentTaxRef, setAssessmentTaxRef] = useState(property?.assessment_tax_ref || '');
@@ -132,6 +140,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
   useEffect(() => {
     if (property?.id) {
       getPurchaseCosts(property.id).then(setPurchaseCosts);
+      getLoanPayments(property.id).then(all => setPrepayments((all as any[]).filter(lp => lp.payment_type === 'prepayment')));
     }
   }, [property?.id]);
 
@@ -739,6 +748,109 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                       </>;
                     })()}
                   </div>
+                </div>
+              )}
+
+              {/* ===== PREPAYMENT SECTION ===== */}
+              {property?.id && loanAmount > 0 && (
+                <div className="bg-success/5 border border-success/20 rounded-xl p-3 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <p className="text-xs font-semibold text-success flex items-center gap-1">💰 预付本金 Extra Principal Payment</p>
+                    <button type="button" className="btn btn-xs btn-success btn-outline gap-0.5" onClick={() => { setShowPrepayForm(!showPrepayForm); setPrepayDate(new Date().toISOString().slice(0,10)); }}>
+                      <Plus size={11} /> 新增
+                    </button>
+                  </div>
+
+                  {showPrepayForm && (
+                    <div className="bg-success/10 rounded-lg p-2.5 space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-[10px] text-base-content/60 block">预付金额 (RM)</label>
+                          <input type="number" className="input input-bordered input-xs w-full" placeholder="0" value={prepayAmount} onChange={e => setPrepayAmount(e.target.value)} />
+                        </div>
+                        <div>
+                          <label className="text-[10px] text-base-content/60 block">预付日期</label>
+                          <input type="date" className="input input-bordered input-xs w-full" value={prepayDate} onChange={e => setPrepayDate(e.target.value)} />
+                        </div>
+                      </div>
+                      <input className="input input-bordered input-xs w-full" placeholder="备注 (选填)" value={prepayNotes} onChange={e => setPrepayNotes(e.target.value)} />
+                      <div className="flex gap-1.5 justify-end">
+                        <button type="button" className="btn btn-xs btn-ghost" onClick={() => setShowPrepayForm(false)}>取消</button>
+                        <button type="button" className="btn btn-xs btn-success" disabled={savingPrepay || !prepayAmount || Number(prepayAmount) <= 0 || !prepayDate} onClick={async () => {
+                          setSavingPrepay(true);
+                          try {
+                            await addLoanPayment(property!.id, Number(prepayAmount), prepayDate, '', prepayNotes, 'prepayment');
+                            const all = await getLoanPayments(property!.id);
+                            setPrepayments((all as any[]).filter(lp => lp.payment_type === 'prepayment'));
+                            // Refresh balance
+                            const p = await getPropertyById(property!.id);
+                            if (p) setLoanBalance(p.loan_balance || 0);
+                            setPrepayAmount(''); setPrepayDate(''); setPrepayNotes(''); setShowPrepayForm(false);
+                          } catch (err) { console.error(err); }
+                          setSavingPrepay(false);
+                        }}>
+                          {savingPrepay ? '保存中...' : '确认预付'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Prepayment records */}
+                  {prepayments.length > 0 && (
+                    <div className="space-y-1.5">
+                      {prepayments.map((p: any) => (
+                        <div key={p.id} className="flex items-center gap-2 bg-base-200/50 rounded-lg px-2.5 py-1.5">
+                          <div className="flex-1 min-w-0">
+                            <span className="text-xs font-bold text-success">RM {Number(p.amount).toLocaleString()}</span>
+                            <span className="text-[10px] text-base-content/60 ml-2">{p.payment_date}</span>
+                            {p.notes && <span className="text-[10px] text-base-content/50 ml-1">· {p.notes}</span>}
+                          </div>
+                          <button type="button" className="btn btn-ghost btn-xs text-error px-1" onClick={async () => {
+                            await deleteLoanPayment(p.id, property!.id, p.amount);
+                            const all = await getLoanPayments(property!.id);
+                            setPrepayments((all as any[]).filter((lp: any) => lp.payment_type === 'prepayment'));
+                            const prop = await getPropertyById(property!.id);
+                            if (prop) setLoanBalance(prop.loan_balance || 0);
+                          }}>
+                            <Trash2 size={11} />
+                          </button>
+                        </div>
+                      ))}
+                      <div className="text-right">
+                        <span className="text-xs font-bold text-success">已累计预付: RM {prepayments.reduce((s: number, p: any) => s + Number(p.amount), 0).toLocaleString()}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Projection */}
+                  {prepayments.length > 0 && (() => {
+                    const prepayRecords: PrepaymentRecord[] = prepayments.map((p: any) => ({ amount: Number(p.amount), payment_date: p.payment_date }));
+                    const proj = calculateLoanProjection(loanAmount, monthlyRepayment, loanRate, loanStart, prepayRecords);
+                    if (!proj) return null;
+                    return (
+                      <div className="bg-base-200 rounded-lg p-2.5 space-y-1">
+                        <p className="text-[10px] font-semibold text-base-content">📊 预付效果分析</p>
+                        <div className="grid grid-cols-2 gap-1 text-[10px]">
+                          <span className="text-base-content/60">原计划还清:</span>
+                          <span className="text-right">{proj.withoutPrepay.payoffDate} ({proj.withoutPrepay.totalMonths}个月)</span>
+                          <span className="text-base-content/60">预付后还清:</span>
+                          <span className="text-right font-bold text-success">{proj.withPrepay.payoffDate} ({proj.withPrepay.totalMonths}个月)</span>
+                          <span className="text-base-content/60">提前还清:</span>
+                          <span className="text-right font-bold text-success">{Math.floor(proj.monthsSaved / 12)}年{proj.monthsSaved % 12}个月</span>
+                          <span className="text-base-content/60">节省利息:</span>
+                          <span className="text-right font-bold text-success">RM {proj.interestSaved.toLocaleString()}</span>
+                          <span className="text-base-content/60">原总利息:</span>
+                          <span className="text-right">RM {proj.withoutPrepay.totalInterest.toLocaleString()}</span>
+                          <span className="text-base-content/60">预付后总利息:</span>
+                          <span className="text-right">RM {proj.withPrepay.totalInterest.toLocaleString()}</span>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {prepayments.length === 0 && !showPrepayForm && (
+                    <p className="text-[10px] text-base-content/50 text-center">暂无预付记录。预付本金可减少利息支出，提前还清贷款。</p>
+                  )}
                 </div>
               )}
             </>
