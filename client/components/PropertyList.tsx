@@ -1444,13 +1444,12 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
             {/* Vacant floors */}
             {vacantFloors.length > 0 && (
               <div
-                className="border border-dashed border-base-300 rounded-xl p-3 text-center cursor-pointer hover:border-primary/30 hover:bg-primary/5 transition-all"
+                className="border border-dashed border-base-300 rounded-lg px-3 py-1.5 flex items-center gap-2 cursor-pointer hover:border-primary/30 hover:bg-primary/5 transition-all"
                 onClick={() => openNewTenantForm(p.id)}
               >
-                <span className="text-xs text-base-content">
-                  {vacantFloors.map((f) => f.floor_label).join(' · ')} 空置
-                </span>
-                <p className="text-xs text-primary font-medium mt-0.5">+ 添加租户</p>
+                <Plus size={12} className="text-primary/50 shrink-0" />
+                <span className="text-xs text-primary font-medium">添加租户</span>
+                <span className="text-[10px] text-base-content/40">{vacantFloors.map((f) => f.floor_label).join(' · ')} 空置</span>
               </div>
             )}
           </div>
