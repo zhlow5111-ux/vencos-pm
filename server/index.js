@@ -783,6 +783,23 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 
+// ========== Diagnostic (temporary) ==========
+app.get('/api/diag', (req, res) => {
+  try {
+    const meta = db.prepare('SELECT * FROM vc_meta').all();
+    const loanCount = db.prepare('SELECT COUNT(*) as cnt FROM vc_loans').get();
+    const loans = db.prepare('SELECT id, property_id, loan_label, bank_name, loan_amount, loan_balance FROM vc_loans LIMIT 20').all();
+    const propsWithLoan = db.prepare(`SELECT id, name, bank_name, loan_amount, loan_balance, monthly_repayment FROM vc_properties WHERE loan_amount > 0 OR COALESCE(bank_name, '') != '' OR monthly_repayment > 0 LIMIT 20`).all();
+    const propCount = db.prepare('SELECT COUNT(*) as cnt FROM vc_properties').get();
+    // Check if vc_loans table columns exist
+    const loanCols = db.prepare("PRAGMA table_info(vc_loans)").all().map(c => c.name);
+    const propCols = db.prepare("PRAGMA table_info(vc_properties)").all().map(c => c.name);
+    res.json({ meta, loanCount, loans, propsWithLoan, propCount, loanCols, propCols: propCols.filter(c => c.includes('loan') || c.includes('bank') || c.includes('spa')) });
+  } catch (err) {
+    res.json({ error: err.message });
+  }
+});
+
 // ========== Start Server ==========
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🏠 Vencos Property Management running on http://localhost:${PORT}`);
