@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Save, Landmark, UserCheck, Home, Receipt, Building2, Plus, Trash2, Edit, DollarSign, FileText, Upload, Download, Eye, Clock, ChevronDown } from 'lucide-react';
-import { Property, Owner, PurchaseCost, PurchaseCostCategory, PROPERTY_TYPES, PROPERTY_STATUSES, LISTING_TYPES, BANK_CODES, OWNER_TYPES, PURCHASE_COST_CATEGORIES, DOC_TYPES, PropertyDocument, TenantHistory, ArrearsPayment, DocType, Meter } from '../types';
-import { saveProperty, getPropertyById, getOwners, ensureFloorUnits, getPurchaseCosts, savePurchaseCost, deletePurchaseCost, getDocuments, saveDocument, deleteDocument, getTenantHistory, getRentalIncomeByProperty, getArrearsPayments, saveArrearsPayment, deleteArrearsPayment, getArrearsBalance, getMeters, saveMeter, deleteMeter, getLoanPayments, addLoanPayment, deleteLoanPayment, LoanPayment, getValuations, saveValuation, deleteValuation, Valuation } from '../utils/db';
+import { Property, Owner, PurchaseCost, PurchaseCostCategory, PROPERTY_TYPES, PROPERTY_STATUSES, LISTING_TYPES, BANK_CODES, OWNER_TYPES, PURCHASE_COST_CATEGORIES, DOC_TYPES, PropertyDocument, TenantHistory, ArrearsPayment, DocType, Meter, LOAN_LABEL_OPTIONS, RATE_TYPE_OPTIONS, Loan } from '../types';
+import { saveProperty, getPropertyById, getOwners, ensureFloorUnits, getPurchaseCosts, savePurchaseCost, deletePurchaseCost, getDocuments, saveDocument, deleteDocument, getTenantHistory, getRentalIncomeByProperty, getArrearsPayments, saveArrearsPayment, deleteArrearsPayment, getArrearsBalance, getMeters, saveMeter, deleteMeter, getLoanPayments, addLoanPayment, deleteLoanPayment, LoanPayment, getValuations, saveValuation, deleteValuation, Valuation, getLoansForProperty, saveLoan, deleteLoanRecord, getLoanPaymentsForLoan } from '../utils/db';
 import { calculateEstimatedBalance, calculateLoanProjection, PrepaymentRecord } from '../utils/helpers';
 import { ConfirmModal } from './ConfirmModal';
 
@@ -36,16 +36,12 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
   const [areaInput, setAreaInput] = useState(property?.area_sqft ? String(property.area_sqft) : '');
   const [description, setDescription] = useState(property?.description || '');
 
-  // Loan fields
-  const [bankCode, setBankCode] = useState(property?.bank_code || '');
-  const [bankName, setBankName] = useState(property?.bank_name || '');
-  const [loanAmount, setLoanAmount] = useState(property?.loan_amount || 0);
-  const [loanBalance, setLoanBalance] = useState(property?.loan_balance || 0);
-  const [monthlyRepayment, setMonthlyRepayment] = useState(property?.monthly_repayment || 0);
-  const [loanStart, setLoanStart] = useState(property?.loan_start || '');
-  const [loanTenure, setLoanTenure] = useState(property?.loan_tenure_months || 0);
-  const [loanRate, setLoanRate] = useState(property?.loan_interest_rate || 0);
-  const [repaymentDay, setRepaymentDay] = useState(property?.loan_repayment_day || 0);
+  // Multi-loan state
+  const [loans, setLoans] = useState<any[]>([]);
+  const [expandedLoanId, setExpandedLoanId] = useState<number | null>(null);
+  const [editingLoan, setEditingLoan] = useState<any | null>(null);
+  const [savingLoan, setSavingLoan] = useState(false);
+  const [loanPrepayMap, setLoanPrepayMap] = useState<Record<number, any[]>>({});
 
   // Expense fields
   const [landTax, setLandTax] = useState(property?.land_tax || 0);
@@ -60,17 +56,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
   const [mgmtFeeType, setMgmtFeeType] = useState<'percentage' | 'fixed'>(property?.mgmt_fee_type || 'percentage');
   const [mgmtFeeAmount, setMgmtFeeAmount] = useState(property?.mgmt_fee_amount || 0);
 
-  // New fields
-  const [loanAccountNo, setLoanAccountNo] = useState(property?.loan_account_no || '');
-  const [loanSiAccount, setLoanSiAccount] = useState(property?.loan_si_account || '');
-
-  // Prepayment state
-  const [prepayments, setPrepayments] = useState<LoanPayment[]>([]);
-  const [showPrepayForm, setShowPrepayForm] = useState(false);
-  const [prepayAmount, setPrepayAmount] = useState('');
-  const [prepayDate, setPrepayDate] = useState('');
-  const [prepayNotes, setPrepayNotes] = useState('');
-  const [savingPrepay, setSavingPrepay] = useState(false);
+  // (loan account/prepayment states now inside loan cards)
 
   // Valuation state
   const [valuations, setValuations] = useState<Valuation[]>([]);
@@ -167,18 +153,13 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
   useEffect(() => {
     if (property?.id) {
       getPurchaseCosts(property.id).then(setPurchaseCosts);
-      getLoanPayments(property.id).then(all => setPrepayments((all as any[]).filter(lp => lp.payment_type === 'prepayment')));
+      getLoansForProperty(property.id).then(setLoans);
       getValuations(property.id).then(setValuations);
     }
   }, [property?.id]);
 
   // Auto-set bankName when bankCode changes
-  useEffect(() => {
-    if (bankCode) {
-      const bank = BANK_CODES.find((b) => b.value === bankCode);
-      if (bank) setBankName(bank.label);
-    }
-  }, [bankCode]);
+  // (bankCode auto-set removed — each loan manages its own bank)
 
   // Load meters
   useEffect(() => {
@@ -428,17 +409,17 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
         bathrooms,
         area_sqft: areaUnit === 'sqft' ? (Number(areaInput) || 0) : Math.round((Number(areaInput) || 0) / 0.092903),
         description,
-        bank_code: bankCode,
-        bank_name: bankName,
-        loan_amount: loanAmount,
-        loan_balance: loanBalance,
-        monthly_repayment: monthlyRepayment,
-        loan_start: loanStart,
-        loan_tenure_months: loanTenure,
-        loan_interest_rate: loanRate,
-        loan_repayment_day: repaymentDay,
-        loan_account_no: loanAccountNo,
-        loan_si_account: loanSiAccount,
+        bank_code: '',
+        bank_name: '',
+        loan_amount: 0,
+        loan_balance: 0,
+        monthly_repayment: 0,
+        loan_start: '',
+        loan_tenure_months: 0,
+        loan_interest_rate: 0,
+        loan_repayment_day: 0,
+        loan_account_no: '',
+        loan_si_account: '',
         land_tax: landTax,
         land_tax_due: landTaxDue,
         assessment_tax: assessmentTax,
@@ -739,229 +720,426 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
           {/* ===== LOAN TAB ===== */}
           {tab === 'loan' && (
             <>
-              <div className="bg-warning/5 border border-warning/20 rounded-lg p-3">
-                <p className="text-xs font-medium text-warning flex items-center gap-1"><Landmark size={13} /> 银行贷款信息</p>
-                <p className="text-[10px] text-base-content mt-0.5">填写此物业的贷款详情，便于追踪还款进度</p>
-              </div>
-
-              <div className="form-control">
-                <label className="label"><span className="label-text text-xs">贷款银行</span></label>
-                <select className="select select-bordered select-sm w-full" value={bankCode} onChange={(e) => setBankCode(e.target.value)}>
-                  {BANK_CODES.map((b) => <option key={b.value} value={b.value}>{b.label}</option>)}
-                </select>
-              </div>
-
-              {bankCode === 'OTHER' && (
-                <div className="form-control">
-                  <label className="label"><span className="label-text text-xs">银行名称（自定义）</span></label>
-                  <input className="input input-bordered input-sm w-full" placeholder="输入银行名称" value={bankName} onChange={(e) => setBankName(e.target.value)} />
+              {/* Summary bar */}
+              {loans.length > 0 && (
+                <div className="bg-warning/5 border border-warning/20 rounded-xl p-3">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-xs font-semibold text-warning flex items-center gap-1"><Landmark size={13} /> 共 {loans.length} 笔贷款</p>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div><p className="text-[10px] text-base-content/60">总贷款额</p><p className="text-sm font-bold">RM {loans.reduce((s: number, l: any) => s + Number(l.loan_amount || 0), 0).toLocaleString()}</p></div>
+                    <div><p className="text-[10px] text-base-content/60">总余额</p><p className="text-sm font-bold text-error">RM {loans.reduce((s: number, l: any) => s + Number(l.loan_balance || 0), 0).toLocaleString()}</p></div>
+                    <div><p className="text-[10px] text-base-content/60">总月供</p><p className="text-sm font-bold text-info">RM {loans.reduce((s: number, l: any) => s + Number(l.monthly_repayment || 0), 0).toLocaleString()}</p></div>
+                  </div>
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-2">
-                <div className="form-control">
-                  <label className="label"><span className="label-text text-xs">贷款总额 (RM)</span></label>
-                  <input type="number" className="input input-bordered input-sm w-full" value={loanAmount || ''} onChange={(e) => setLoanAmount(Number(e.target.value))} />
+              {loans.length === 0 && !editingLoan && (
+                <div className="text-center py-8 text-base-content/50">
+                  <Landmark size={32} className="mx-auto mb-2 opacity-30" />
+                  <p className="text-sm">暂无贷款记录</p>
+                  <p className="text-[10px]">点击下方按钮添加贷款</p>
                 </div>
-                <div className="form-control">
-                  <label className="label"><span className="label-text text-xs">当前欠款余额 (RM)</span></label>
-                  <input type="number" className="input input-bordered input-sm w-full" value={loanBalance || ''} onChange={(e) => setLoanBalance(Number(e.target.value))} />
-                </div>
-              </div>
+              )}
 
-              <div className="grid grid-cols-2 gap-2">
-                <div className="form-control">
-                  <label className="label"><span className="label-text text-xs">每月还款额 (RM)</span></label>
-                  <input type="number" className="input input-bordered input-sm w-full" value={monthlyRepayment || ''} onChange={(e) => setMonthlyRepayment(Number(e.target.value))} />
-                </div>
-                <div className="form-control">
-                  <label className="label"><span className="label-text text-xs">利率 (%)</span></label>
-                  <input type="number" step="0.01" className="input input-bordered input-sm w-full" value={loanRate || ''} onChange={(e) => setLoanRate(Number(e.target.value))} />
-                </div>
-              </div>
+              {/* Loan cards */}
+              {loans.map((loan: any) => {
+                const isExpanded = expandedLoanId === loan.id;
+                const isEditing = editingLoan?.id === loan.id;
+                const rateLabel = RATE_TYPE_OPTIONS.find(r => r.value === loan.rate_type);
+                const effectiveRate = loan.rate_type === 'BLR'
+                  ? (Number(loan.base_rate) || 0) - Math.abs(Number(loan.spread) || 0)
+                  : loan.rate_type === 'FIXED' ? (Number(loan.base_rate) || 0)
+                  : (Number(loan.base_rate) || 0) + (Number(loan.spread) || 0);
+                const bankLabel = BANK_CODES.find(b => b.value === loan.bank_code)?.label || loan.bank_name || '-';
+                const prepays = loanPrepayMap[loan.id] || [];
 
-              <div className="grid grid-cols-2 gap-2">
-                <div className="form-control">
-                  <label className="label"><span className="label-text text-xs">贷款开始日期</span></label>
-                  <div className="relative">
-                    <input type="date" className="input input-bordered input-sm w-full pr-7" value={loanStart} onChange={(e) => setLoanStart(e.target.value)} />
-                    {loanStart && <button type="button" className="absolute right-1.5 top-1/2 -translate-y-1/2 btn btn-ghost btn-xs px-1 text-base-content/40 hover:text-error" onClick={() => setLoanStart('')}>✕</button>}
-                  </div>
-                </div>
-                <div className="form-control">
-                  <label className="label"><span className="label-text text-xs">贷款期限（月）</span></label>
-                  <input type="number" className="input input-bordered input-sm w-full" placeholder="如: 360" value={loanTenure || ''} onChange={(e) => setLoanTenure(Number(e.target.value))} />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div className="form-control">
-                  <label className="label"><span className="label-text text-xs">贷款户口号码</span></label>
-                  <input className="input input-bordered input-sm w-full" placeholder="Loan Account No." value={loanAccountNo} onChange={(e) => setLoanAccountNo(e.target.value)} />
-                </div>
-                <div className="form-control">
-                  <label className="label"><span className="label-text text-xs">SI 扣款户口号码</span></label>
-                  <input className="input input-bordered input-sm w-full" placeholder="Standing Instruction A/C" value={loanSiAccount} onChange={(e) => setLoanSiAccount(e.target.value)} />
-                </div>
-              </div>
-
-              {/* Repayment day input */}
-              <div className="form-control">
-                <label className="label"><span className="label-text text-xs">每月还款日 (1-31)</span></label>
-                <input type="number" min="1" max="31" className="input input-bordered input-sm w-full" placeholder="如: 6 (每月6日扣款)" value={repaymentDay || ''} onChange={(e) => setRepaymentDay(Number(e.target.value))} />
-                <label className="label"><span className="label-text-alt text-[10px]">银行每月自动扣款的日期</span></label>
-              </div>
-              {loanStart && !repaymentDay && (() => {
-                const suggestedDay = new Date(loanStart).getDate();
                 return (
-                  <div className="bg-info/10 border border-info/20 rounded-lg p-2 flex items-center justify-between">
-                    <span className="text-xs text-base-content">建议还款日（根据贷款开始日期）:</span>
-                    <button type="button" className="btn btn-xs btn-info btn-outline" onClick={() => setRepaymentDay(suggestedDay)}>使用每月 {suggestedDay} 日</button>
+                  <div key={loan.id} className="border border-base-300 rounded-xl overflow-hidden">
+                    {/* Card header - always visible */}
+                    <div className={"flex items-center gap-2 px-3 py-2.5 cursor-pointer hover:bg-base-200/50 " + (isExpanded ? "bg-base-200/30" : "")} onClick={() => {
+                      if (isExpanded) { setExpandedLoanId(null); setEditingLoan(null); }
+                      else {
+                        setExpandedLoanId(loan.id);
+                        // Load prepayments for this loan
+                        getLoanPaymentsForLoan(loan.id).then(all => {
+                          setLoanPrepayMap(prev => ({ ...prev, [loan.id]: (all as any[]).filter((p: any) => p.payment_type === 'prepayment') }));
+                        });
+                      }
+                    }}>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="badge badge-sm badge-warning badge-outline">{loan.loan_label || '房屋贷款'}</span>
+                          <span className="text-xs text-base-content/60 truncate">{bankLabel}</span>
+                        </div>
+                        <div className="flex items-center gap-3 mt-1 text-[10px] text-base-content/70">
+                          <span>贷款 <b>RM {Number(loan.loan_amount || 0).toLocaleString()}</b></span>
+                          <span>余额 <b className="text-error">RM {Number(loan.loan_balance || 0).toLocaleString()}</b></span>
+                          <span>月供 <b className="text-info">RM {Number(loan.monthly_repayment || 0).toLocaleString()}</b></span>
+                          {effectiveRate > 0 && <span>{rateLabel?.value || ''} <b>{effectiveRate.toFixed(2)}%</b></span>}
+                        </div>
+                      </div>
+                      <ChevronDown size={14} className={"transition-transform " + (isExpanded ? "rotate-180" : "")} />
+                    </div>
+
+                    {/* Expanded content */}
+                    {isExpanded && !isEditing && (
+                      <div className="border-t border-base-300 px-3 py-3 space-y-3 bg-base-100">
+                        <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
+                          <span className="text-base-content/60">利率类型</span>
+                          <span className="text-right font-medium">
+                            {loan.rate_type === 'FIXED' ? `固定 ${Number(loan.base_rate || 0).toFixed(2)}%`
+                              : `${loan.rate_type} ${Number(loan.base_rate || 0).toFixed(2)}% ${loan.rate_type === 'BLR' ? '-' : '+'} ${Math.abs(Number(loan.spread || 0)).toFixed(2)}% = ${effectiveRate.toFixed(2)}%`}
+                          </span>
+                          {loan.loan_start && <><span className="text-base-content/60">贷款开始</span><span className="text-right">{loan.loan_start}</span></>}
+                          {loan.loan_tenure_months > 0 && <><span className="text-base-content/60">贷款期限</span><span className="text-right">{Math.floor(loan.loan_tenure_months / 12)}年{loan.loan_tenure_months % 12}个月</span></>}
+                          {loan.loan_repayment_day > 0 && <><span className="text-base-content/60">还款日</span><span className="text-right">每月{loan.loan_repayment_day}日</span></>}
+                          {loan.loan_account_no && <><span className="text-base-content/60">贷款户口</span><span className="text-right font-mono text-[10px]">{loan.loan_account_no}</span></>}
+                          {loan.loan_si_account && <><span className="text-base-content/60">SI户口</span><span className="text-right font-mono text-[10px]">{loan.loan_si_account}</span></>}
+                          {loan.loan_amount > 0 && loan.loan_balance > 0 && (
+                            <><span className="text-base-content/60">已还比例</span><span className="text-right text-success font-bold">{((1 - loan.loan_balance / loan.loan_amount) * 100).toFixed(1)}%</span></>
+                          )}
+                          {loan.notes && <><span className="text-base-content/60">备注</span><span className="text-right">{loan.notes}</span></>}
+                        </div>
+
+                        {/* Prepayment records for this loan */}
+                        {prepays.length > 0 && (
+                          <div className="bg-success/5 border border-success/20 rounded-lg p-2.5 space-y-1.5">
+                            <p className="text-[10px] font-semibold text-success">💰 预付本金记录</p>
+                            {prepays.map((pp: any) => (
+                              <div key={pp.id} className="flex items-center gap-2 bg-base-200/50 rounded px-2 py-1">
+                                <span className="text-xs font-bold text-success flex-1">RM {Number(pp.amount).toLocaleString()}</span>
+                                <span className="text-[10px] text-base-content/60">{pp.payment_date}</span>
+                              </div>
+                            ))}
+                            <div className="text-right"><span className="text-[10px] font-bold text-success">累计预付: RM {prepays.reduce((s: number, p: any) => s + Number(p.amount), 0).toLocaleString()}</span></div>
+                          </div>
+                        )}
+
+                        <div className="flex gap-1.5 justify-end">
+                          <button type="button" className="btn btn-xs btn-outline btn-error" onClick={async () => {
+                            if (!confirm('确认删除此贷款？关联的预付记录也会一并删除。')) return;
+                            await deleteLoanRecord(loan.id, property!.id);
+                            const updated = await getLoansForProperty(property!.id);
+                            setLoans(updated);
+                            setExpandedLoanId(null);
+                          }}><Trash2 size={11} /> 删除</button>
+                          <button type="button" className="btn btn-xs btn-outline btn-warning" onClick={() => setEditingLoan({ ...loan })}><Edit size={11} /> 编辑</button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Editing form */}
+                    {isExpanded && isEditing && (
+                      <div className="border-t border-base-300 px-3 py-3 space-y-2 bg-warning/5">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="form-control">
+                            <label className="label py-0.5"><span className="label-text text-[10px]">贷款类型</span></label>
+                            <select className="select select-bordered select-xs w-full" value={editingLoan.loan_label || '房屋贷款'}
+                              onChange={e => setEditingLoan({...editingLoan, loan_label: e.target.value})}>
+                              {LOAN_LABEL_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
+                            </select>
+                          </div>
+                          <div className="form-control">
+                            <label className="label py-0.5"><span className="label-text text-[10px]">银行</span></label>
+                            <select className="select select-bordered select-xs w-full" value={editingLoan.bank_code || ''}
+                              onChange={e => {
+                                const bank = BANK_CODES.find(b => b.value === e.target.value);
+                                setEditingLoan({...editingLoan, bank_code: e.target.value, bank_name: bank?.label || ''});
+                              }}>
+                              {BANK_CODES.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+                            </select>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="form-control">
+                            <label className="label py-0.5"><span className="label-text text-[10px]">贷款金额 (RM)</span></label>
+                            <input type="number" className="input input-bordered input-xs w-full" value={editingLoan.loan_amount || ''} onChange={e => setEditingLoan({...editingLoan, loan_amount: Number(e.target.value)})} />
+                          </div>
+                          <div className="form-control">
+                            <label className="label py-0.5"><span className="label-text text-[10px]">当前余额 (RM)</span></label>
+                            <input type="number" className="input input-bordered input-xs w-full" value={editingLoan.loan_balance || ''} onChange={e => setEditingLoan({...editingLoan, loan_balance: Number(e.target.value)})} />
+                          </div>
+                        </div>
+
+                        <div className="form-control">
+                          <label className="label py-0.5"><span className="label-text text-[10px]">每月还款 (RM)</span></label>
+                          <input type="number" className="input input-bordered input-xs w-full" value={editingLoan.monthly_repayment || ''} onChange={e => setEditingLoan({...editingLoan, monthly_repayment: Number(e.target.value)})} />
+                        </div>
+
+                        {/* Interest rate section */}
+                        <div className="bg-base-200/50 rounded-lg p-2.5 space-y-2">
+                          <p className="text-[10px] font-semibold text-base-content/80">📊 利率设置</p>
+                          <div className="grid grid-cols-2 gap-2">
+                            {RATE_TYPE_OPTIONS.map(rt => (
+                              <label key={rt.value} className={"flex items-center gap-1.5 p-1.5 rounded-lg border cursor-pointer text-[10px] " + (editingLoan.rate_type === rt.value ? "border-warning bg-warning/10" : "border-base-300")}
+                                onClick={() => setEditingLoan({...editingLoan, rate_type: rt.value})}>
+                                <input type="radio" name="rate_type" className="radio radio-xs radio-warning" checked={editingLoan.rate_type === rt.value} onChange={() => {}} />
+                                <div><b>{rt.label}</b><br/><span className="text-base-content/50">{rt.desc}</span></div>
+                              </label>
+                            ))}
+                          </div>
+                          {editingLoan.rate_type !== 'FIXED' ? (
+                            <div className="grid grid-cols-3 gap-2 items-end">
+                              <div className="form-control">
+                                <label className="label py-0.5"><span className="label-text text-[10px]">{editingLoan.rate_type || 'SBR'} 基准 (%)</span></label>
+                                <input type="number" step="0.01" className="input input-bordered input-xs w-full" value={editingLoan.base_rate || ''} onChange={e => setEditingLoan({...editingLoan, base_rate: Number(e.target.value)})} />
+                              </div>
+                              <div className="form-control">
+                                <label className="label py-0.5"><span className="label-text text-[10px]">{editingLoan.rate_type === 'BLR' ? '折扣 (-)' : '加息 (+)'} %</span></label>
+                                <input type="number" step="0.01" className="input input-bordered input-xs w-full" value={editingLoan.spread || ''} onChange={e => setEditingLoan({...editingLoan, spread: Number(e.target.value)})} />
+                              </div>
+                              <div className="text-center">
+                                <p className="text-[10px] text-base-content/50">实际利率</p>
+                                <p className="text-sm font-bold text-warning">
+                                  {(editingLoan.rate_type === 'BLR'
+                                    ? (Number(editingLoan.base_rate) || 0) - Math.abs(Number(editingLoan.spread) || 0)
+                                    : (Number(editingLoan.base_rate) || 0) + (Number(editingLoan.spread) || 0)
+                                  ).toFixed(2)}%
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="form-control">
+                              <label className="label py-0.5"><span className="label-text text-[10px]">固定利率 (%)</span></label>
+                              <input type="number" step="0.01" className="input input-bordered input-xs w-full" value={editingLoan.base_rate || ''} onChange={e => setEditingLoan({...editingLoan, base_rate: Number(e.target.value), spread: 0})} />
+                            </div>
+                          )}
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="form-control">
+                            <label className="label py-0.5"><span className="label-text text-[10px]">贷款开始日期</span></label>
+                            <input type="date" className="input input-bordered input-xs w-full" value={editingLoan.loan_start || ''} onChange={e => setEditingLoan({...editingLoan, loan_start: e.target.value})} />
+                          </div>
+                          <div className="form-control">
+                            <label className="label py-0.5"><span className="label-text text-[10px]">期限（月）</span></label>
+                            <input type="number" className="input input-bordered input-xs w-full" placeholder="如: 360" value={editingLoan.loan_tenure_months || ''} onChange={e => setEditingLoan({...editingLoan, loan_tenure_months: Number(e.target.value)})} />
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2">
+                          <div className="form-control">
+                            <label className="label py-0.5"><span className="label-text text-[10px]">还款日 (1-31)</span></label>
+                            <input type="number" min="1" max="31" className="input input-bordered input-xs w-full" value={editingLoan.loan_repayment_day || ''} onChange={e => setEditingLoan({...editingLoan, loan_repayment_day: Number(e.target.value)})} />
+                          </div>
+                          <div className="form-control">
+                            <label className="label py-0.5"><span className="label-text text-[10px]">贷款户口</span></label>
+                            <input className="input input-bordered input-xs w-full" value={editingLoan.loan_account_no || ''} onChange={e => setEditingLoan({...editingLoan, loan_account_no: e.target.value})} />
+                          </div>
+                          <div className="form-control">
+                            <label className="label py-0.5"><span className="label-text text-[10px]">SI户口</span></label>
+                            <input className="input input-bordered input-xs w-full" value={editingLoan.loan_si_account || ''} onChange={e => setEditingLoan({...editingLoan, loan_si_account: e.target.value})} />
+                          </div>
+                        </div>
+
+                        <div className="form-control">
+                          <label className="label py-0.5"><span className="label-text text-[10px]">备注</span></label>
+                          <input className="input input-bordered input-xs w-full" placeholder="选填" value={editingLoan.notes || ''} onChange={e => setEditingLoan({...editingLoan, notes: e.target.value})} />
+                        </div>
+
+                        {/* Prepayment section inside edit */}
+                        {loan.id && loan.loan_amount > 0 && (
+                          <div className="bg-success/5 border border-success/20 rounded-lg p-2.5 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <p className="text-[10px] font-semibold text-success">💰 预付本金</p>
+                              <button type="button" className="btn btn-xs btn-success btn-outline gap-0.5" onClick={() => {
+                                const amt = prompt('预付金额 (RM):');
+                                if (!amt || Number(amt) <= 0) return;
+                                const dt = prompt('预付日期 (YYYY-MM-DD):', new Date().toISOString().slice(0,10));
+                                if (!dt) return;
+                                const note = prompt('备注 (选填):') || '';
+                                (async () => {
+                                  await addLoanPayment(property!.id, Number(amt), dt, '', note, 'prepayment', loan.id);
+                                  const all = await getLoanPaymentsForLoan(loan.id);
+                                  setLoanPrepayMap(prev => ({ ...prev, [loan.id]: (all as any[]).filter((p: any) => p.payment_type === 'prepayment') }));
+                                  const updatedLoans = await getLoansForProperty(property!.id);
+                                  setLoans(updatedLoans);
+                                  const ul = updatedLoans.find((l: any) => l.id === loan.id);
+                                  if (ul) setEditingLoan({...editingLoan, loan_balance: ul.loan_balance});
+                                })();
+                              }}><Plus size={10} /> 新增</button>
+                            </div>
+                            {prepays.length > 0 && prepays.map((pp: any) => (
+                              <div key={pp.id} className="flex items-center gap-2 bg-base-200/50 rounded px-2 py-1">
+                                <span className="text-xs font-bold text-success flex-1">RM {Number(pp.amount).toLocaleString()}</span>
+                                <span className="text-[10px] text-base-content/60">{pp.payment_date}</span>
+                                <button type="button" className="btn btn-ghost btn-xs text-error px-0.5" onClick={async () => {
+                                  await deleteLoanPayment(pp.id, property!.id, pp.amount, loan.id);
+                                  const all = await getLoanPaymentsForLoan(loan.id);
+                                  setLoanPrepayMap(prev => ({ ...prev, [loan.id]: (all as any[]).filter((p: any) => p.payment_type === 'prepayment') }));
+                                  const updatedLoans = await getLoansForProperty(property!.id);
+                                  setLoans(updatedLoans);
+                                  const ul = updatedLoans.find((l: any) => l.id === loan.id);
+                                  if (ul) setEditingLoan({...editingLoan, loan_balance: ul.loan_balance});
+                                }}><Trash2 size={10} /></button>
+                              </div>
+                            ))}
+                            {prepays.length > 0 && <div className="text-right"><span className="text-[10px] font-bold text-success">累计: RM {prepays.reduce((s: number, p: any) => s + Number(p.amount), 0).toLocaleString()}</span></div>}
+                          </div>
+                        )}
+
+                        <div className="flex gap-1.5 justify-end pt-1">
+                          <button type="button" className="btn btn-xs btn-ghost" onClick={() => setEditingLoan(null)}>取消</button>
+                          <button type="button" className="btn btn-xs btn-warning" disabled={savingLoan} onClick={async () => {
+                            setSavingLoan(true);
+                            try {
+                              await saveLoan({ ...editingLoan, property_id: property!.id });
+                              const updated = await getLoansForProperty(property!.id);
+                              setLoans(updated);
+                              setEditingLoan(null);
+                            } catch (err) { console.error(err); alert('保存失败'); }
+                            setSavingLoan(false);
+                          }}>{savingLoan ? '保存中...' : '保存贷款'}</button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
-              })()}
+              })}
 
-              {/* Loan summary card */}
-              {loanAmount > 0 && (
-                <div className="bg-base-200 rounded-lg p-3 space-y-1.5">
-                  <p className="text-xs font-semibold">贷款摘要</p>
-                  <div className="grid grid-cols-2 gap-1 text-xs text-base-content">
-                    <span>贷款总额:</span><span className="font-medium text-right">RM {loanAmount.toLocaleString()}</span>
-                    <span>当前欠款:</span><span className="font-medium text-right text-error">RM {loanBalance.toLocaleString()}</span>
-                    <span>每月还款:</span><span className="font-medium text-right">RM {monthlyRepayment.toLocaleString()}</span>
-                    {loanAmount > 0 && loanBalance > 0 && (
-                      <>
-                        <span>已还比例:</span>
-                        <span className="font-medium text-right text-success">
-                          {((1 - loanBalance / loanAmount) * 100).toFixed(1)}%
-                        </span>
-                      </>
+              {/* Add new loan form */}
+              {editingLoan && !editingLoan.id && (
+                <div className="border border-warning border-dashed rounded-xl px-3 py-3 space-y-2 bg-warning/5">
+                  <p className="text-xs font-semibold text-warning flex items-center gap-1"><Plus size={12} /> 添加新贷款</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="form-control">
+                      <label className="label py-0.5"><span className="label-text text-[10px]">贷款类型</span></label>
+                      <select className="select select-bordered select-xs w-full" value={editingLoan.loan_label || '房屋贷款'}
+                        onChange={e => setEditingLoan({...editingLoan, loan_label: e.target.value})}>
+                        {LOAN_LABEL_OPTIONS.map(l => <option key={l} value={l}>{l}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-0.5"><span className="label-text text-[10px]">银行</span></label>
+                      <select className="select select-bordered select-xs w-full" value={editingLoan.bank_code || ''}
+                        onChange={e => {
+                          const bank = BANK_CODES.find(b => b.value === e.target.value);
+                          setEditingLoan({...editingLoan, bank_code: e.target.value, bank_name: bank?.label || ''});
+                        }}>
+                        {BANK_CODES.map(b => <option key={b.value} value={b.value}>{b.label}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="form-control">
+                      <label className="label py-0.5"><span className="label-text text-[10px]">贷款金额 (RM)</span></label>
+                      <input type="number" className="input input-bordered input-xs w-full" value={editingLoan.loan_amount || ''} onChange={e => setEditingLoan({...editingLoan, loan_amount: Number(e.target.value)})} />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-0.5"><span className="label-text text-[10px]">当前余额 (RM)</span></label>
+                      <input type="number" className="input input-bordered input-xs w-full" value={editingLoan.loan_balance || ''} onChange={e => setEditingLoan({...editingLoan, loan_balance: Number(e.target.value)})} />
+                    </div>
+                  </div>
+                  <div className="form-control">
+                    <label className="label py-0.5"><span className="label-text text-[10px]">每月还款 (RM)</span></label>
+                    <input type="number" className="input input-bordered input-xs w-full" value={editingLoan.monthly_repayment || ''} onChange={e => setEditingLoan({...editingLoan, monthly_repayment: Number(e.target.value)})} />
+                  </div>
+
+                  {/* Interest rate */}
+                  <div className="bg-base-200/50 rounded-lg p-2.5 space-y-2">
+                    <p className="text-[10px] font-semibold text-base-content/80">📊 利率设置</p>
+                    <div className="grid grid-cols-2 gap-2">
+                      {RATE_TYPE_OPTIONS.map(rt => (
+                        <label key={rt.value} className={"flex items-center gap-1.5 p-1.5 rounded-lg border cursor-pointer text-[10px] " + (editingLoan.rate_type === rt.value ? "border-warning bg-warning/10" : "border-base-300")}
+                          onClick={() => setEditingLoan({...editingLoan, rate_type: rt.value})}>
+                          <input type="radio" name="new_rate_type" className="radio radio-xs radio-warning" checked={editingLoan.rate_type === rt.value} onChange={() => {}} />
+                          <div><b>{rt.label}</b><br/><span className="text-base-content/50">{rt.desc}</span></div>
+                        </label>
+                      ))}
+                    </div>
+                    {editingLoan.rate_type !== 'FIXED' ? (
+                      <div className="grid grid-cols-3 gap-2 items-end">
+                        <div className="form-control">
+                          <label className="label py-0.5"><span className="label-text text-[10px]">{editingLoan.rate_type || 'SBR'} 基准 (%)</span></label>
+                          <input type="number" step="0.01" className="input input-bordered input-xs w-full" value={editingLoan.base_rate || ''} onChange={e => setEditingLoan({...editingLoan, base_rate: Number(e.target.value)})} />
+                        </div>
+                        <div className="form-control">
+                          <label className="label py-0.5"><span className="label-text text-[10px]">{editingLoan.rate_type === 'BLR' ? '折扣 (-)' : '加息 (+)'} %</span></label>
+                          <input type="number" step="0.01" className="input input-bordered input-xs w-full" value={editingLoan.spread || ''} onChange={e => setEditingLoan({...editingLoan, spread: Number(e.target.value)})} />
+                        </div>
+                        <div className="text-center">
+                          <p className="text-[10px] text-base-content/50">实际利率</p>
+                          <p className="text-sm font-bold text-warning">
+                            {(editingLoan.rate_type === 'BLR'
+                              ? (Number(editingLoan.base_rate) || 0) - Math.abs(Number(editingLoan.spread) || 0)
+                              : (Number(editingLoan.base_rate) || 0) + (Number(editingLoan.spread) || 0)
+                            ).toFixed(2)}%
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="form-control">
+                        <label className="label py-0.5"><span className="label-text text-[10px]">固定利率 (%)</span></label>
+                        <input type="number" step="0.01" className="input input-bordered input-xs w-full" value={editingLoan.base_rate || ''} onChange={e => setEditingLoan({...editingLoan, base_rate: Number(e.target.value), spread: 0})} />
+                      </div>
                     )}
-                    {loanTenure > 0 && (
-                      <>
-                        <span>贷款期限:</span><span className="font-medium text-right">{Math.floor(loanTenure / 12)}年{loanTenure % 12}个月</span>
-                      </>
-                    )}
-                    {(() => {
-                      const est = calculateEstimatedBalance(loanAmount, monthlyRepayment, loanRate, loanStart);
-                      if (!est) return null;
-                      return <>
-                        <span>估算当前余额:</span>
-                        <span className="font-medium text-right text-info">RM {est.estimatedBalance.toLocaleString()}</span>
-                        <span>已还月数:</span>
-                        <span className="font-medium text-right">{est.monthsElapsed} 个月</span>
-                      </>;
-                    })()}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2">
+                    <div className="form-control">
+                      <label className="label py-0.5"><span className="label-text text-[10px]">贷款开始日期</span></label>
+                      <input type="date" className="input input-bordered input-xs w-full" value={editingLoan.loan_start || ''} onChange={e => setEditingLoan({...editingLoan, loan_start: e.target.value})} />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-0.5"><span className="label-text text-[10px]">期限（月）</span></label>
+                      <input type="number" className="input input-bordered input-xs w-full" placeholder="如: 360" value={editingLoan.loan_tenure_months || ''} onChange={e => setEditingLoan({...editingLoan, loan_tenure_months: Number(e.target.value)})} />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-3 gap-2">
+                    <div className="form-control">
+                      <label className="label py-0.5"><span className="label-text text-[10px]">还款日 (1-31)</span></label>
+                      <input type="number" min="1" max="31" className="input input-bordered input-xs w-full" value={editingLoan.loan_repayment_day || ''} onChange={e => setEditingLoan({...editingLoan, loan_repayment_day: Number(e.target.value)})} />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-0.5"><span className="label-text text-[10px]">贷款户口</span></label>
+                      <input className="input input-bordered input-xs w-full" value={editingLoan.loan_account_no || ''} onChange={e => setEditingLoan({...editingLoan, loan_account_no: e.target.value})} />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-0.5"><span className="label-text text-[10px]">SI户口</span></label>
+                      <input className="input input-bordered input-xs w-full" value={editingLoan.loan_si_account || ''} onChange={e => setEditingLoan({...editingLoan, loan_si_account: e.target.value})} />
+                    </div>
+                  </div>
+
+                  <div className="form-control">
+                    <label className="label py-0.5"><span className="label-text text-[10px]">备注</span></label>
+                    <input className="input input-bordered input-xs w-full" placeholder="选填" value={editingLoan.notes || ''} onChange={e => setEditingLoan({...editingLoan, notes: e.target.value})} />
+                  </div>
+
+                  <div className="flex gap-1.5 justify-end pt-1">
+                    <button type="button" className="btn btn-xs btn-ghost" onClick={() => setEditingLoan(null)}>取消</button>
+                    <button type="button" className="btn btn-xs btn-warning" disabled={savingLoan || !editingLoan.loan_amount} onClick={async () => {
+                      setSavingLoan(true);
+                      try {
+                        await saveLoan({ ...editingLoan, property_id: property!.id });
+                        const updated = await getLoansForProperty(property!.id);
+                        setLoans(updated);
+                        setEditingLoan(null);
+                      } catch (err) { console.error(err); alert('保存失败'); }
+                      setSavingLoan(false);
+                    }}>{savingLoan ? '保存中...' : '添加贷款'}</button>
                   </div>
                 </div>
               )}
 
-              {/* ===== PREPAYMENT SECTION ===== */}
-              {property?.id && loanAmount > 0 && (
-                <div className="bg-success/5 border border-success/20 rounded-xl p-3 space-y-3">
-                  <div className="flex items-center justify-between">
-                    <p className="text-xs font-semibold text-success flex items-center gap-1">💰 预付本金 Extra Principal Payment</p>
-                    <button type="button" className="btn btn-xs btn-success btn-outline gap-0.5" onClick={() => { setShowPrepayForm(!showPrepayForm); setPrepayDate(new Date().toISOString().slice(0,10)); }}>
-                      <Plus size={11} /> 新增
-                    </button>
-                  </div>
+              {/* Add loan button */}
+              {!editingLoan && property?.id && (
+                <button type="button" className="btn btn-sm btn-outline btn-warning w-full gap-1" onClick={() => setEditingLoan({ loan_label: '房屋贷款', rate_type: 'SBR', base_rate: 3.0, spread: 0 })}>
+                  <Plus size={14} /> 添加贷款
+                </button>
+              )}
 
-                  {showPrepayForm && (
-                    <div className="bg-success/10 rounded-lg p-2.5 space-y-2">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div>
-                          <label className="text-[10px] text-base-content/60 block">预付金额 (RM)</label>
-                          <input type="number" className="input input-bordered input-xs w-full" placeholder="0" value={prepayAmount} onChange={e => setPrepayAmount(e.target.value)} />
-                        </div>
-                        <div>
-                          <label className="text-[10px] text-base-content/60 block">预付日期</label>
-                          <input type="date" className="input input-bordered input-xs w-full" value={prepayDate} onChange={e => setPrepayDate(e.target.value)} />
-                        </div>
-                      </div>
-                      <input className="input input-bordered input-xs w-full" placeholder="备注 (选填)" value={prepayNotes} onChange={e => setPrepayNotes(e.target.value)} />
-                      <div className="flex gap-1.5 justify-end">
-                        <button type="button" className="btn btn-xs btn-ghost" onClick={() => setShowPrepayForm(false)}>取消</button>
-                        <button type="button" className="btn btn-xs btn-success" disabled={savingPrepay || !prepayAmount || Number(prepayAmount) <= 0 || !prepayDate} onClick={async () => {
-                          setSavingPrepay(true);
-                          try {
-                            await addLoanPayment(property!.id, Number(prepayAmount), prepayDate, '', prepayNotes, 'prepayment');
-                            const all = await getLoanPayments(property!.id);
-                            setPrepayments((all as any[]).filter(lp => lp.payment_type === 'prepayment'));
-                            // Refresh balance
-                            const p = await getPropertyById(property!.id);
-                            if (p) setLoanBalance(p.loan_balance || 0);
-                            setPrepayAmount(''); setPrepayDate(''); setPrepayNotes(''); setShowPrepayForm(false);
-                          } catch (err) { console.error(err); }
-                          setSavingPrepay(false);
-                        }}>
-                          {savingPrepay ? '保存中...' : '确认预付'}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Prepayment records */}
-                  {prepayments.length > 0 && (
-                    <div className="space-y-1.5">
-                      {prepayments.map((p: any) => (
-                        <div key={p.id} className="flex items-center gap-2 bg-base-200/50 rounded-lg px-2.5 py-1.5">
-                          <div className="flex-1 min-w-0">
-                            <span className="text-xs font-bold text-success">RM {Number(p.amount).toLocaleString()}</span>
-                            <span className="text-[10px] text-base-content/60 ml-2">{p.payment_date}</span>
-                            {p.notes && <span className="text-[10px] text-base-content/50 ml-1">· {p.notes}</span>}
-                          </div>
-                          <button type="button" className="btn btn-ghost btn-xs text-error px-1" onClick={async () => {
-                            await deleteLoanPayment(p.id, property!.id, p.amount);
-                            const all = await getLoanPayments(property!.id);
-                            setPrepayments((all as any[]).filter((lp: any) => lp.payment_type === 'prepayment'));
-                            const prop = await getPropertyById(property!.id);
-                            if (prop) setLoanBalance(prop.loan_balance || 0);
-                          }}>
-                            <Trash2 size={11} />
-                          </button>
-                        </div>
-                      ))}
-                      <div className="text-right">
-                        <span className="text-xs font-bold text-success">已累计预付: RM {prepayments.reduce((s: number, p: any) => s + Number(p.amount), 0).toLocaleString()}</span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Projection */}
-                  {prepayments.length > 0 && (() => {
-                    const prepayRecords: PrepaymentRecord[] = prepayments.map((p: any) => ({ amount: Number(p.amount), payment_date: p.payment_date }));
-                    const proj = calculateLoanProjection(loanAmount, monthlyRepayment, loanRate, loanStart, prepayRecords);
-                    if (!proj) return null;
-                    return (
-                      <div className="bg-base-200 rounded-lg p-2.5 space-y-1">
-                        <p className="text-[10px] font-semibold text-base-content">📊 预付效果分析</p>
-                        <div className="grid grid-cols-2 gap-1 text-[10px]">
-                          <span className="text-base-content/60">原计划还清:</span>
-                          <span className="text-right">{proj.withoutPrepay.payoffDate} ({proj.withoutPrepay.totalMonths}个月)</span>
-                          <span className="text-base-content/60">预付后还清:</span>
-                          <span className="text-right font-bold text-success">{proj.withPrepay.payoffDate} ({proj.withPrepay.totalMonths}个月)</span>
-                          <span className="text-base-content/60">提前还清:</span>
-                          <span className="text-right font-bold text-success">{Math.floor(proj.monthsSaved / 12)}年{proj.monthsSaved % 12}个月</span>
-                          <span className="text-base-content/60">节省利息:</span>
-                          <span className="text-right font-bold text-success">RM {proj.interestSaved.toLocaleString()}</span>
-                          <span className="text-base-content/60">原总利息:</span>
-                          <span className="text-right">RM {proj.withoutPrepay.totalInterest.toLocaleString()}</span>
-                          <span className="text-base-content/60">预付后总利息:</span>
-                          <span className="text-right">RM {proj.withPrepay.totalInterest.toLocaleString()}</span>
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {prepayments.length === 0 && !showPrepayForm && (
-                    <p className="text-[10px] text-base-content/50 text-center">暂无预付记录。预付本金可减少利息支出，提前还清贷款。</p>
-                  )}
+              {!property?.id && (
+                <div className="text-center py-4 text-base-content/50 text-xs">
+                  请先保存物业基本信息，然后再添加贷款记录
                 </div>
               )}
             </>
           )}
 
-          {/* ===== EXPENSES TAB ===== */}
+                    {/* ===== EXPENSES TAB ===== */}
           {tab === 'expenses' && (
             <>
               <div className="bg-info/5 border border-info/20 rounded-lg p-3">

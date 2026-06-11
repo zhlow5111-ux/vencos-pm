@@ -2,7 +2,7 @@ import { Property, FloorUnit, Client, SaleDeal, RentalDeal, DashboardStats, Invo
 import { escapeSQL, nowISO, generateId } from './helpers';
 
 // ========== Init DB ==========
-const SCHEMA_VERSION = 27;
+const SCHEMA_VERSION = 28;
 
 export async function initDB(): Promise<void> {
   // Step 1: Check schema version (2 SQL calls)
@@ -117,6 +117,21 @@ export async function initDB(): Promise<void> {
         id INTEGER PRIMARY KEY, property_id INTEGER NOT NULL, amount REAL NOT NULL DEFAULT 0,
         payment_date TEXT NOT NULL DEFAULT '', reference_no TEXT NOT NULL DEFAULT '',
         notes TEXT NOT NULL DEFAULT '', balance_after REAL NOT NULL DEFAULT 0, created_at TEXT NOT NULL
+      )`,
+      `CREATE TABLE IF NOT EXISTS vc_loans (
+        id INTEGER PRIMARY KEY, property_id INTEGER NOT NULL,
+        loan_label TEXT NOT NULL DEFAULT '房屋贷款',
+        bank_code TEXT NOT NULL DEFAULT '', bank_name TEXT NOT NULL DEFAULT '',
+        loan_amount REAL NOT NULL DEFAULT 0, loan_balance REAL NOT NULL DEFAULT 0,
+        monthly_repayment REAL NOT NULL DEFAULT 0,
+        rate_type TEXT NOT NULL DEFAULT 'SBR',
+        base_rate REAL NOT NULL DEFAULT 0, spread REAL NOT NULL DEFAULT 0,
+        effective_rate REAL NOT NULL DEFAULT 0,
+        loan_start TEXT NOT NULL DEFAULT '', loan_tenure_months INTEGER NOT NULL DEFAULT 0,
+        loan_repayment_day INTEGER NOT NULL DEFAULT 0,
+        loan_account_no TEXT NOT NULL DEFAULT '', loan_si_account TEXT NOT NULL DEFAULT '',
+        notes TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       )`,
       `CREATE TABLE IF NOT EXISTS vc_workers (
         id INTEGER PRIMARY KEY, name TEXT NOT NULL, phone TEXT NOT NULL DEFAULT '',
@@ -506,6 +521,28 @@ export async function initDB(): Promise<void> {
     // loan_balance can legitimately exceed loan_amount — no auto-reset
   }
 
+  if (currentVer < 28) {
+    // Add loan_id to vc_loan_payments
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_loan_payments ADD COLUMN loan_id INTEGER NOT NULL DEFAULT 0`); } catch {}
+    // Migrate existing property-level loans into vc_loans table
+    const propsWithLoans = await window.tasklet.sqlQuery(
+      `SELECT id, bank_code, bank_name, loan_amount, loan_balance, monthly_repayment,
+       loan_start, loan_tenure_months, loan_interest_rate, loan_repayment_day,
+       loan_account_no, loan_si_account FROM vc_properties WHERE loan_amount > 0`
+    ) as any[];
+    for (const p of propsWithLoans) {
+      const existing = await window.tasklet.sqlQuery(`SELECT id FROM vc_loans WHERE property_id=${p.id} LIMIT 1`) as any[];
+      if (existing.length === 0) {
+        const mNow = nowISO();
+        const loanId = Date.now() + p.id;
+        await window.tasklet.sqlExec(`INSERT INTO vc_loans (id, property_id, loan_label, bank_code, bank_name, loan_amount, loan_balance, monthly_repayment, rate_type, base_rate, spread, effective_rate, loan_start, loan_tenure_months, loan_repayment_day, loan_account_no, loan_si_account, notes, created_at, updated_at)
+          VALUES (${loanId}, ${p.id}, '房屋贷款', '${escapeSQL(String(p.bank_code || ''))}', '${escapeSQL(String(p.bank_name || ''))}', ${p.loan_amount || 0}, ${p.loan_balance || 0}, ${p.monthly_repayment || 0}, 'SBR', ${p.loan_interest_rate || 0}, 0, ${p.loan_interest_rate || 0}, '${p.loan_start || ''}', ${p.loan_tenure_months || 0}, ${p.loan_repayment_day || 0}, '${escapeSQL(String(p.loan_account_no || ''))}', '${escapeSQL(String(p.loan_si_account || ''))}', '', '${mNow}', '${mNow}')`);
+        // Link existing payments to the new loan
+        await window.tasklet.sqlExec(`UPDATE vc_loan_payments SET loan_id=${loanId} WHERE property_id=${p.id} AND loan_id=0`);
+      }
+    }
+  }
+
   // Mark schema as current version
   await window.tasklet.sqlExec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);
 }
@@ -883,31 +920,98 @@ export async function getLoanPayments(propertyId: number): Promise<LoanPayment[]
   return rows as unknown as LoanPayment[];
 }
 
-export async function addLoanPayment(propertyId: number, amount: number, paymentDate: string, referenceNo: string, notes: string, paymentType: string = 'normal'): Promise<void> {
+export async function addLoanPayment(propertyId: number, amount: number, paymentDate: string, referenceNo: string, notes: string, paymentType: string = 'normal', loanId: number = 0): Promise<void> {
   const now = nowISO();
-  // Get current balance
-  const prop = await window.tasklet.sqlQuery(`SELECT loan_balance FROM vc_properties WHERE id=${propertyId}`);
-  const currentBalance = Number((prop[0] as Record<string, unknown>)?.loan_balance || 0);
+  let currentBalance = 0;
+  if (loanId) {
+    const loan = await window.tasklet.sqlQuery(`SELECT loan_balance FROM vc_loans WHERE id=${loanId}`) as any[];
+    currentBalance = Number(loan[0]?.loan_balance || 0);
+  } else {
+    const prop = await window.tasklet.sqlQuery(`SELECT loan_balance FROM vc_properties WHERE id=${propertyId}`) as any[];
+    currentBalance = Number(prop[0]?.loan_balance || 0);
+  }
   const balanceAfter = Math.max(0, currentBalance - amount);
 
   await window.tasklet.sqlExec(`
-    INSERT INTO vc_loan_payments (id, property_id, amount, payment_date, reference_no, notes, balance_after, payment_type, created_at)
-    VALUES (${Date.now()}, ${propertyId}, ${amount}, '${paymentDate}', '${escapeSQL(referenceNo)}', '${escapeSQL(notes)}', ${balanceAfter}, '${escapeSQL(paymentType)}', '${now}')
+    INSERT INTO vc_loan_payments (id, property_id, loan_id, amount, payment_date, reference_no, notes, balance_after, payment_type, created_at)
+    VALUES (${Date.now()}, ${propertyId}, ${loanId}, ${amount}, '${paymentDate}', '${escapeSQL(referenceNo)}', '${escapeSQL(notes)}', ${balanceAfter}, '${escapeSQL(paymentType)}', '${now}')
   `);
 
-  // Update property loan balance
-  await window.tasklet.sqlExec(`
-    UPDATE vc_properties SET loan_balance=${balanceAfter}, updated_at='${now}' WHERE id=${propertyId}
-  `);
+  if (loanId) {
+    await window.tasklet.sqlExec(`UPDATE vc_loans SET loan_balance=${balanceAfter}, updated_at='${now}' WHERE id=${loanId}`);
+  }
+  await syncPropertyLoanTotals(propertyId);
 }
 
-export async function deleteLoanPayment(id: number, propertyId: number, amount: number): Promise<void> {
+export async function deleteLoanPayment(id: number, propertyId: number, amount: number, loanId: number = 0): Promise<void> {
   const now = nowISO();
   await window.tasklet.sqlExec(`DELETE FROM vc_loan_payments WHERE id=${id}`);
-  // Add back the amount to loan balance
-  await window.tasklet.sqlExec(`
-    UPDATE vc_properties SET loan_balance = loan_balance + ${amount}, updated_at='${now}' WHERE id=${propertyId}
-  `);
+  if (loanId) {
+    await window.tasklet.sqlExec(`UPDATE vc_loans SET loan_balance = loan_balance + ${amount}, updated_at='${now}' WHERE id=${loanId}`);
+  } else {
+    await window.tasklet.sqlExec(`UPDATE vc_properties SET loan_balance = loan_balance + ${amount}, updated_at='${now}' WHERE id=${propertyId}`);
+  }
+  await syncPropertyLoanTotals(propertyId);
+}
+
+// Sync property-level totals from vc_loans
+async function syncPropertyLoanTotals(propertyId: number): Promise<void> {
+  const now = nowISO();
+  await window.tasklet.sqlExec(`UPDATE vc_properties SET
+    loan_amount = COALESCE((SELECT SUM(loan_amount) FROM vc_loans WHERE property_id=${propertyId}), 0),
+    loan_balance = COALESCE((SELECT SUM(loan_balance) FROM vc_loans WHERE property_id=${propertyId}), 0),
+    monthly_repayment = COALESCE((SELECT SUM(monthly_repayment) FROM vc_loans WHERE property_id=${propertyId}), 0),
+    updated_at='${now}'
+  WHERE id=${propertyId}`);
+}
+
+// ========== Loans (Multi-loan) ==========
+export async function getLoansForProperty(propertyId: number): Promise<any[]> {
+  const rows = await window.tasklet.sqlQuery(`SELECT * FROM vc_loans WHERE property_id=${propertyId} ORDER BY created_at ASC`);
+  return rows as any[];
+}
+
+export async function saveLoan(loan: any): Promise<number> {
+  const now = nowISO();
+  const er = loan.rate_type === 'BLR'
+    ? (Number(loan.base_rate) || 0) - Math.abs(Number(loan.spread) || 0)
+    : loan.rate_type === 'FIXED'
+      ? (Number(loan.base_rate) || 0)
+      : (Number(loan.base_rate) || 0) + (Number(loan.spread) || 0);
+  if (loan.id) {
+    await window.tasklet.sqlExec(`UPDATE vc_loans SET
+      loan_label='${escapeSQL(loan.loan_label || '房屋贷款')}',
+      bank_code='${escapeSQL(loan.bank_code || '')}', bank_name='${escapeSQL(loan.bank_name || '')}',
+      loan_amount=${loan.loan_amount || 0}, loan_balance=${loan.loan_balance || 0},
+      monthly_repayment=${loan.monthly_repayment || 0},
+      rate_type='${escapeSQL(loan.rate_type || 'SBR')}',
+      base_rate=${loan.base_rate || 0}, spread=${loan.spread || 0}, effective_rate=${er},
+      loan_start='${loan.loan_start || ''}', loan_tenure_months=${loan.loan_tenure_months || 0},
+      loan_repayment_day=${loan.loan_repayment_day || 0},
+      loan_account_no='${escapeSQL(loan.loan_account_no || '')}',
+      loan_si_account='${escapeSQL(loan.loan_si_account || '')}',
+      notes='${escapeSQL(loan.notes || '')}', updated_at='${now}'
+    WHERE id=${loan.id}`);
+    await syncPropertyLoanTotals(loan.property_id);
+    return loan.id;
+  } else {
+    const id = Date.now();
+    await window.tasklet.sqlExec(`INSERT INTO vc_loans (id, property_id, loan_label, bank_code, bank_name, loan_amount, loan_balance, monthly_repayment, rate_type, base_rate, spread, effective_rate, loan_start, loan_tenure_months, loan_repayment_day, loan_account_no, loan_si_account, notes, created_at, updated_at)
+      VALUES (${id}, ${loan.property_id}, '${escapeSQL(loan.loan_label || '房屋贷款')}', '${escapeSQL(loan.bank_code || '')}', '${escapeSQL(loan.bank_name || '')}', ${loan.loan_amount || 0}, ${loan.loan_balance || 0}, ${loan.monthly_repayment || 0}, '${escapeSQL(loan.rate_type || 'SBR')}', ${loan.base_rate || 0}, ${loan.spread || 0}, ${er}, '${loan.loan_start || ''}', ${loan.loan_tenure_months || 0}, ${loan.loan_repayment_day || 0}, '${escapeSQL(loan.loan_account_no || '')}', '${escapeSQL(loan.loan_si_account || '')}', '${escapeSQL(loan.notes || '')}', '${now}', '${now}')`);
+    await syncPropertyLoanTotals(loan.property_id);
+    return id;
+  }
+}
+
+export async function deleteLoanRecord(loanId: number, propertyId: number): Promise<void> {
+  await window.tasklet.sqlExec(`DELETE FROM vc_loans WHERE id=${loanId}`);
+  await window.tasklet.sqlExec(`DELETE FROM vc_loan_payments WHERE loan_id=${loanId}`);
+  await syncPropertyLoanTotals(propertyId);
+}
+
+export async function getLoanPaymentsForLoan(loanId: number): Promise<any[]> {
+  const rows = await window.tasklet.sqlQuery(`SELECT * FROM vc_loan_payments WHERE loan_id=${loanId} ORDER BY payment_date DESC, created_at DESC`);
+  return rows as any[];
 }
 
 // ========== Documents ==========

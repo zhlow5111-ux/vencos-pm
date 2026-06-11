@@ -192,12 +192,50 @@ export interface UserOwnerAccess {
 export interface LoanPayment {
   id: number;
   property_id: number;
+  loan_id: number;
   amount: number;
   payment_date: string;
   reference_no: string;
   notes: string;
   balance_after: number;
+  payment_type: string;
   created_at: string;
+}
+
+// ========== Loan (Multi-loan) ==========
+export const LOAN_LABEL_OPTIONS = [
+  '房屋贷款', '地皮贷款', '转用途Premium', '发展贷款',
+  '装修贷款', '运营贷款', '再融资', '其他'
+];
+
+export const RATE_TYPE_OPTIONS: { value: string; label: string; formula: string; desc: string }[] = [
+  { value: 'SBR', label: 'SBR', formula: '+', desc: '2022至今，全马统一' },
+  { value: 'BR', label: 'BR', formula: '+', desc: '2015-2022' },
+  { value: 'BLR', label: 'BLR', formula: '-', desc: '2015前' },
+  { value: 'FIXED', label: '固定', formula: '=', desc: '固定利率' },
+];
+
+export interface Loan {
+  id: number;
+  property_id: number;
+  loan_label: string;
+  bank_code: string;
+  bank_name: string;
+  loan_amount: number;
+  loan_balance: number;
+  monthly_repayment: number;
+  rate_type: string;
+  base_rate: number;
+  spread: number;
+  effective_rate: number;
+  loan_start: string;
+  loan_tenure_months: number;
+  loan_repayment_day: number;
+  loan_account_no: string;
+  loan_si_account: string;
+  notes: string;
+  created_at: string;
+  updated_at: string;
 }
 
 // ========== Document ==========
