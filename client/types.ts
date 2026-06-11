@@ -450,16 +450,33 @@ export const LISTING_TYPES: SelectOption[] = [
 
 
 export const DOC_TYPES: SelectOption[] = [
+  // 购买阶段 Purchase Phase
+  { value: 'booking_form', label: '预订表 Booking Form' },
   { value: 'spa', label: 'SPA 买卖合同' },
+  { value: 'deed_of_assignment', label: '转让契约 Deed of Assignment' },
+  // 贷款相关 Loan Related
+  { value: 'loan_offer', label: '贷款批准信 Loan Offer Letter' },
+  { value: 'loan_agreement', label: '贷款合约 Loan Agreement' },
+  { value: 'loan', label: '其他贷款文件 Other Loan Document' },
+  { value: 'charge_cert', label: '抵押登记证 Certificate of Charge' },
+  { value: 'indemnity', label: '担保书 Indemnity Guarantee' },
+  // 产权 & 评估 Title & Valuation
+  { value: 'title', label: '物业产权 Property Title' },
+  { value: 'valuation_report', label: '估价报告 Valuation Report' },
+  { value: 'floor_plan', label: '平面图 Floor Plan' },
+  // 租约 Tenancy
   { value: 'tenancy', label: '租赁合同 Tenancy Agreement' },
-  { value: 'loan', label: '银行贷款文件 Loan Document' },
+  // 税费 & 保险 Tax & Insurance
   { value: 'assessment_tax', label: '门牌税 Assessment Tax' },
   { value: 'quit_rent', label: '地税 Quit Rent' },
   { value: 'insurance', label: '保险 Insurance' },
+  // 费用 & 维护 Fees & Maintenance
   { value: 'maintenance', label: '维修记录 Maintenance' },
   { value: 'utility', label: '水电费 Utility Bill' },
   { value: 'strata', label: '管理费 Strata/Management Fee' },
-  { value: 'title', label: '物业产权 Property Title' },
+  { value: 'renovation_invoice', label: '装修发票 Renovation Invoice' },
+  { value: 'agent_commission', label: '中介佣金 Agent Commission' },
+  // 其他
   { value: 'other', label: '其他文件 Others' },
 ];
 
