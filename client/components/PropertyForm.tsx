@@ -80,6 +80,16 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
   const [valNotes, setValNotes] = useState('');
   const [savingVal, setSavingVal] = useState(false);
   const [editingValId, setEditingValId] = useState<number | null>(null);
+
+  // RPGT calculator state
+  const [showRpgt, setShowRpgt] = useState(false);
+  const [rpgtSellingPrice, setRpgtSellingPrice] = useState('');
+  const [rpgtPurchaseDate, setRpgtPurchaseDate] = useState(property?.loan_start || '');
+  const [rpgtOwnerType, setRpgtOwnerType] = useState<'individual' | 'company'>('individual');
+  const [rpgtExtraDeductions, setRpgtExtraDeductions] = useState('');
+
+  // Rental income tax calculator state
+  const [showRentalTax, setShowRentalTax] = useState(false);
   const [hakmilikNo, setHakmilikNo] = useState(property?.hakmilik_no || '');
   const [landTaxRef, setLandTaxRef] = useState(property?.land_tax_ref || '');
   const [assessmentTaxRef, setAssessmentTaxRef] = useState(property?.assessment_tax_ref || '');
@@ -1132,6 +1142,18 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                   <span className="text-lg font-bold text-primary">RM {price.toLocaleString()}</span>
                 </div>
 
+                {/* RPGT Calculator button */}
+                {property?.id && (actualPrice || price) > 0 && (
+                  <button type="button" className="btn btn-sm btn-outline btn-warning w-full gap-1" onClick={() => {
+                    setRpgtPurchaseDate(property.loan_start || '');
+                    setRpgtSellingPrice('');
+                    setRpgtExtraDeductions('');
+                    setShowRpgt(true);
+                  }}>
+                    📊 RPGT 产业盈利税计算器
+                  </button>
+                )}
+
                 {!property?.id && (
                   <div className="bg-info/10 border border-info/20 rounded-lg p-2">
                     <p className="text-[10px] text-info">请先保存物业后，才能添加其他购房费用</p>
@@ -1835,6 +1857,94 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
         </div>
       </div>
       <div className="modal-backdrop bg-black/40" onClick={onClose} />
+
+      {/* RPGT Calculator Modal */}
+      {showRpgt && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" onClick={() => setShowRpgt(false)}>
+          <div className="bg-white rounded-xl max-w-md w-full max-h-[85vh] overflow-auto p-4 space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold">📊 RPGT 产业盈利税预测</h3>
+              <button className="btn btn-sm btn-ghost" onClick={() => setShowRpgt(false)}>✕</button>
+            </div>
+            <div className="space-y-2">
+              <div>
+                <label className="text-xs text-base-content/60 block">购入日期</label>
+                <input type="date" className="input input-bordered input-sm w-full" value={rpgtPurchaseDate} onChange={e => setRpgtPurchaseDate(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs text-base-content/60 block">持有人类型</label>
+                <select className="select select-bordered select-sm w-full" value={rpgtOwnerType} onChange={e => setRpgtOwnerType(e.target.value as any)}>
+                  <option value="individual">个人 (马来西亚公民/永久居民)</option>
+                  <option value="company">公司</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs text-base-content/60 block">预计售价 (RM)</label>
+                <input type="number" className="input input-bordered input-sm w-full" placeholder="输入预计售价" value={rpgtSellingPrice} onChange={e => setRpgtSellingPrice(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs text-base-content/60 block">额外可扣除费用 (RM, 选填)</label>
+                <input type="number" className="input input-bordered input-sm w-full" placeholder="如: 律师费、佣金等未录入的费用" value={rpgtExtraDeductions} onChange={e => setRpgtExtraDeductions(e.target.value)} />
+              </div>
+            </div>
+
+            {rpgtSellingPrice && Number(rpgtSellingPrice) > 0 && rpgtPurchaseDate && (() => {
+              const sellPrice = Number(rpgtSellingPrice);
+              const buyPrice = actualPrice || price;
+              const purchaseDt = new Date(rpgtPurchaseDate);
+              const today = new Date();
+              const holdingYears = (today.getTime() - purchaseDt.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+              const holdingYear = Math.ceil(holdingYears);
+              const recordedDeductions = purchaseCosts.reduce((s, c) => s + (c.amount || 0), 0);
+              const extraDed = Number(rpgtExtraDeductions) || 0;
+              const totalDeductions = recordedDeductions + extraDed;
+              const getRate = (yr: number, tp: string) => {
+                if (tp === 'company') return yr <= 3 ? 30 : yr === 4 ? 20 : yr === 5 ? 15 : 10;
+                return yr <= 3 ? 30 : yr === 4 ? 20 : yr === 5 ? 15 : 0;
+              };
+              const rate = getRate(holdingYear, rpgtOwnerType);
+              const gain = sellPrice - buyPrice - totalDeductions;
+              const exemption = rpgtOwnerType === 'individual' && gain > 0 ? Math.max(10000, gain * 0.1) : 0;
+              const taxableGain = Math.max(0, gain - exemption);
+              const rpgtTax = Math.round(taxableGain * rate / 100);
+
+              return (
+                <div className="bg-base-200 rounded-lg p-3 space-y-2">
+                  <div className="grid grid-cols-2 gap-1 text-xs">
+                    <span className="text-base-content/60">购入价:</span><span className="text-right font-medium">RM {buyPrice.toLocaleString()}</span>
+                    <span className="text-base-content/60">预计售价:</span><span className="text-right font-medium">RM {sellPrice.toLocaleString()}</span>
+                    <span className="text-base-content/60">持有年限:</span><span className="text-right">{holdingYears.toFixed(1)} 年 (第{holdingYear}年)</span>
+                    <span className="text-base-content/60">适用税率:</span><span className="text-right font-bold">{rate}%</span>
+                  </div>
+                  <div className="border-t border-base-300 pt-1 grid grid-cols-2 gap-1 text-xs">
+                    <span className="text-base-content/60">毛利:</span><span className="text-right">RM {(sellPrice - buyPrice).toLocaleString()}</span>
+                    <span className="text-base-content/60">可扣除:</span><span className="text-right">− RM {totalDeductions.toLocaleString()}</span>
+                    <span className="text-base-content/60">净盈利:</span><span className="text-right">RM {Math.max(0, gain).toLocaleString()}</span>
+                    {exemption > 0 && <><span className="text-base-content/60">个人豁免:</span><span className="text-right">− RM {exemption.toLocaleString()}</span></>}
+                    <span className="text-base-content/60">应税盈利:</span><span className="text-right">RM {taxableGain.toLocaleString()}</span>
+                  </div>
+                  <div className="border-t border-base-300 pt-2 flex items-center justify-between">
+                    <span className="text-sm font-bold">RPGT 税额:</span>
+                    <span className={`text-lg font-bold ${rpgtTax > 0 ? 'text-error' : 'text-success'}`}>RM {rpgtTax.toLocaleString()}</span>
+                  </div>
+                  {rate === 0 && gain > 0 && <p className="text-[10px] text-success">✅ 持有超过5年，个人免征 RPGT</p>}
+                  {gain <= 0 && <p className="text-[10px] text-info">ℹ️ 无盈利，无需缴纳 RPGT</p>}
+                  {holdingYear <= 6 && gain > 0 && (
+                    <div className="border-t border-base-300 pt-2">
+                      <p className="text-[10px] font-semibold mb-1">📅 不同年份卖出税额对比:</p>
+                      {[1,2,3,4,5,6].filter(y => y >= holdingYear).slice(0, 4).map(y => {
+                        const r = getRate(y, rpgtOwnerType);
+                        const tg = Math.max(0, gain - (rpgtOwnerType === 'individual' ? Math.max(10000, gain * 0.1) : 0));
+                        return <div key={y} className="flex justify-between text-[10px]"><span>第{y}年 ({r}%)</span><span className={r > 0 ? 'text-error' : 'text-success'}>RM {Math.round(tg * r / 100).toLocaleString()}</span></div>;
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
 
       <ConfirmModal
         open={deleteCostId !== null}
