@@ -147,6 +147,7 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
   const [expandedAlerts, setExpandedAlerts] = useState(false);
   const [billingFilter, setBillingFilter] = useState<number | 'all'>('all');
   const [reportSub, setReportSub] = useState(0);
+  const [valuationMap, setValuationMap] = useState<Map<number, number>>(new Map());
 
   const fontStyle = { fontFamily: 'Avenir, Arial, sans-serif' };
 
@@ -178,6 +179,14 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
       setRecurringCharges(rc);
       setMeters(mt);
       setOwners(ow);
+
+      // Load latest valuations for these properties
+      try {
+        const vals = await sqlQuery(`SELECT v.property_id, v.market_value FROM vc_valuations v INNER JOIN (SELECT property_id, MAX(valuation_date) as max_date FROM vc_valuations GROUP BY property_id) latest ON v.property_id = latest.property_id AND v.valuation_date = latest.max_date WHERE v.property_id IN (${propIds})`);
+        const vm = new Map<number, number>();
+        vals.forEach(r => vm.set(N(r.property_id), N(r.market_value)));
+        setValuationMap(vm);
+      } catch { /* vc_valuations may not exist yet */ }
     } catch (e) {
       console.error('StakeholderPortal fetch error:', e);
     }
@@ -237,8 +246,12 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
 
   /* ── aggregate calculations ── */
   const totalAssets = properties.reduce((s, p) => s + getPurchaseTotal(p), 0);
+  const totalMarketValue = properties.reduce((s, p) => {
+    const mv = valuationMap.get(N(p.id));
+    return s + (mv && mv > 0 ? mv : (N(p.actual_price) > 0 ? N(p.actual_price) : N(p.price)));
+  }, 0);
   const totalLoanBalance = properties.reduce((s, p) => s + getEstimatedBalance(p), 0);
-  const netAssets = totalAssets - totalLoanBalance;
+  const netAssets = totalMarketValue - totalLoanBalance;
   const totalMonthlyRent = properties.reduce((s, p) => s + getMonthlyRent(p), 0);
   const totalMonthlyExpense = properties.reduce((s, p) => s + getMonthlyExpense(p), 0);
   const monthlyNet = totalMonthlyRent - totalMonthlyExpense;
@@ -323,9 +336,24 @@ export const StakeholderPortal: React.FC<StakeholderPortalProps> = ({ user, onLo
         </div>
         <div className="space-y-2">
           <div className="flex justify-between items-end">
-            <span className="text-xs text-base-content/60">总资产价值</span>
-            <span className="text-xl font-bold text-primary">{fmtCurrency(totalAssets)}</span>
+            <span className="text-xs text-base-content/60">总购入价值</span>
+            <span className="text-sm font-semibold">{fmtCurrency(totalAssets)}</span>
           </div>
+          <div className="flex justify-between items-end">
+            <span className="text-xs text-base-content/60">总市值</span>
+            <span className="text-xl font-bold text-primary">{fmtCurrency(totalMarketValue)}</span>
+          </div>
+          {totalMarketValue !== totalAssets && (() => {
+            const diff = totalMarketValue - totalAssets;
+            return (
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-base-content/60">{diff >= 0 ? '增值' : '贬值'}</span>
+                <span className={`text-xs font-semibold ${diff >= 0 ? 'text-success' : 'text-error'}`}>
+                  {diff >= 0 ? '+' : ''}{fmtCurrency(diff)}
+                </span>
+              </div>
+            );
+          })()}
           <div className="flex justify-between items-center">
             <span className="text-xs text-base-content/60">总贷款余额</span>
             <span className="text-sm font-semibold text-error">{fmtCurrency(totalLoanBalance)}</span>
