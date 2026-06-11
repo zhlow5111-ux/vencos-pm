@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 27;
+  const SCHEMA_VERSION = 29;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -462,6 +462,59 @@ function initDatabase() {
       created_at TEXT NOT NULL DEFAULT ''
     )`);
     // loan_balance can legitimately exceed loan_amount (e.g. business loans) — no auto-reset
+  }
+
+  // V28: vc_loans table + loan_id on payments
+  if (currentVer < 28) {
+    db.exec(`CREATE TABLE IF NOT EXISTS vc_loans (
+      id INTEGER PRIMARY KEY, property_id INTEGER NOT NULL,
+      loan_label TEXT NOT NULL DEFAULT '房屋贷款',
+      bank_code TEXT NOT NULL DEFAULT '', bank_name TEXT NOT NULL DEFAULT '',
+      loan_amount REAL NOT NULL DEFAULT 0, loan_balance REAL NOT NULL DEFAULT 0,
+      monthly_repayment REAL NOT NULL DEFAULT 0,
+      rate_type TEXT NOT NULL DEFAULT 'SBR',
+      base_rate REAL NOT NULL DEFAULT 0, spread REAL NOT NULL DEFAULT 0,
+      effective_rate REAL NOT NULL DEFAULT 0,
+      loan_start TEXT NOT NULL DEFAULT '', loan_tenure_months INTEGER NOT NULL DEFAULT 0,
+      loan_repayment_day INTEGER NOT NULL DEFAULT 0,
+      loan_account_no TEXT NOT NULL DEFAULT '', loan_si_account TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+    )`);
+    try { db.exec(`ALTER TABLE vc_loan_payments ADD COLUMN loan_id INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
+
+    // Migrate property-level loan data to vc_loans
+    const mNow = new Date().toISOString();
+    const propsWithLoans = db.prepare(
+      `SELECT id, bank_code, bank_name, loan_amount, loan_balance, monthly_repayment,
+       loan_start, loan_tenure_months, loan_interest_rate, loan_repayment_day,
+       loan_account_no, loan_si_account FROM vc_properties
+       WHERE loan_amount > 0 OR COALESCE(bank_name, '') != '' OR monthly_repayment > 0`
+    ).all();
+    console.log(`Migrating ${propsWithLoans.length} properties with loan data to vc_loans...`);
+    for (const p of propsWithLoans) {
+      const existing = db.prepare(`SELECT id FROM vc_loans WHERE property_id=? LIMIT 1`).get(p.id);
+      if (!existing) {
+        const loanId = Date.now() + Math.floor(Math.random() * 10000) + p.id;
+        db.prepare(`INSERT INTO vc_loans (id, property_id, loan_label, bank_code, bank_name, loan_amount, loan_balance, monthly_repayment, rate_type, base_rate, spread, effective_rate, loan_start, loan_tenure_months, loan_repayment_day, loan_account_no, loan_si_account, notes, created_at, updated_at)
+          VALUES (?, ?, '房屋贷款', ?, ?, ?, ?, ?, 'SBR', ?, 0, ?, ?, ?, ?, ?, ?, '', ?, ?)`).run(
+          loanId, p.id, p.bank_code || '', p.bank_name || '',
+          p.loan_amount || 0, p.loan_balance || 0, p.monthly_repayment || 0,
+          p.loan_interest_rate || 0, p.loan_interest_rate || 0,
+          p.loan_start || '', p.loan_tenure_months || 0, p.loan_repayment_day || 0,
+          p.loan_account_no || '', p.loan_si_account || '', mNow, mNow
+        );
+        // Link existing payments
+        db.prepare(`UPDATE vc_loan_payments SET loan_id=? WHERE property_id=? AND loan_id=0`).run(loanId, p.id);
+        console.log(`  Migrated loan for property ${p.id} (${p.bank_name || 'unknown bank'}) -> loan ${loanId}`);
+      }
+    }
+    console.log(`Loan migration complete.`);
+  }
+
+  // V29: spa_date
+  if (currentVer < 29) {
+    try { db.exec(`ALTER TABLE vc_properties ADD COLUMN spa_date TEXT NOT NULL DEFAULT ''`); } catch (e) {}
   }
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);
