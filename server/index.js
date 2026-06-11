@@ -593,8 +593,10 @@ app.post('/api/files/write', authMiddleware, (req, res) => {
   const { path: filePath, data } = req.body;
   if (!filePath || data === undefined) return res.status(400).json({ error: 'Missing path or data' });
 
-  // Ensure path is within data directory
-  const safePath = path.join(DATA_DIR, filePath.replace(/^\/agent\/home\//, ''));
+  // /tmp/ paths go to real /tmp/; /agent/home/ paths go to DATA_DIR
+  const safePath = filePath.startsWith('/tmp/')
+    ? filePath
+    : path.join(DATA_DIR, filePath.replace(/^\/agent\/home\//, ''));
   const dir = path.dirname(safePath);
   fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(safePath, data, 'utf-8');
@@ -605,7 +607,9 @@ app.post('/api/files/read', authMiddleware, (req, res) => {
   const { path: filePath } = req.body;
   if (!filePath) return res.status(400).json({ error: 'Missing path' });
 
-  const safePath = path.join(DATA_DIR, filePath.replace(/^\/agent\/home\//, ''));
+  const safePath = filePath.startsWith('/tmp/')
+    ? filePath
+    : path.join(DATA_DIR, filePath.replace(/^\/agent\/home\//, ''));
   if (!fs.existsSync(safePath)) return res.status(404).json({ error: 'File not found' });
   const data = fs.readFileSync(safePath, 'utf-8');
   res.json({ data });

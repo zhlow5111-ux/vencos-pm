@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Save, Landmark, UserCheck, Home, Receipt, Building2, Plus, Trash2, Edit, DollarSign, FileText, Upload, Download, Eye, Clock } from 'lucide-react';
+import { X, Save, Landmark, UserCheck, Home, Receipt, Building2, Plus, Trash2, Edit, DollarSign, FileText, Upload, Download, Eye, Clock, ChevronDown } from 'lucide-react';
 import { Property, Owner, PurchaseCost, PurchaseCostCategory, PROPERTY_TYPES, PROPERTY_STATUSES, LISTING_TYPES, BANK_CODES, OWNER_TYPES, PURCHASE_COST_CATEGORIES, DOC_TYPES, PropertyDocument, TenantHistory, ArrearsPayment, DocType, Meter } from '../types';
 import { saveProperty, getPropertyById, getOwners, ensureFloorUnits, getPurchaseCosts, savePurchaseCost, deletePurchaseCost, getDocuments, saveDocument, deleteDocument, getTenantHistory, getRentalIncomeByProperty, getArrearsPayments, saveArrearsPayment, deleteArrearsPayment, getArrearsBalance, getMeters, saveMeter, deleteMeter, getLoanPayments, addLoanPayment, deleteLoanPayment, LoanPayment, getValuations, saveValuation, deleteValuation, Valuation } from '../utils/db';
 import { calculateEstimatedBalance, calculateLoanProjection, PrepaymentRecord } from '../utils/helpers';
@@ -114,6 +114,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
 
   // Purchase costs state
   const [purchaseCosts, setPurchaseCosts] = useState<PurchaseCost[]>([]);
+  const [showMgmt, setShowMgmt] = useState(false);
   const [showAddCost, setShowAddCost] = useState(false);
   const [editingCost, setEditingCost] = useState<PurchaseCost | null>(null);
   const [costForm, setCostForm] = useState<{
@@ -1149,57 +1150,70 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                 )}
               </div>
 
-              {/* Management Fee & Company (merged) */}
-              <div className="bg-base-200/50 rounded-lg p-3 space-y-2">
-                <p className="text-xs font-semibold flex items-center gap-1"><Building2 size={13} /> 🏢 管理费 / 物业管理公司</p>
-                <p className="text-[10px] text-base-content">大楼管理费及管理公司信息</p>
-                <div className="form-control">
-                  <label className="label py-0"><span className="label-text text-xs">每月管理费 (RM)</span></label>
-                  <input type="number" className="input input-bordered input-sm w-full" placeholder="0" value={serviceCharge || ''} onChange={(e) => setServiceCharge(Number(e.target.value))} />
-                </div>
-                <div className="form-control">
-                  <label className="label py-0"><span className="label-text text-xs">管理公司名称</span></label>
-                  <input className="input input-bordered input-sm w-full" placeholder="公司名称" value={mgmtCompanyName} onChange={(e) => setMgmtCompanyName(e.target.value)} />
-                </div>
-                <div className="form-control">
-                  <label className="label py-0"><span className="label-text text-xs">管理公司地址</span></label>
-                  <input className="input input-bordered input-sm w-full" placeholder="公司地址" value={mgmtCompanyAddress} onChange={(e) => setMgmtCompanyAddress(e.target.value)} />
-                </div>
-                <div className="form-control">
-                  <label className="label py-0"><span className="label-text text-xs">联络电话</span></label>
-                  <input className="input input-bordered input-sm w-full" placeholder="电话号码" value={mgmtCompanyPhone} onChange={(e) => setMgmtCompanyPhone(e.target.value)} />
-                </div>
-                <div className="form-control">
-                  <label className="label py-0"><span className="label-text text-xs">管理费计算方式</span></label>
-                  <div className="flex gap-3 mt-1">
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input type="radio" name="mgmtFeeType" className="radio radio-sm radio-primary" checked={mgmtFeeType === 'percentage'} onChange={() => setMgmtFeeType('percentage')} />
-                      <span className="text-xs">按百分比</span>
-                    </label>
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input type="radio" name="mgmtFeeType" className="radio radio-sm radio-primary" checked={mgmtFeeType === 'fixed'} onChange={() => setMgmtFeeType('fixed')} />
-                      <span className="text-xs">固定金额</span>
-                    </label>
-                  </div>
-                </div>
-                {mgmtFeeType === 'percentage' ? (
-                  <div className="form-control">
-                    <label className="label py-0"><span className="label-text text-xs">管理费抽成 (%)</span></label>
-                    <input type="number" step="0.1" className="input input-bordered input-sm w-full" placeholder="如: 8" value={mgmtFeePct || ''} onChange={(e) => setMgmtFeePct(Number(e.target.value))} />
-                    {mgmtFeePct > 0 && (
-                      <p className="text-[10px] text-base-content mt-1">
-                        管理公司从租金中抽取 {mgmtFeePct}%，剩余 {(100 - mgmtFeePct).toFixed(1)}% 回到持有人账户
+              {/* Management Fee & Company (collapsible) */}
+              <div className="bg-base-200/50 rounded-lg overflow-hidden">
+                <button type="button" className="w-full flex items-center justify-between p-3" onClick={() => setShowMgmt(!showMgmt)}>
+                  <div>
+                    <p className="text-xs font-semibold flex items-center gap-1"><Building2 size={13} /> 🏢 管理费 / 物业管理公司</p>
+                    {!showMgmt && (serviceCharge > 0 || mgmtCompanyName) && (
+                      <p className="text-[10px] text-base-content mt-0.5">
+                        {serviceCharge > 0 ? `RM ${serviceCharge.toLocaleString()}/月` : ''}{serviceCharge > 0 && mgmtCompanyName ? ' · ' : ''}{mgmtCompanyName || ''}
                       </p>
                     )}
                   </div>
-                ) : (
-                  <div className="form-control">
-                    <label className="label py-0"><span className="label-text text-xs">固定管理费 (RM)</span></label>
-                    <input type="number" className="input input-bordered input-sm w-full" placeholder="如: 500" value={mgmtFeeAmount || ''} onChange={(e) => setMgmtFeeAmount(Number(e.target.value))} />
-                    {mgmtFeeAmount > 0 && (
-                      <p className="text-[10px] text-base-content mt-1">
-                        每月固定管理费 RM {mgmtFeeAmount.toLocaleString()}
-                      </p>
+                  <ChevronDown size={14} className={`transition-transform ${showMgmt ? 'rotate-180' : ''}`} />
+                </button>
+                {showMgmt && (
+                  <div className="px-3 pb-3 space-y-2 border-t border-base-300/50">
+                    <div className="form-control mt-2">
+                      <label className="label py-0"><span className="label-text text-xs">每月管理费 (RM)</span></label>
+                      <input type="number" className="input input-bordered input-sm w-full" placeholder="0" value={serviceCharge || ''} onChange={(e) => setServiceCharge(Number(e.target.value))} />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-0"><span className="label-text text-xs">管理公司名称</span></label>
+                      <input className="input input-bordered input-sm w-full" placeholder="公司名称" value={mgmtCompanyName} onChange={(e) => setMgmtCompanyName(e.target.value)} />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-0"><span className="label-text text-xs">管理公司地址</span></label>
+                      <input className="input input-bordered input-sm w-full" placeholder="公司地址" value={mgmtCompanyAddress} onChange={(e) => setMgmtCompanyAddress(e.target.value)} />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-0"><span className="label-text text-xs">联络电话</span></label>
+                      <input className="input input-bordered input-sm w-full" placeholder="电话号码" value={mgmtCompanyPhone} onChange={(e) => setMgmtCompanyPhone(e.target.value)} />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-0"><span className="label-text text-xs">管理费计算方式</span></label>
+                      <div className="flex gap-3 mt-1">
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input type="radio" name="mgmtFeeType" className="radio radio-sm radio-primary" checked={mgmtFeeType === 'percentage'} onChange={() => setMgmtFeeType('percentage')} />
+                          <span className="text-xs">按百分比</span>
+                        </label>
+                        <label className="flex items-center gap-1.5 cursor-pointer">
+                          <input type="radio" name="mgmtFeeType" className="radio radio-sm radio-primary" checked={mgmtFeeType === 'fixed'} onChange={() => setMgmtFeeType('fixed')} />
+                          <span className="text-xs">固定金额</span>
+                        </label>
+                      </div>
+                    </div>
+                    {mgmtFeeType === 'percentage' ? (
+                      <div className="form-control">
+                        <label className="label py-0"><span className="label-text text-xs">管理费抽成 (%)</span></label>
+                        <input type="number" step="0.1" className="input input-bordered input-sm w-full" placeholder="如: 8" value={mgmtFeePct || ''} onChange={(e) => setMgmtFeePct(Number(e.target.value))} />
+                        {mgmtFeePct > 0 && (
+                          <p className="text-[10px] text-base-content mt-1">
+                            管理公司从租金中抽取 {mgmtFeePct}%，剩余 {(100 - mgmtFeePct).toFixed(1)}% 回到持有人账户
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="form-control">
+                        <label className="label py-0"><span className="label-text text-xs">固定管理费 (RM)</span></label>
+                        <input type="number" className="input input-bordered input-sm w-full" placeholder="如: 500" value={mgmtFeeAmount || ''} onChange={(e) => setMgmtFeeAmount(Number(e.target.value))} />
+                        {mgmtFeeAmount > 0 && (
+                          <p className="text-[10px] text-base-content mt-1">
+                            每月固定管理费 RM {mgmtFeeAmount.toLocaleString()}
+                          </p>
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
