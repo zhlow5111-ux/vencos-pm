@@ -488,6 +488,16 @@ export const LISTING_TYPES: SelectOption[] = [
 ];
 
 
+export const DOC_CATEGORIES = [
+  { key: 'purchase', label: '📋 购买阶段', types: ['booking_form', 'spa', 'deed_of_assignment'] },
+  { key: 'loan', label: '🏦 贷款相关', types: ['loan_offer', 'loan_agreement', 'loan', 'charge_cert', 'indemnity'] },
+  { key: 'title', label: '📜 产权 & 评估', types: ['title', 'valuation_report', 'floor_plan'] },
+  { key: 'tenancy', label: '🔑 租约', types: ['tenancy'] },
+  { key: 'tax', label: '💰 税费 & 保险', types: ['assessment_tax', 'quit_rent', 'insurance'] },
+  { key: 'fees', label: '🔧 费用 & 维护', types: ['maintenance', 'utility', 'strata', 'renovation_invoice', 'agent_commission'] },
+  { key: 'other', label: '📁 其他', types: ['other'] },
+];
+
 export const DOC_TYPES: SelectOption[] = [
   // 购买阶段 Purchase Phase
   { value: 'booking_form', label: '预订表 Booking Form' },

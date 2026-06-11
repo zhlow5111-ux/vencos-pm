@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Save, Landmark, UserCheck, Home, Receipt, Building2, Plus, Trash2, Edit, DollarSign, FileText, Upload, Download, Eye, Clock, ChevronDown } from 'lucide-react';
-import { Property, Owner, PurchaseCost, PurchaseCostCategory, PROPERTY_TYPES, PROPERTY_STATUSES, LISTING_TYPES, BANK_CODES, OWNER_TYPES, PURCHASE_COST_CATEGORIES, DOC_TYPES, PropertyDocument, TenantHistory, ArrearsPayment, DocType, Meter, LOAN_LABEL_OPTIONS, RATE_TYPE_OPTIONS, Loan } from '../types';
+import { Property, Owner, PurchaseCost, PurchaseCostCategory, PROPERTY_TYPES, PROPERTY_STATUSES, LISTING_TYPES, BANK_CODES, OWNER_TYPES, PURCHASE_COST_CATEGORIES, DOC_TYPES, DOC_CATEGORIES, PropertyDocument, TenantHistory, ArrearsPayment, DocType, Meter, LOAN_LABEL_OPTIONS, RATE_TYPE_OPTIONS, Loan } from '../types';
 import { saveProperty, getPropertyById, getOwners, ensureFloorUnits, getPurchaseCosts, savePurchaseCost, deletePurchaseCost, getDocuments, saveDocument, deleteDocument, getTenantHistory, getRentalIncomeByProperty, getArrearsPayments, saveArrearsPayment, deleteArrearsPayment, getArrearsBalance, getMeters, saveMeter, deleteMeter, getLoanPayments, addLoanPayment, deleteLoanPayment, LoanPayment, getValuations, saveValuation, deleteValuation, Valuation, getLoansForProperty, saveLoan, deleteLoanRecord, getLoanPaymentsForLoan } from '../utils/db';
 import { calculateEstimatedBalance, calculateLoanProjection, PrepaymentRecord } from '../utils/helpers';
 import { ConfirmModal } from './ConfirmModal';
@@ -1808,35 +1808,56 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                       <p className="text-[10px] mt-0.5">使用上方表单上载文件</p>
                     </div>
                   ) : (
-                    <div className="space-y-2">
+                    <div className="space-y-1">
                       <p className="text-xs font-semibold">📄 文件列表 ({docs.length})</p>
-                      {docs.map((doc) => {
-                        const typeLabel = DOC_TYPES.find((t) => t.value === doc.doc_type)?.label || doc.doc_type;
-                        return (
-                          <div key={doc.id} className="bg-base-200/50 rounded-lg px-3 py-2 space-y-1">
-                            <div className="flex items-center gap-2">
-                              <FileText size={14} className="shrink-0 text-primary" />
-                              <div className="flex-1 min-w-0">
-                                <p className="text-xs font-medium truncate">{doc.file_name}</p>
-                                <div className="flex items-center gap-2 text-[10px] text-base-content/60">
-                                  <span className="badge badge-xs badge-ghost text-base-content/70">{typeLabel}</span>
-                                  {doc.file_size > 0 && <span>{formatFileSize(doc.file_size)}</span>}
-                                  <span>{doc.created_at?.slice(0, 10)}</span>
-                                </div>
-                              </div>
-                              <button className="btn btn-ghost btn-xs btn-square" onClick={() => handleDownloadDoc(doc)} title="下载">
-                                <Download size={12} />
-                              </button>
-                              <button className="btn btn-ghost btn-xs btn-square text-error/60 hover:text-error" onClick={() => setDeleteDocId(doc.id)} title="删除">
-                                <Trash2 size={12} />
-                              </button>
+                      {(() => {
+                        // Group docs by category
+                        const grouped: Record<string, typeof docs> = {};
+                        const catForType = (dt: string) => DOC_CATEGORIES.find(c => c.types.includes(dt))?.key || 'other';
+                        docs.forEach((doc) => {
+                          const cat = catForType(doc.doc_type);
+                          if (!grouped[cat]) grouped[cat] = [];
+                          grouped[cat].push(doc);
+                        });
+                        return DOC_CATEGORIES.filter(cat => grouped[cat.key]?.length > 0).map(cat => (
+                          <details key={cat.key} className="group" open>
+                            <summary className="cursor-pointer flex items-center gap-2 py-1.5 px-2 rounded-lg bg-base-200/60 hover:bg-base-200 text-xs font-semibold select-none">
+                              <ChevronDown size={12} className="transition-transform group-open:rotate-0 -rotate-90 shrink-0 text-base-content/50" />
+                              <span>{cat.label}</span>
+                              <span className="badge badge-xs badge-ghost ml-auto">{grouped[cat.key].length}</span>
+                            </summary>
+                            <div className="space-y-1.5 mt-1 ml-1">
+                              {grouped[cat.key].map((doc) => {
+                                const typeLabel = DOC_TYPES.find((t) => t.value === doc.doc_type)?.label || doc.doc_type;
+                                return (
+                                  <div key={doc.id} className="bg-base-200/50 rounded-lg px-3 py-2 space-y-1">
+                                    <div className="flex items-center gap-2">
+                                      <FileText size={14} className="shrink-0 text-primary" />
+                                      <div className="flex-1 min-w-0">
+                                        <p className="text-xs font-medium truncate">{doc.file_name}</p>
+                                        <div className="flex items-center gap-2 text-[10px] text-base-content/60">
+                                          <span className="badge badge-xs badge-ghost text-base-content/70">{typeLabel}</span>
+                                          {doc.file_size > 0 && <span>{formatFileSize(doc.file_size)}</span>}
+                                          <span>{doc.created_at?.slice(0, 10)}</span>
+                                        </div>
+                                      </div>
+                                      <button className="btn btn-ghost btn-xs btn-square" onClick={() => handleDownloadDoc(doc)} title="下载">
+                                        <Download size={12} />
+                                      </button>
+                                      <button className="btn btn-ghost btn-xs btn-square text-error/60 hover:text-error" onClick={() => setDeleteDocId(doc.id)} title="删除">
+                                        <Trash2 size={12} />
+                                      </button>
+                                    </div>
+                                    {doc.notes && (
+                                      <p className="text-[10px] text-base-content/60 pl-5">备注: {doc.notes}</p>
+                                    )}
+                                  </div>
+                                );
+                              })}
                             </div>
-                            {doc.notes && (
-                              <p className="text-[10px] text-base-content/60 pl-5">备注: {doc.notes}</p>
-                            )}
-                          </div>
-                        );
-                      })}
+                          </details>
+                        ));
+                      })()}
                     </div>
                   )}
                 </>
