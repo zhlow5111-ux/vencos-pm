@@ -308,7 +308,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   }
 
   const formatLastLogin = (dt: string) => {
-    if (!dt) return '从未登录';  // never logged in at all
+    if (!dt) return '从未活跃';  // never active
     try {
       const d = new Date(dt);
       const now = new Date();

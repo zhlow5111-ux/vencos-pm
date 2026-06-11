@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Users, User } from 'lucide-react';
-import { BillingSchedule, Property, FloorUnit, MessageTemplate, CHANNEL_TYPES, REMINDER_OPTIONS } from '../types';
+import { BillingSchedule, Property, FloorUnit, MessageTemplate, CHANNEL_TYPES, REMINDER_OPTIONS, GENERATE_OPTIONS, GRACE_OPTIONS } from '../types';
 import { saveSchedule, batchSaveSchedules, getProperties, getFloorUnits, getTemplates } from '../utils/db';
 
 interface ScheduleFormProps {
@@ -21,7 +21,9 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
     tenant_id: schedule?.tenant_id || 0, // actually floor_unit_id
     amount: schedule?.amount || 0,
     due_day: schedule?.due_day || 1,
+    generate_days_before: schedule?.generate_days_before ?? 0,
     reminder_days_before: schedule?.reminder_days_before ?? 3,
+    grace_days: schedule?.grace_days ?? 7,
     template_id: schedule?.template_id || 0,
     channel: schedule?.channel || 'both',
     active: schedule?.active ?? 1,
@@ -82,7 +84,9 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
         // Batch create for all tenants of this property
         const count = await batchSaveSchedules(form.property_id, floorUnits, {
           due_day: form.due_day,
+          generate_days_before: form.generate_days_before,
           reminder_days_before: form.reminder_days_before,
+          grace_days: form.grace_days,
           template_id: form.template_id,
           channel: form.channel,
         });
@@ -248,6 +252,34 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
             </div>
           )}
 
+          {/* Generate & Grace */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="form-control">
+              <label className="label py-1"><span className="label-text text-xs">📄 生成账单</span></label>
+              <select
+                className="select select-bordered select-sm w-full"
+                value={form.generate_days_before}
+                onChange={(e) => setForm({ ...form, generate_days_before: Number(e.target.value) })}
+              >
+                {GENERATE_OPTIONS.map((g) => (
+                  <option key={g.value} value={g.value}>{g.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="form-control">
+              <label className="label py-1"><span className="label-text text-xs">⏳ 宽限期</span></label>
+              <select
+                className="select select-bordered select-sm w-full"
+                value={form.grace_days}
+                onChange={(e) => setForm({ ...form, grace_days: Number(e.target.value) })}
+              >
+                {GRACE_OPTIONS.map((g) => (
+                  <option key={g.value} value={g.value}>{g.label}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+
           {/* Channel & Reminder */}
           <div className="grid grid-cols-2 gap-3">
             <div className="form-control">
@@ -263,7 +295,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
               </select>
             </div>
             <div className="form-control">
-              <label className="label py-1"><span className="label-text text-xs">提前提醒</span></label>
+              <label className="label py-1"><span className="label-text text-xs">🔔 提前提醒</span></label>
               <select
                 className="select select-bordered select-sm w-full"
                 value={form.reminder_days_before}
@@ -306,12 +338,25 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
             </div>
           )}
 
-          {/* Info */}
-          <div className="bg-info/10 rounded-lg p-3 text-xs text-info">
-            📋 排程设定后，系统将在每月 {form.due_day} 号
-            {form.reminder_days_before > 0 ? `的 ${form.reminder_days_before} 天前` : '当天'}
-            自动通过 {CHANNEL_TYPES.find((c) => c.value === form.channel)?.label} 发送提醒。
-            {mode === 'all' && ` (${occupiedFloors.length} 个租户)`}
+          {/* Info — timeline flow */}
+          <div className="bg-base-200/60 rounded-lg p-3 text-xs text-base-content/70 space-y-1">
+            <p className="font-semibold text-base-content/80 mb-1.5">📋 排程流程预览</p>
+            {form.reminder_days_before > 0 && (
+              <p>🔔 到期前 <b>{form.reminder_days_before} 天</b> → 发送提前提醒</p>
+            )}
+            {form.generate_days_before > 0 ? (
+              <p>📄 到期前 <b>{form.generate_days_before} 天</b> → 生成账单并发送</p>
+            ) : (
+              <p>📄 每月 <b>{form.due_day} 号</b> → 生成账单并发送</p>
+            )}
+            <p>📅 每月 <b>{form.due_day} 号</b> → 账单到期日</p>
+            {form.grace_days > 0 && (
+              <p>⏳ 到期后 <b>{form.grace_days} 天</b> → 宽限期截止</p>
+            )}
+            <p className="text-[10px] text-base-content/40 pt-1">
+              渠道: {CHANNEL_TYPES.find((c) => c.value === form.channel)?.label}
+              {mode === 'all' && ` · ${occupiedFloors.length} 个租户`}
+            </p>
           </div>
 
           {/* Submit */}

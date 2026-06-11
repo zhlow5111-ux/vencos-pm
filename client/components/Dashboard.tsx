@@ -738,24 +738,23 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onQuickAdd, us
       {/* Section label */}
       <p className="text-[11px] font-semibold text-base-content/30 tracking-wider uppercase px-1">运营概览</p>
 
-      {/* Stat cards — each with unique accent color */}
+      {/* Stat cards — clean uniform style */}
       <div className="grid grid-cols-3 gap-3">
         {[
-          { label: '全部物业', value: s.totalProperties, icon: <Building2 size={16} strokeWidth={1.5} />, page: 'properties' as Page, bg: 'rgba(19,58,81,0.08)', color: '#133A51' },
-          { label: '空置物业', value: s.availableProperties, icon: <Home size={16} strokeWidth={1.5} />, page: 'properties' as Page, bg: 'rgba(245,158,11,0.08)', color: '#d97706' },
-          { label: '租赁中', value: s.activeRentals, icon: <Key size={16} strokeWidth={1.5} />, page: 'rentals' as Page, bg: 'rgba(34,197,94,0.08)', color: '#16a34a' },
-          { label: '已成交', value: s.completedSales, icon: <TrendingUp size={16} strokeWidth={1.5} />, page: 'sales' as Page, bg: 'rgba(190,95,40,0.08)', color: '#BE5F28' },
-          { label: '客户总数', value: s.totalClients, icon: <Users size={16} strokeWidth={1.5} />, page: 'clients' as Page, bg: 'rgba(59,130,246,0.08)', color: '#3b82f6' },
-          { label: '处理中', value: s.pendingDeals, icon: <Clock size={16} strokeWidth={1.5} />, page: 'sales' as Page, bg: 'rgba(210,155,97,0.08)', color: '#D29B61' },
+          { label: '全部物业', value: s.totalProperties, icon: <Building2 size={16} strokeWidth={1.5} />, page: 'properties' as Page },
+          { label: '空置物业', value: s.availableProperties, icon: <Home size={16} strokeWidth={1.5} />, page: 'properties' as Page },
+          { label: '租赁中', value: s.activeRentals, icon: <Key size={16} strokeWidth={1.5} />, page: 'rentals' as Page },
+          { label: '已成交', value: s.completedSales, icon: <TrendingUp size={16} strokeWidth={1.5} />, page: 'sales' as Page },
+          { label: '客户总数', value: s.totalClients, icon: <Users size={16} strokeWidth={1.5} />, page: 'clients' as Page },
+          { label: '处理中', value: s.pendingDeals, icon: <Clock size={16} strokeWidth={1.5} />, page: 'sales' as Page },
         ].map((card) => (
           <button
             key={card.label}
-            className="rounded-2xl p-3 text-center shadow-sm hover:shadow-md transition-all duration-200 active:scale-[0.97] border"
-            style={{ background: card.bg, borderColor: card.bg.replace('0.08', '0.15') }}
+            className="bg-base-100 border border-base-200 rounded-2xl p-3 text-center shadow-sm hover:shadow-md transition-all duration-200 active:scale-[0.97]"
             onClick={() => onNavigate(card.page)}
           >
-            <div className="w-8 h-8 rounded-lg flex items-center justify-center mx-auto mb-2" style={{ background: card.bg.replace('0.08', '0.18') }}>
-              <span style={{ color: card.color }}>{card.icon}</span>
+            <div className="w-8 h-8 rounded-lg bg-base-200/60 flex items-center justify-center mx-auto mb-2">
+              <span className="text-base-content/50">{card.icon}</span>
             </div>
             <p className="text-lg font-bold text-base-content leading-tight">{card.value}</p>
             <p className="text-[10px] text-base-content/40 font-medium mt-0.5">{card.label}</p>

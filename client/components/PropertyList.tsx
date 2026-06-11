@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Plus, Search, Edit, Trash2, Landmark, UserCheck, Save, AlertTriangle, Building2, CalendarDays, Phone, X, CheckSquare, DollarSign, Construction, LogOut, Download } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, Landmark, UserCheck, Save, AlertTriangle, Building2, CalendarDays, Phone, X, CheckSquare, DollarSign, Construction, LogOut, Download, ChevronDown } from 'lucide-react';
 import { Property, FloorUnit, RenovationExpense, PROPERTY_TYPES, PROPERTY_STATUSES, RENOVATION_CATEGORIES, RecurringCharge, COMMON_CHARGES } from '../types';
 import { getProperties, deleteProperty, getAllFloorUnits, saveFloorUnit, getFloorUnits, getRenovationExpenses, saveRenovationExpense, deleteRenovationExpense, getTotalPurchaseCosts, archiveTenantToHistory, getRecurringCharges, saveRecurringCharge, deleteRecurringCharge, getTenancyCharges, saveTenancyCharge, deleteTenancyCharge, readFileFromDiskChunked, TenancyCharge, getAllLatestValuations } from '../utils/db';
 import { formatCurrency, calculateEstimatedBalance } from '../utils/helpers';
@@ -52,6 +52,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
   const [tenantForm, setTenantForm] = useState<TenantFormData | null>(null);
   const [savingTenant, setSavingTenant] = useState(false);
   const [showAltAddr, setShowAltAddr] = useState(false);
+  const [showDirector, setShowDirector] = useState(false);
 
   // Recurring charges in tenant form
   const [tenantRcList, setTenantRcList] = useState<RecurringCharge[]>([]);
@@ -775,47 +776,55 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                     />
                   )}
                 </div>
-                <div className="border-t border-base-300 pt-2 mt-2 space-y-2">
-                  <p className="text-xs font-semibold text-base-content">董事/负责人资料</p>
-                  <div>
-                    <label className="text-xs text-base-content mb-0.5 block">姓名</label>
-                    <input
-                      className="input input-bordered input-sm w-full"
-                      placeholder="董事/负责人全名"
-                      value={tenantForm.director_name}
-                      onChange={(e) => setTenantForm({ ...tenantForm, director_name: e.target.value })}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="text-xs text-base-content mb-0.5 block">IC / 护照号码</label>
-                      <input
-                        className="input input-bordered input-sm w-full"
-                        placeholder="身份证号码"
-                        value={tenantForm.director_ic}
-                        onChange={(e) => setTenantForm({ ...tenantForm, director_ic: e.target.value })}
-                      />
+                <div className="border-t border-base-300 pt-2 mt-2">
+                  <button type="button" className="flex items-center gap-1.5 w-full text-left" onClick={() => setShowDirector(!showDirector)}>
+                    <ChevronDown size={14} className={`text-base-content/40 transition-transform ${showDirector ? '' : '-rotate-90'}`} />
+                    <span className="text-xs font-semibold text-base-content">董事/负责人资料</span>
+                    {!showDirector && tenantForm.director_name && <span className="text-[10px] text-base-content/40 ml-auto">{tenantForm.director_name}</span>}
+                  </button>
+                  {showDirector && (
+                    <div className="space-y-2 mt-2">
+                      <div>
+                        <label className="text-xs text-base-content mb-0.5 block">姓名</label>
+                        <input
+                          className="input input-bordered input-sm w-full"
+                          placeholder="董事/负责人全名"
+                          value={tenantForm.director_name}
+                          onChange={(e) => setTenantForm({ ...tenantForm, director_name: e.target.value })}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-base-content mb-0.5 block">IC / 护照号码</label>
+                          <input
+                            className="input input-bordered input-sm w-full"
+                            placeholder="身份证号码"
+                            value={tenantForm.director_ic}
+                            onChange={(e) => setTenantForm({ ...tenantForm, director_ic: e.target.value })}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-base-content mb-0.5 block">联络电话</label>
+                          <input
+                            className="input input-bordered input-sm w-full"
+                            placeholder="012-3456789"
+                            value={tenantForm.director_phone}
+                            onChange={(e) => setTenantForm({ ...tenantForm, director_phone: e.target.value })}
+                          />
+                        </div>
+                      </div>
+                      <div>
+                        <label className="text-xs text-base-content mb-0.5 block">备注</label>
+                        <textarea
+                          className="textarea textarea-bordered textarea-sm w-full"
+                          rows={2}
+                          placeholder="董事/负责人相关备注"
+                          value={tenantForm.director_notes}
+                          onChange={(e) => setTenantForm({ ...tenantForm, director_notes: e.target.value })}
+                        />
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-xs text-base-content mb-0.5 block">联络电话</label>
-                      <input
-                        className="input input-bordered input-sm w-full"
-                        placeholder="012-3456789"
-                        value={tenantForm.director_phone}
-                        onChange={(e) => setTenantForm({ ...tenantForm, director_phone: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <label className="text-xs text-base-content mb-0.5 block">备注</label>
-                    <textarea
-                      className="textarea textarea-bordered textarea-sm w-full"
-                      rows={2}
-                      placeholder="董事/负责人相关备注"
-                      value={tenantForm.director_notes}
-                      onChange={(e) => setTenantForm({ ...tenantForm, director_notes: e.target.value })}
-                    />
-                  </div>
+                  )}
                 </div>
                 <div className="border-t border-base-300 pt-2 mt-2 space-y-2">
                   <p className="text-xs font-semibold text-base-content">🏦 银行资料</p>

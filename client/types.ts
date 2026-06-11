@@ -392,7 +392,9 @@ export interface BillingSchedule {
   tenant_email: string;
   amount: number;
   due_day: number;
+  generate_days_before: number;
   reminder_days_before: number;
+  grace_days: number;
   template_id: number;
   template_name: string;
   channel: ChannelType;
@@ -606,10 +608,32 @@ export const CHANNEL_TYPES: SelectOption[] = [
 ];
 
 export const REMINDER_OPTIONS: SelectOption[] = [
-  { value: '0', label: '当天发送' },
+  { value: '0', label: '不提醒' },
   { value: '1', label: '提前1天' },
   { value: '3', label: '提前3天' },
   { value: '7', label: '提前7天' },
+  { value: '14', label: '提前14天' },
+  { value: '21', label: '提前21天' },
+  { value: '30', label: '提前30天' },
+];
+
+export const GENERATE_OPTIONS: SelectOption[] = [
+  { value: '0', label: '到期当天' },
+  { value: '3', label: '提前3天' },
+  { value: '5', label: '提前5天' },
+  { value: '7', label: '提前7天' },
+  { value: '10', label: '提前10天' },
+  { value: '14', label: '提前14天' },
+  { value: '20', label: '提前20天' },
+];
+
+export const GRACE_OPTIONS: SelectOption[] = [
+  { value: '0', label: '无宽限' },
+  { value: '3', label: '3天' },
+  { value: '5', label: '5天' },
+  { value: '7', label: '7天' },
+  { value: '10', label: '10天' },
+  { value: '14', label: '14天' },
 ];
 
 // ========== Purchase Cost ==========
