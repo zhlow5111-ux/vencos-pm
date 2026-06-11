@@ -308,7 +308,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   }
 
   const formatLastLogin = (dt: string) => {
-    if (!dt) return '从未登录';
+    if (!dt) return '从未登录';  // never logged in at all
     try {
       const d = new Date(dt);
       const now = new Date();
@@ -606,7 +606,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                         {u.username && <span>@{u.username}</span>}
                         {u.role === 'stakeholder' && <span>· {u.access_count ?? 0} 物业</span>}
                         {u.must_change_pin === 1 && <span className="badge badge-xs badge-outline badge-warning">待改密</span>}
-                        <span className="text-base-content/40">· 🕐 {formatLastLogin(u.last_login || '')}</span>
+                        <span className="text-base-content/40">· 🕐 {formatLastLogin(u.last_active || u.last_login || '')}</span>
                       </div>
                     </div>
                   </div>

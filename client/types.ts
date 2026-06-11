@@ -167,6 +167,7 @@ export interface SystemUser {
   // Virtual
   access_count?: number;
   last_login?: string;
+  last_active?: string;
 }
 
 

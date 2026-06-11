@@ -2,7 +2,7 @@ import { Property, FloorUnit, Client, SaleDeal, RentalDeal, DashboardStats, Invo
 import { escapeSQL, nowISO, generateId } from './helpers';
 
 // ========== Init DB ==========
-const SCHEMA_VERSION = 24;
+const SCHEMA_VERSION = 25;
 
 export async function initDB(): Promise<void> {
   // Step 1: Check schema version (2 SQL calls)
@@ -456,6 +456,11 @@ export async function initDB(): Promise<void> {
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_invoices ADD COLUMN penalty_parent_id INTEGER NOT NULL DEFAULT 0`); } catch {}
   }
 
+  // V25: Activity tracking
+  if (currentVer < 25) {
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_users ADD COLUMN last_active TEXT NOT NULL DEFAULT ''`); } catch {}
+  }
+
   // Mark schema as current version
   await window.tasklet.sqlExec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);
 }
@@ -705,7 +710,7 @@ export async function getSystemUsers(roleFilter?: string): Promise<SystemUser[]>
   let where = '';
   if (roleFilter) where = `WHERE u.role='${escapeSQL(roleFilter)}'`;
   const rows = await window.tasklet.sqlQuery(`
-    SELECT u.id, u.username, u.name, u.role, u.phone, u.email, u.notes, u.active, u.must_change_pin, u.created_at, u.updated_at, u.last_login,
+    SELECT u.id, u.username, u.name, u.role, u.phone, u.email, u.notes, u.active, u.must_change_pin, u.created_at, u.updated_at, u.last_login, u.last_active,
       (SELECT COUNT(*) FROM vc_user_owner_access WHERE user_id = u.id) as access_count
     FROM vc_users u
     ${where}
@@ -719,6 +724,7 @@ export async function getSystemUsers(roleFilter?: string): Promise<SystemUser[]>
     created_at: String(r.created_at || ''), updated_at: String(r.updated_at || ''),
     access_count: Number(r.access_count ?? 0),
     last_login: String(r.last_login || ''),
+    last_active: String(r.last_active || ''),
   }));
 }
 
@@ -2372,7 +2378,7 @@ export async function verifyLogin(username: string, pin: string): Promise<{id: n
   const r = rows[0] as Record<string, unknown>;
   // Record last login time
   const now = nowISO();
-  try { await window.tasklet.sqlExec(`UPDATE vc_users SET last_login='${now}' WHERE id=${Number(r.id)}`); } catch {}
+  try { await window.tasklet.sqlExec(`UPDATE vc_users SET last_login='${now}', last_active='${now}' WHERE id=${Number(r.id)}`); } catch {}
   return { id: Number(r.id), name: String(r.name), role: String(r.role), phone: String(r.phone || ''), must_change_pin: Number(r.must_change_pin ?? 0) };
 }
 
@@ -2620,4 +2626,16 @@ export async function generatePenaltyInvoices(): Promise<number> {
     generated++;
   }
   return generated;
+}
+
+// ========== Activity Tracking ==========
+let _lastActivityTs = 0;
+export async function updateLastActive(userId: number): Promise<void> {
+  const now = Date.now();
+  // Debounce: update at most once per 60 seconds
+  if (now - _lastActivityTs < 60000) return;
+  _lastActivityTs = now;
+  try {
+    await window.tasklet.sqlExec(`UPDATE vc_users SET last_active='${nowISO()}' WHERE id=${userId}`);
+  } catch {}
 }

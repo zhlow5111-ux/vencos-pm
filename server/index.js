@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 24;
+  const SCHEMA_VERSION = 25;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -242,7 +242,9 @@ function initDatabase() {
         phone TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '',
         email TEXT NOT NULL DEFAULT '', notes TEXT NOT NULL DEFAULT '',
         active INTEGER NOT NULL DEFAULT 1, must_change_pin INTEGER NOT NULL DEFAULT 0,
-        created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+        created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT '',
+        last_login TEXT NOT NULL DEFAULT '', last_active TEXT NOT NULL DEFAULT '',
+        session_revoked_at TEXT NOT NULL DEFAULT ''
       )`,
       `CREATE TABLE IF NOT EXISTS vc_whatsapp_config (
         id INTEGER PRIMARY KEY, phone_number_id TEXT NOT NULL DEFAULT '',
@@ -412,6 +414,11 @@ function initDatabase() {
     safeExec(`ALTER TABLE vc_invoices ADD COLUMN penalty_parent_id INTEGER NOT NULL DEFAULT 0`);
   }
 
+  // V25: Activity tracking - last_active column
+  if (currentVer < 25) {
+    safeExec(`ALTER TABLE vc_users ADD COLUMN last_active TEXT NOT NULL DEFAULT ''`);
+  }
+
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);
   console.log(`DB migration to v${SCHEMA_VERSION} complete.`);
 }
@@ -421,6 +428,15 @@ initDatabase();
 
 // ========== Middleware ==========
 app.use(express.json({ limit: '100mb' }));
+
+// Activity tracking — debounce per user (update at most once per 60 seconds)
+const _lastActivityUpdate = {};
+function trackActivity(userId) {
+  const now = Date.now();
+  if (_lastActivityUpdate[userId] && now - _lastActivityUpdate[userId] < 60000) return;
+  _lastActivityUpdate[userId] = now;
+  try { db.prepare('UPDATE vc_users SET last_active=? WHERE id=?').run(new Date().toISOString(), userId); } catch(e) {}
+}
 
 // Auth middleware
 function authMiddleware(req, res, next) {
@@ -442,6 +458,7 @@ function authMiddleware(req, res, next) {
       }
     } catch (e) { /* column may not exist yet, skip check */ }
     req.user = decoded;
+    trackActivity(decoded.id);
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Invalid or expired token' });
@@ -459,8 +476,9 @@ app.post('/api/auth/login', (req, res) => {
 
   if (!user) return res.status(401).json({ error: 'Invalid credentials' });
 
-  // Record last login time
-  try { db.prepare('UPDATE vc_users SET last_login=? WHERE id=?').run(new Date().toISOString(), user.id); } catch(e) {}
+  // Record last login + last active time
+  const loginNow = new Date().toISOString();
+  try { db.prepare('UPDATE vc_users SET last_login=?, last_active=? WHERE id=?').run(loginNow, loginNow, user.id); } catch(e) {}
 
   const token = jwt.sign(
     { id: user.id, name: user.name, role: user.role, phone: user.phone || '' },
