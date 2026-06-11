@@ -773,14 +773,16 @@ app.post('/api/ai-valuation', authMiddleware, async (req, res) => {
 // ========== Diagnostic (temporary) ==========
 app.get('/api/diag', (req, res) => {
   try {
-    const meta = db.prepare('SELECT * FROM vc_meta').all();
-    const loanCount = db.prepare('SELECT COUNT(*) as cnt FROM vc_loans').get();
-    const loans = db.prepare('SELECT id, property_id, loan_label, bank_name, loan_amount, loan_balance FROM vc_loans LIMIT 20').all();
-    const propsWithLoan = db.prepare(`SELECT id, name, bank_name, loan_amount, loan_balance, monthly_repayment FROM vc_properties WHERE loan_amount > 0 OR COALESCE(bank_name, '') != '' OR monthly_repayment > 0 LIMIT 20`).all();
-    const propCount = db.prepare('SELECT COUNT(*) as cnt FROM vc_properties').get();
-    const loanCols = db.prepare("PRAGMA table_info(vc_loans)").all().map(c => c.name);
-    const propCols = db.prepare("PRAGMA table_info(vc_properties)").all().map(c => c.name);
-    res.json({ meta, loanCount, loans, propsWithLoan, propCount, loanCols, propCols: propCols.filter(c => c.includes('loan') || c.includes('bank') || c.includes('spa')) });
+    const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map(t => t.name);
+    let meta = [], loanCount = null, loans = [], propsWithLoan = [], propCount = null, loanCols = [], propCols = [];
+    try { meta = db.prepare('SELECT * FROM vc_meta').all(); } catch {}
+    try { loanCount = db.prepare('SELECT COUNT(*) as cnt FROM vc_loans').get(); } catch {}
+    try { loans = db.prepare('SELECT id, property_id, loan_label, bank_name, loan_amount, loan_balance FROM vc_loans LIMIT 30').all(); } catch {}
+    try { propsWithLoan = db.prepare('SELECT id, name, bank_name, loan_amount, loan_balance, monthly_repayment FROM vc_properties WHERE loan_amount > 0 OR bank_name != \"\" OR monthly_repayment > 0 LIMIT 30').all(); } catch {}
+    try { propCount = db.prepare('SELECT COUNT(*) as cnt FROM vc_properties').get(); } catch {}
+    try { loanCols = db.prepare("PRAGMA table_info(vc_loans)").all().map(c => c.name); } catch {}
+    try { propCols = db.prepare("PRAGMA table_info(vc_properties)").all().map(c => c.name); } catch {}
+    res.json({ tables, meta, loanCount, loans, propsWithLoan, propCount, loanCols, propCols });
   } catch (err) {
     res.json({ error: err.message });
   }
