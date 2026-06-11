@@ -90,6 +90,9 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
 
   // Rental income tax calculator state
   const [showRentalTax, setShowRentalTax] = useState(false);
+  const [rtYear, setRtYear] = useState(String(new Date().getFullYear() - 1));
+  const [rtOtherIncome, setRtOtherIncome] = useState('');
+  const [rtReliefs, setRtReliefs] = useState('9000'); // basic personal relief
   const [hakmilikNo, setHakmilikNo] = useState(property?.hakmilik_no || '');
   const [landTaxRef, setLandTaxRef] = useState(property?.land_tax_ref || '');
   const [assessmentTaxRef, setAssessmentTaxRef] = useState(property?.assessment_tax_ref || '');
@@ -1635,6 +1638,13 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                       {rentalIncome.totalCollected === 0 && rentalIncome.invoiceCount === 0 && (
                         <p className="text-[10px] text-base-content/60">暂无已付款的账单记录</p>
                       )}
+
+                      {/* Rental Income Tax Calculator button */}
+                      {rentalIncome.totalCollected > 0 && (
+                        <button type="button" className="btn btn-xs btn-outline btn-warning w-full mt-1 gap-1" onClick={() => setShowRentalTax(true)}>
+                          📊 租金收入税估算器
+                        </button>
+                      )}
                     </div>
                   )}
 
@@ -1857,6 +1867,119 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
         </div>
       </div>
       <div className="modal-backdrop bg-black/40" onClick={onClose} />
+
+      {/* Rental Income Tax Calculator Modal */}
+      {showRentalTax && rentalIncome && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4" onClick={() => setShowRentalTax(false)}>
+          <div className="bg-white rounded-xl max-w-md w-full max-h-[85vh] overflow-auto p-4 space-y-3" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold">📊 租金收入税估算</h3>
+              <button className="btn btn-sm btn-ghost" onClick={() => setShowRentalTax(false)}>✕</button>
+            </div>
+
+            <div className="space-y-2">
+              <div>
+                <label className="text-xs text-base-content/60 block">估税年份</label>
+                <input type="number" className="input input-bordered input-sm w-full" value={rtYear} onChange={e => setRtYear(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs text-base-content/60 block">其他收入 (RM, 选填)</label>
+                <input type="number" className="input input-bordered input-sm w-full" placeholder="如: 薪资收入等" value={rtOtherIncome} onChange={e => setRtOtherIncome(e.target.value)} />
+              </div>
+              <div>
+                <label className="text-xs text-base-content/60 block">个人减免 (RM)</label>
+                <input type="number" className="input input-bordered input-sm w-full" value={rtReliefs} onChange={e => setRtReliefs(e.target.value)} />
+                <p className="text-[10px] text-base-content/50 mt-0.5">个人减免默认 RM 9,000</p>
+              </div>
+            </div>
+
+            {(() => {
+              const yearStr = rtYear;
+              // Filter monthly breakdown for selected year
+              const yearlyRent = rentalIncome.monthlyBreakdown
+                .filter(m => m.month.startsWith(yearStr))
+                .reduce((s, m) => s + m.amount, 0);
+
+              // Deductible expenses for rental
+              const monthlyLoanRepayment = Number(property?.monthly_repayment || 0);
+              const annualLoanInterest = (() => {
+                const balance = Number(property?.loan_balance || property?.loan_amount || 0);
+                const rate = Number(property?.loan_interest_rate || 0);
+                return Math.round(balance * rate / 100);
+              })();
+              const annualPropertyTax = (Number(property?.land_tax || 0)) + (Number(property?.assessment_tax || 0) * 2);
+              const annualMgmt = (Number(property?.service_charge || 0)) * 12;
+              const annualInsurance = 0;
+              const totalDeductible = annualLoanInterest + annualPropertyTax + annualMgmt + annualInsurance;
+
+              const netRentalIncome = Math.max(0, yearlyRent - totalDeductible);
+              const otherInc = Number(rtOtherIncome) || 0;
+              const totalIncome = netRentalIncome + otherInc;
+              const reliefs = Number(rtReliefs) || 9000;
+              const chargeable = Math.max(0, totalIncome - reliefs);
+
+              // Malaysia individual tax rates 2024
+              const calcTax = (income: number) => {
+                const brackets = [
+                  { limit: 5000, rate: 0 },
+                  { limit: 20000, rate: 1 },
+                  { limit: 35000, rate: 3 },
+                  { limit: 50000, rate: 6 },
+                  { limit: 70000, rate: 11 },
+                  { limit: 100000, rate: 19 },
+                  { limit: 400000, rate: 25 },
+                  { limit: 600000, rate: 26 },
+                  { limit: 2000000, rate: 28 },
+                  { limit: Infinity, rate: 30 },
+                ];
+                let tax = 0, prev = 0;
+                for (const b of brackets) {
+                  if (income <= prev) break;
+                  const taxableInBracket = Math.min(income, b.limit) - prev;
+                  tax += taxableInBracket * b.rate / 100;
+                  prev = b.limit;
+                }
+                return Math.round(tax);
+              };
+
+              const taxAmount = calcTax(chargeable);
+              const effectiveRate = chargeable > 0 ? (taxAmount / chargeable * 100).toFixed(1) : '0';
+
+              return (
+                <div className="bg-base-200 rounded-lg p-3 space-y-2">
+                  <p className="text-xs font-semibold">{yearStr} 年估算</p>
+                  <div className="grid grid-cols-2 gap-1 text-xs">
+                    <span className="text-base-content/60">年度租金收入:</span>
+                    <span className="text-right font-medium">RM {yearlyRent.toLocaleString()}</span>
+                    {yearlyRent === 0 && <><span className="col-span-2 text-[10px] text-warning">⚠️ 该年份暂无租金收入记录</span></>}
+                  </div>
+                  <div className="border-t border-base-300 pt-1 grid grid-cols-2 gap-1 text-xs">
+                    <span className="text-base-content/60 font-medium">可扣除费用:</span><span></span>
+                    {annualLoanInterest > 0 && <><span className="text-base-content/50 pl-2">贷款利息:</span><span className="text-right">− RM {annualLoanInterest.toLocaleString()}</span></>}
+                    {annualPropertyTax > 0 && <><span className="text-base-content/50 pl-2">物业税费:</span><span className="text-right">− RM {annualPropertyTax.toLocaleString()}</span></>}
+                    {annualMgmt > 0 && <><span className="text-base-content/50 pl-2">管理费:</span><span className="text-right">− RM {annualMgmt.toLocaleString()}</span></>}
+                    <span className="text-base-content/60">净租金收入:</span><span className="text-right font-medium">RM {netRentalIncome.toLocaleString()}</span>
+                  </div>
+                  <div className="border-t border-base-300 pt-1 grid grid-cols-2 gap-1 text-xs">
+                    {otherInc > 0 && <><span className="text-base-content/60">其他收入:</span><span className="text-right">+ RM {otherInc.toLocaleString()}</span></>}
+                    <span className="text-base-content/60">总收入:</span><span className="text-right">RM {totalIncome.toLocaleString()}</span>
+                    <span className="text-base-content/60">个人减免:</span><span className="text-right">− RM {reliefs.toLocaleString()}</span>
+                    <span className="text-base-content/60">应税收入:</span><span className="text-right font-medium">RM {chargeable.toLocaleString()}</span>
+                  </div>
+                  <div className="border-t border-base-300 pt-2 flex items-center justify-between">
+                    <div>
+                      <span className="text-sm font-bold">预估税额:</span>
+                      <span className="text-[10px] text-base-content/60 ml-1">有效税率 {effectiveRate}%</span>
+                    </div>
+                    <span className={`text-lg font-bold ${taxAmount > 0 ? 'text-error' : 'text-success'}`}>RM {taxAmount.toLocaleString()}</span>
+                  </div>
+                  <p className="text-[10px] text-base-content/50">⚠️ 此为简化估算，实际报税请咨询会计师。贷款利息已按年化估算。</p>
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* RPGT Calculator Modal */}
       {showRpgt && (
