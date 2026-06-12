@@ -84,6 +84,7 @@ export async function initDB(): Promise<void> {
         id INTEGER PRIMARY KEY, property_id INTEGER NOT NULL DEFAULT 0,
         tenant_id INTEGER NOT NULL DEFAULT 0, amount REAL NOT NULL DEFAULT 0,
         due_day INTEGER NOT NULL DEFAULT 1, reminder_days_before INTEGER NOT NULL DEFAULT 3,
+        generate_day INTEGER NOT NULL DEFAULT 0, reminder_day INTEGER NOT NULL DEFAULT 0,
         template_id INTEGER NOT NULL DEFAULT 0, channel TEXT NOT NULL DEFAULT 'both',
         active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       )`,
@@ -527,6 +528,9 @@ export async function initDB(): Promise<void> {
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_billing_schedules ADD COLUMN generate_days_before INTEGER NOT NULL DEFAULT 0`); } catch {}
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_billing_schedules ADD COLUMN grace_days INTEGER NOT NULL DEFAULT 7`); } catch {}
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_floor_units ADD COLUMN tenant_email TEXT NOT NULL DEFAULT ''`); } catch {}
+    // V31: replace generate_days_before/reminder_days_before with day-of-month columns
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_billing_schedules ADD COLUMN generate_day INTEGER NOT NULL DEFAULT 0`); } catch {}
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_billing_schedules ADD COLUMN reminder_day INTEGER NOT NULL DEFAULT 0`); } catch {}
     // Add spa_date to properties (V29)
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_properties ADD COLUMN spa_date TEXT NOT NULL DEFAULT ''`); } catch {}
 
@@ -1467,8 +1471,8 @@ export async function saveSchedule(s: Partial<BillingSchedule>): Promise<void> {
         tenant_id=${s.tenant_id || 0},
         amount=${amt},
         due_day=${s.due_day || 1},
-        generate_days_before=${s.generate_days_before || 0},
-        reminder_days_before=${s.reminder_days_before || 0},
+        generate_day=${s.generate_day || 0},
+        reminder_day=${s.reminder_day || 0},
         grace_days=${s.grace_days ?? 7},
         template_id=${s.template_id || 0},
         channel='${s.channel || 'both'}',
@@ -1479,13 +1483,13 @@ export async function saveSchedule(s: Partial<BillingSchedule>): Promise<void> {
   } else {
     const id = generateId();
     await window.tasklet.sqlExec(`
-      INSERT INTO vc_billing_schedules (id, property_id, tenant_id, amount, due_day, generate_days_before, reminder_days_before, grace_days, template_id, channel, active, created_at, updated_at)
-      VALUES (${id}, ${s.property_id || 0}, ${s.tenant_id || 0}, ${amt}, ${s.due_day || 1}, ${s.generate_days_before || 0}, ${s.reminder_days_before || 0}, ${s.grace_days ?? 7}, ${s.template_id || 0}, '${s.channel || 'both'}', ${s.active ?? 1}, '${now}', '${now}')
+      INSERT INTO vc_billing_schedules (id, property_id, tenant_id, amount, due_day, generate_day, reminder_day, grace_days, template_id, channel, active, created_at, updated_at)
+      VALUES (${id}, ${s.property_id || 0}, ${s.tenant_id || 0}, ${amt}, ${s.due_day || 1}, ${s.generate_day || 0}, ${s.reminder_day || 0}, ${s.grace_days ?? 7}, ${s.template_id || 0}, '${s.channel || 'both'}', ${s.active ?? 1}, '${now}', '${now}')
     `);
   }
 }
 
-export async function batchSaveSchedules(propertyId: number, floorUnits: FloorUnit[], settings: { due_day: number; generate_days_before: number; reminder_days_before: number; grace_days: number; template_id: number; channel: string }): Promise<number> {
+export async function batchSaveSchedules(propertyId: number, floorUnits: FloorUnit[], settings: { due_day: number; generate_day: number; reminder_day: number; grace_days: number; template_id: number; channel: string }): Promise<number> {
   let count = 0;
   for (const fu of floorUnits) {
     if (!fu.tenant_name) continue;
@@ -1493,8 +1497,8 @@ export async function batchSaveSchedules(propertyId: number, floorUnits: FloorUn
     const id = generateId();
     const now = nowISO();
     await window.tasklet.sqlExec(`
-      INSERT INTO vc_billing_schedules (id, property_id, tenant_id, amount, due_day, generate_days_before, reminder_days_before, grace_days, template_id, channel, active, created_at, updated_at)
-      VALUES (${id}, ${propertyId}, ${fu.id}, ${amt}, ${settings.due_day}, ${settings.generate_days_before}, ${settings.reminder_days_before}, ${settings.grace_days}, ${settings.template_id}, '${settings.channel}', 1, '${now}', '${now}')
+      INSERT INTO vc_billing_schedules (id, property_id, tenant_id, amount, due_day, generate_day, reminder_day, grace_days, template_id, channel, active, created_at, updated_at)
+      VALUES (${id}, ${propertyId}, ${fu.id}, ${amt}, ${settings.due_day}, ${settings.generate_day}, ${settings.reminder_day}, ${settings.grace_days}, ${settings.template_id}, '${settings.channel}', 1, '${now}', '${now}')
     `);
     count++;
   }

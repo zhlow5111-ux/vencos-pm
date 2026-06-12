@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 30;
+  const SCHEMA_VERSION = 31;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -107,6 +107,7 @@ function initDatabase() {
         id INTEGER PRIMARY KEY, property_id INTEGER NOT NULL DEFAULT 0,
         tenant_id INTEGER NOT NULL DEFAULT 0, amount REAL NOT NULL DEFAULT 0,
         due_day INTEGER NOT NULL DEFAULT 1, reminder_days_before INTEGER NOT NULL DEFAULT 3,
+        generate_day INTEGER NOT NULL DEFAULT 0, reminder_day INTEGER NOT NULL DEFAULT 0,
         template_id INTEGER NOT NULL DEFAULT 0, channel TEXT NOT NULL DEFAULT 'both',
         active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       )`,
@@ -522,6 +523,12 @@ function initDatabase() {
     try { db.exec(`ALTER TABLE vc_billing_schedules ADD COLUMN generate_days_before INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
     try { db.exec(`ALTER TABLE vc_billing_schedules ADD COLUMN grace_days INTEGER NOT NULL DEFAULT 7`); } catch (e) {}
     try { db.exec(`ALTER TABLE vc_floor_units ADD COLUMN tenant_email TEXT NOT NULL DEFAULT ''`); } catch (e) {}
+  }
+
+  // V31: replace days-before with day-of-month columns for generate & reminder
+  if (currentVer < 31) {
+    try { db.exec(`ALTER TABLE vc_billing_schedules ADD COLUMN generate_day INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
+    try { db.exec(`ALTER TABLE vc_billing_schedules ADD COLUMN reminder_day INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
   }
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);

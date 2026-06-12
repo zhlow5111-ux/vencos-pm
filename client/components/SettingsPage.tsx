@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Mail, MessageSquare, Calendar, Power, PowerOff, Trash2, Edit2, Wifi, WifiOff, Bell, Building2, User, Shield, Key, Users, UserPlus, Save, X, Eye, EyeOff, Send, CheckCircle, XCircle, Clock, LogOut, MapPin, Briefcase, Phone, Navigation } from 'lucide-react';
-import { MessageTemplate, BillingSchedule, Owner, SystemUser, UserRole, Agent, CHANNEL_TYPES, REMINDER_OPTIONS, OWNER_TYPES, USER_ROLES } from '../types';
+import { MessageTemplate, BillingSchedule, Owner, SystemUser, UserRole, Agent, CHANNEL_TYPES, OWNER_TYPES, USER_ROLES } from '../types';
 import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog, getProperties, addUserAccess, addUserOwnerAccess, forceLogoutUser, getAgents, saveAgent, deleteAgent, getAgentsByArea, getAllFloorUnits, getPenaltyConfigs, savePenaltyConfig, deletePenaltyConfig } from '../utils/db';
 import { PenaltyConfig } from '../types';
 import { ConfirmModal } from './ConfirmModal';
@@ -303,8 +303,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   function channelLabel(ch: string) {
     return CHANNEL_TYPES.find((c) => c.value === ch)?.label || ch;
   }
-  function reminderLabel(days: number) {
-    return REMINDER_OPTIONS.find((r) => r.value === String(days))?.label || `提前${days}天`;
+  function reminderLabel(day: number) {
+    return day > 0 ? `每月${day}号提醒` : '不提醒';
   }
 
   const formatLastLogin = (dt: string) => {
@@ -956,7 +956,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   {channelIcon(s.channel)}
                   <span>{channelLabel(s.channel)}</span>
                   <span>·</span>
-                  <span>{reminderLabel(s.reminder_days_before)}</span>
+                  <span>{reminderLabel(s.reminder_day)}</span>
                   {s.template_name && <><span>·</span><span>模板：{s.template_name}</span></>}
                 </div>
               </div>

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Users, User } from 'lucide-react';
-import { BillingSchedule, Property, FloorUnit, MessageTemplate, CHANNEL_TYPES, REMINDER_OPTIONS, GENERATE_OPTIONS, GRACE_OPTIONS } from '../types';
+import { BillingSchedule, Property, FloorUnit, MessageTemplate, CHANNEL_TYPES } from '../types';
 import { saveSchedule, batchSaveSchedules, getProperties, getFloorUnits, getTemplates } from '../utils/db';
 
 interface ScheduleFormProps {
@@ -21,8 +21,8 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
     tenant_id: schedule?.tenant_id || 0, // actually floor_unit_id
     amount: schedule?.amount || 0,
     due_day: schedule?.due_day || 1,
-    generate_days_before: schedule?.generate_days_before ?? 0,
-    reminder_days_before: schedule?.reminder_days_before ?? 3,
+    generate_day: schedule?.generate_day ?? 0,
+    reminder_day: schedule?.reminder_day ?? 0,
     grace_days: schedule?.grace_days ?? 7,
     template_id: schedule?.template_id || 0,
     channel: schedule?.channel || 'both',
@@ -84,8 +84,8 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
         // Batch create for all tenants of this property
         const count = await batchSaveSchedules(form.property_id, floorUnits, {
           due_day: form.due_day,
-          generate_days_before: form.generate_days_before,
-          reminder_days_before: form.reminder_days_before,
+          generate_day: form.generate_day,
+          reminder_day: form.reminder_day,
           grace_days: form.grace_days,
           template_id: form.template_id,
           channel: form.channel,
@@ -252,35 +252,43 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
             </div>
           )}
 
-          {/* Generate & Grace */}
+          {/* Generate Day & Grace Days */}
           <div className="grid grid-cols-2 gap-3">
             <div className="form-control">
-              <label className="label py-1"><span className="label-text text-xs">📄 生成账单</span></label>
-              <select
-                className="select select-bordered select-sm w-full"
-                value={form.generate_days_before}
-                onChange={(e) => setForm({ ...form, generate_days_before: Number(e.target.value) })}
-              >
-                {GENERATE_OPTIONS.map((g) => (
-                  <option key={g.value} value={g.value}>{g.label}</option>
-                ))}
-              </select>
+              <label className="label py-1"><span className="label-text text-xs">📄 生成账单日 <span className="text-[10px] opacity-50">(每月几号)</span></span></label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  className="input input-bordered input-sm w-full"
+                  value={form.generate_day || ''}
+                  onChange={(e) => setForm({ ...form, generate_day: Math.min(28, Math.max(0, Number(e.target.value))) })}
+                  min={0}
+                  max={28}
+                  placeholder="0"
+                />
+                <span className="text-xs opacity-60 whitespace-nowrap">号</span>
+              </div>
+              <span className="text-[10px] opacity-40 mt-0.5">{form.generate_day === 0 ? '到期当天生成' : form.generate_day < form.due_day ? '上月生成' : form.generate_day === form.due_day ? '到期当天生成' : '当月生成'}</span>
             </div>
             <div className="form-control">
-              <label className="label py-1"><span className="label-text text-xs">⏳ 宽限期</span></label>
-              <select
-                className="select select-bordered select-sm w-full"
-                value={form.grace_days}
-                onChange={(e) => setForm({ ...form, grace_days: Number(e.target.value) })}
-              >
-                {GRACE_OPTIONS.map((g) => (
-                  <option key={g.value} value={g.value}>{g.label}</option>
-                ))}
-              </select>
+              <label className="label py-1"><span className="label-text text-xs">⏳ 宽限期 <span className="text-[10px] opacity-50">(到期后天数)</span></span></label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  className="input input-bordered input-sm w-full"
+                  value={form.grace_days || ''}
+                  onChange={(e) => setForm({ ...form, grace_days: Math.min(30, Math.max(0, Number(e.target.value))) })}
+                  min={0}
+                  max={30}
+                  placeholder="0"
+                />
+                <span className="text-xs opacity-60 whitespace-nowrap">天</span>
+              </div>
+              <span className="text-[10px] opacity-40 mt-0.5">{form.grace_days === 0 ? '无宽限期' : `截止 = ${form.due_day}号 + ${form.grace_days}天`}</span>
             </div>
           </div>
 
-          {/* Channel & Reminder */}
+          {/* Channel & Reminder Day */}
           <div className="grid grid-cols-2 gap-3">
             <div className="form-control">
               <label className="label py-1"><span className="label-text text-xs">发送渠道</span></label>
@@ -295,16 +303,20 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
               </select>
             </div>
             <div className="form-control">
-              <label className="label py-1"><span className="label-text text-xs">🔔 逾期提醒 <span className="text-[10px] opacity-50">(宽限截止前)</span></span></label>
-              <select
-                className="select select-bordered select-sm w-full"
-                value={form.reminder_days_before}
-                onChange={(e) => setForm({ ...form, reminder_days_before: Number(e.target.value) })}
-              >
-                {REMINDER_OPTIONS.map((r) => (
-                  <option key={r.value} value={r.value}>{r.label}</option>
-                ))}
-              </select>
+              <label className="label py-1"><span className="label-text text-xs">🔔 逾期提醒日 <span className="text-[10px] opacity-50">(每月几号)</span></span></label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="number"
+                  className="input input-bordered input-sm w-full"
+                  value={form.reminder_day || ''}
+                  onChange={(e) => setForm({ ...form, reminder_day: Math.min(28, Math.max(0, Number(e.target.value))) })}
+                  min={0}
+                  max={28}
+                  placeholder="0"
+                />
+                <span className="text-xs opacity-60 whitespace-nowrap">号</span>
+              </div>
+              <span className="text-[10px] opacity-40 mt-0.5">{form.reminder_day === 0 ? '不提醒' : `每月${form.reminder_day}号发送`}</span>
             </div>
           </div>
 
@@ -341,20 +353,17 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
           {/* Info — timeline flow */}
           <div className="bg-base-200/60 rounded-lg p-3 text-xs text-base-content/70 space-y-1">
             <p className="font-semibold text-base-content/80 mb-1.5">📋 排程流程预览</p>
-            {form.generate_days_before > 0 ? (
-              <p>📄 到期前 <b>{form.generate_days_before} 天</b> → 生成账单并发送</p>
+            {form.generate_day > 0 && form.generate_day !== form.due_day ? (
+              <p>📄 {form.generate_day < form.due_day ? '上月' : '每月'} <b>{form.generate_day} 号</b> → 生成账单并发送</p>
             ) : (
-              <p>📄 每月 <b>{form.due_day} 号</b> → 生成账单并发送</p>
+              <p>📄 每月 <b>{form.due_day} 号</b> → 到期当天生成账单并发送</p>
             )}
             <p>📅 每月 <b>{form.due_day} 号</b> → 账单到期日</p>
             {form.grace_days > 0 && (
               <p>⏳ 到期后 <b>{form.grace_days} 天</b> → 宽限期截止</p>
             )}
-            {form.reminder_days_before > 0 && form.grace_days > 0 && (
-              <p>🔔 宽限期截止前 <b>{form.reminder_days_before} 天</b> → 发送逾期提醒</p>
-            )}
-            {form.reminder_days_before > 0 && form.grace_days === 0 && (
-              <p>🔔 到期后 <b>{form.reminder_days_before} 天</b> → 发送逾期提醒</p>
+            {form.reminder_day > 0 && (
+              <p>🔔 每月 <b>{form.reminder_day} 号</b> → 发送逾期提醒</p>
             )}
             <p className="text-[10px] text-base-content/40 pt-1">
               渠道: {CHANNEL_TYPES.find((c) => c.value === form.channel)?.label}

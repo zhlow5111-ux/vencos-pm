@@ -393,8 +393,8 @@ export interface BillingSchedule {
   tenant_email: string;
   amount: number;
   due_day: number;
-  generate_days_before: number;
-  reminder_days_before: number;
+  generate_day: number;
+  reminder_day: number;
   grace_days: number;
   template_id: number;
   template_name: string;
@@ -608,33 +608,9 @@ export const CHANNEL_TYPES: SelectOption[] = [
   { value: 'both', label: 'WhatsApp + Email' },
 ];
 
-export const REMINDER_OPTIONS: SelectOption[] = [
-  { value: '0', label: '不提醒' },
-  { value: '1', label: '截止前1天' },
-  { value: '2', label: '截止前2天' },
-  { value: '3', label: '截止前3天' },
-  { value: '5', label: '截止前5天' },
-  { value: '7', label: '截止前7天' },
-];
+// GENERATE_OPTIONS and REMINDER_OPTIONS removed — replaced by day-of-month number inputs
 
-export const GENERATE_OPTIONS: SelectOption[] = [
-  { value: '0', label: '到期当天' },
-  { value: '3', label: '提前3天' },
-  { value: '5', label: '提前5天' },
-  { value: '7', label: '提前7天' },
-  { value: '10', label: '提前10天' },
-  { value: '14', label: '提前14天' },
-  { value: '20', label: '提前20天' },
-];
-
-export const GRACE_OPTIONS: SelectOption[] = [
-  { value: '0', label: '无宽限' },
-  { value: '3', label: '3天' },
-  { value: '5', label: '5天' },
-  { value: '7', label: '7天' },
-  { value: '10', label: '10天' },
-  { value: '14', label: '14天' },
-];
+// GRACE_OPTIONS removed — replaced by number input
 
 // ========== Purchase Cost ==========
 export type PurchaseCostCategory = 'legal_spa' | 'legal_loan' | 'stamp_duty_spa' | 'stamp_duty_loan' | 'valuation' | 'agent_commission' | 'insurance' | 'renovation_initial' | 'other';
