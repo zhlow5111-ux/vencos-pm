@@ -60,7 +60,7 @@ export const ClientForm: React.FC<ClientFormProps> = ({ client, onClose, onSaved
     <div className="modal modal-open">
       <div className="modal-box max-w-md max-h-[90vh] p-0 flex flex-col">
         <div className="flex items-center justify-between p-4 border-b border-base-300 shrink-0">
-          <h3 className="font-bold text-lg">{client ? '编辑客户' : '新增客户'}</h3>
+          <h3 className="font-bold text-lg">{client ? '编辑持有人' : '新增持有人'}</h3>
           <button className="btn btn-ghost btn-sm btn-circle" onClick={onClose}>
             <X size={18} />
           </button>
