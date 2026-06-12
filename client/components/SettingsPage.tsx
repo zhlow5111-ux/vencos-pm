@@ -263,9 +263,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     }
     setUserSaving(true);
     try {
+      // Auto-fill username from phone or name if empty
+      const autoUsername = userForm.username.trim() || userForm.phone.trim() || userForm.name.trim();
       const savedId = await saveSystemUser({
         id: editingUser?.id,
-        username: userForm.username.trim(),
+        username: autoUsername,
         pin: userForm.pin.trim() || undefined,
         role: userForm.role as UserRole,
         phone: userForm.phone.trim(),
