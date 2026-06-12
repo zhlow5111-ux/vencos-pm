@@ -48,6 +48,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
   const [genStep, setGenStep] = useState<1 | 2>(1);
   const [previewData, setPreviewData] = useState<MergedPreviewItem[]>([]);
   const [excludedCharges, setExcludedCharges] = useState<Set<string>>(new Set());
+  const [excludedItems, setExcludedItems] = useState<Set<string>>(new Set()); // property-level exclusion by mergeKey
   const [previewLoading, setPreviewLoading] = useState(false);
 
   // Preview adjustments state: key = "propertyId-floorLabel"
@@ -270,9 +271,11 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
   async function handleGenerate() {
     setGenerating(true);
     try {
+      // Filter out excluded items (unchecked properties)
+      const activePreviewData = previewData.filter(d => !excludedItems.has(d.mergeKey));
       const result = await generateMonthlyInvoices(
         genYear, genMonth, genDueDay,
-        previewData,
+        activePreviewData,
         excludedCharges.size > 0 ? excludedCharges : undefined,
         Object.keys(previewAdjustments).length > 0 ? previewAdjustments : undefined
       );
@@ -473,7 +476,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
       <div className="flex gap-2 flex-wrap">
         <button
           className="btn btn-primary btn-sm flex-1 gap-2"
-          onClick={() => { setGenModalOpen(true); setGenStep(1); setPreviewData([]); setExcludedCharges(new Set()); setPreviewAdjustments({}); setAdjInputs({}); }}
+          onClick={() => { setGenModalOpen(true); setGenStep(1); setPreviewData([]); setExcludedCharges(new Set()); setExcludedItems(new Set()); setPreviewAdjustments({}); setAdjInputs({}); }}
         >
           <Zap size={16} /> 一键生成账单
         </button>
@@ -652,7 +655,33 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
                   {genYear}年{genMonth}月 · 截止日: {genDueDay}号 · 取消勾选可豁免该费用
                 </p>
                 
-                <div className="mt-3 max-h-[60vh] overflow-y-auto space-y-3">
+                {/* Select all / deselect all toggle */}
+                {previewData.filter(d => !d.alreadyExists).length > 0 && (
+                  <div className="flex items-center justify-between mt-2 px-1">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        className="checkbox checkbox-sm checkbox-primary"
+                        checked={excludedItems.size === 0}
+                        onChange={() => {
+                          if (excludedItems.size === 0) {
+                            // Deselect all
+                            setExcludedItems(new Set(previewData.filter(d => !d.alreadyExists).map(d => d.mergeKey)));
+                          } else {
+                            // Select all
+                            setExcludedItems(new Set());
+                          }
+                        }}
+                      />
+                      <span className="text-sm font-medium">全选</span>
+                    </label>
+                    <span className="text-xs text-base-content/50">
+                      已选 {previewData.filter(d => !d.alreadyExists && !excludedItems.has(d.mergeKey)).length} / {previewData.filter(d => !d.alreadyExists).length}
+                    </span>
+                  </div>
+                )}
+                
+                <div className="mt-2 max-h-[60vh] overflow-y-auto space-y-3">
                   {previewData.filter(d => !d.alreadyExists).length === 0 ? (
                     <div className="text-center py-8 text-base-content/50">
                       <p>本月所有账单已生成，无新增项目</p>
@@ -668,10 +697,25 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
                       const total = Math.round(item.rent + chargesTotal + adjTotal);
                       const adjInput = adjInputs[adjKey] || { name: '', amount: 0 };
                       
+                      const isItemExcluded = excludedItems.has(item.mergeKey);
+                      
                       return (
-                        <div key={idx} className="border border-base-300 rounded-lg p-3">
+                        <div key={idx} className={`border rounded-lg p-3 transition-opacity ${isItemExcluded ? 'border-base-200 opacity-40' : 'border-base-300'}`}>
                           <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-1 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <input
+                                type="checkbox"
+                                className="checkbox checkbox-sm checkbox-primary"
+                                checked={!isItemExcluded}
+                                onChange={() => {
+                                  setExcludedItems(prev => {
+                                    const next = new Set(prev);
+                                    if (next.has(item.mergeKey)) next.delete(item.mergeKey);
+                                    else next.add(item.mergeKey);
+                                    return next;
+                                  });
+                                }}
+                              />
                               <span className="font-semibold text-sm">{item.tenantName}</span>
                               {item.isMerged && <span className="badge badge-sm badge-info">🔗 合并</span>}
                             </div>
@@ -805,24 +849,27 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
                 </div>
                 
                 {/* Summary footer */}
-                {previewData.filter(d => !d.alreadyExists).length > 0 && (
-                  <div className="mt-3 pt-2 border-t border-base-300 flex items-center justify-between text-sm">
-                    <span className="text-base-content/70">
-                      共 {previewData.filter(d => !d.alreadyExists).length} 张 · 
-                      豁免 {excludedCharges.size} 项费用
-                      {Object.keys(previewAdjustments).length > 0 && ` · ${Object.values(previewAdjustments).reduce((s: number, a: Array<{name: string; amount: number}>) => s + a.length, 0)} 项调整`}
-                    </span>
-                    <span className="font-bold">
-                      总计 RM {previewData.filter(d => !d.alreadyExists).reduce((s, item) => {
-                        const activeCharges = item.charges.filter(c => !excludedCharges.has(`${item.mergeKey}-${c.id}`));
-                        const adjKey = item.mergeKey;
-                        const adjs = previewAdjustments[adjKey] || [];
-                        const adjTotal = adjs.reduce((as2, a) => as2 + a.amount, 0);
-                        return s + item.rent + activeCharges.reduce((cs, c) => cs + c.amount, 0) + adjTotal;
-                      }, 0).toLocaleString()}
-                    </span>
-                  </div>
-                )}
+                {previewData.filter(d => !d.alreadyExists).length > 0 && (() => {
+                  const activeItems = previewData.filter(d => !d.alreadyExists && !excludedItems.has(d.mergeKey));
+                  return (
+                    <div className="mt-3 pt-2 border-t border-base-300 flex items-center justify-between text-sm">
+                      <span className="text-base-content/70">
+                        共 {activeItems.length} 张
+                        {excludedCharges.size > 0 && ` · 豁免 ${excludedCharges.size} 项费用`}
+                        {Object.keys(previewAdjustments).length > 0 && ` · ${Object.values(previewAdjustments).reduce((s: number, a: Array<{name: string; amount: number}>) => s + a.length, 0)} 项调整`}
+                      </span>
+                      <span className="font-bold">
+                        总计 RM {activeItems.reduce((s, item) => {
+                          const activeCharges = item.charges.filter(c => !excludedCharges.has(`${item.mergeKey}-${c.id}`));
+                          const adjKey = item.mergeKey;
+                          const adjs = previewAdjustments[adjKey] || [];
+                          const adjTotal = adjs.reduce((as2, a) => as2 + a.amount, 0);
+                          return s + item.rent + activeCharges.reduce((cs, c) => cs + c.amount, 0) + adjTotal;
+                        }, 0).toLocaleString()}
+                      </span>
+                    </div>
+                  );
+                })()}
                 
                 <div className="modal-action">
                   <button className="btn btn-ghost btn-sm" onClick={() => setGenStep(1)}>返回</button>
@@ -830,10 +877,10 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
                   <button
                     className="btn btn-primary btn-sm gap-1"
                     onClick={handleGenerate}
-                    disabled={generating || previewData.filter(d => !d.alreadyExists).length === 0}
+                    disabled={generating || previewData.filter(d => !d.alreadyExists && !excludedItems.has(d.mergeKey)).length === 0}
                   >
                     {generating ? <span className="loading loading-spinner loading-xs" /> : <Zap size={14} />}
-                    生成 {previewData.filter(d => !d.alreadyExists).length} 张账单
+                    ⚡ 生成 {previewData.filter(d => !d.alreadyExists && !excludedItems.has(d.mergeKey)).length} 张账单
                   </button>
                 </div>
               </>
