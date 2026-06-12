@@ -526,6 +526,7 @@ export async function initDB(): Promise<void> {
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_loan_payments ADD COLUMN loan_id INTEGER NOT NULL DEFAULT 0`); } catch {}
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_billing_schedules ADD COLUMN generate_days_before INTEGER NOT NULL DEFAULT 0`); } catch {}
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_billing_schedules ADD COLUMN grace_days INTEGER NOT NULL DEFAULT 7`); } catch {}
+    try { await window.tasklet.sqlExec(`ALTER TABLE vc_floor_units ADD COLUMN tenant_email TEXT NOT NULL DEFAULT ''`); } catch {}
     // Add spa_date to properties (V29)
     try { await window.tasklet.sqlExec(`ALTER TABLE vc_properties ADD COLUMN spa_date TEXT NOT NULL DEFAULT ''`); } catch {}
 
@@ -1736,6 +1737,7 @@ export async function saveFloorUnit(f: Partial<FloorUnit> & { property_id: numbe
         floor_label='${escapeSQL(f.floor_label)}',
         tenant_name='${escapeSQL(f.tenant_name || '')}',
         tenant_phone='${escapeSQL(f.tenant_phone || '')}',
+        tenant_email='${escapeSQL(f.tenant_email || '')}',
         tenant_company_reg='${escapeSQL(f.tenant_company_reg || '')}',
         tenant_address='${escapeSQL(f.tenant_address || '')}',
         director_name='${escapeSQL(f.director_name || '')}',
@@ -1760,8 +1762,8 @@ export async function saveFloorUnit(f: Partial<FloorUnit> & { property_id: numbe
     `);
   } else {
     await window.tasklet.sqlExec(`
-      INSERT INTO vc_floor_units (id, property_id, floor_label, tenant_name, tenant_phone, tenant_company_reg, tenant_address, director_name, director_ic, director_phone, director_notes, tenant_bank_name, tenant_bank_account, agent_name, agent_phone, agent_company, linked_lease_ref, rent_amount, deposit, utility_deposit, lease_start, lease_end, status, notes, created_at, updated_at)
-      VALUES (${id}, ${f.property_id}, '${escapeSQL(f.floor_label)}', '${escapeSQL(f.tenant_name || '')}', '${escapeSQL(f.tenant_phone || '')}', '${escapeSQL(f.tenant_company_reg || '')}', '${escapeSQL(f.tenant_address || '')}', '${escapeSQL(f.director_name || '')}', '${escapeSQL(f.director_ic || '')}', '${escapeSQL(f.director_phone || '')}', '${escapeSQL(f.director_notes || '')}', '${escapeSQL(f.tenant_bank_name || '')}', '${escapeSQL(f.tenant_bank_account || '')}', '${escapeSQL(f.agent_name || '')}', '${escapeSQL(f.agent_phone || '')}', '${escapeSQL(f.agent_company || '')}', '${escapeSQL(f.linked_lease_ref || '')}', ${Math.round(f.rent_amount || 0)}, ${Math.round(f.deposit || 0)}, ${Math.round(f.utility_deposit || 0)}, '${f.lease_start || ''}', '${f.lease_end || ''}', '${status}', '${escapeSQL(f.notes || '')}', '${now}', '${now}')
+      INSERT INTO vc_floor_units (id, property_id, floor_label, tenant_name, tenant_phone, tenant_email, tenant_company_reg, tenant_address, director_name, director_ic, director_phone, director_notes, tenant_bank_name, tenant_bank_account, agent_name, agent_phone, agent_company, linked_lease_ref, rent_amount, deposit, utility_deposit, lease_start, lease_end, status, notes, created_at, updated_at)
+      VALUES (${id}, ${f.property_id}, '${escapeSQL(f.floor_label)}', '${escapeSQL(f.tenant_name || '')}', '${escapeSQL(f.tenant_phone || '')}', '${escapeSQL(f.tenant_email || '')}', '${escapeSQL(f.tenant_company_reg || '')}', '${escapeSQL(f.tenant_address || '')}', '${escapeSQL(f.director_name || '')}', '${escapeSQL(f.director_ic || '')}', '${escapeSQL(f.director_phone || '')}', '${escapeSQL(f.director_notes || '')}', '${escapeSQL(f.tenant_bank_name || '')}', '${escapeSQL(f.tenant_bank_account || '')}', '${escapeSQL(f.agent_name || '')}', '${escapeSQL(f.agent_phone || '')}', '${escapeSQL(f.agent_company || '')}', '${escapeSQL(f.linked_lease_ref || '')}', ${Math.round(f.rent_amount || 0)}, ${Math.round(f.deposit || 0)}, ${Math.round(f.utility_deposit || 0)}, '${f.lease_start || ''}', '${f.lease_end || ''}', '${status}', '${escapeSQL(f.notes || '')}', '${now}', '${now}')
     `);
   }
   return id;

@@ -295,7 +295,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
               </select>
             </div>
             <div className="form-control">
-              <label className="label py-1"><span className="label-text text-xs">🔔 提前提醒</span></label>
+              <label className="label py-1"><span className="label-text text-xs">🔔 逾期提醒 <span className="text-[10px] opacity-50">(宽限截止前)</span></span></label>
               <select
                 className="select select-bordered select-sm w-full"
                 value={form.reminder_days_before}
@@ -341,9 +341,6 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
           {/* Info — timeline flow */}
           <div className="bg-base-200/60 rounded-lg p-3 text-xs text-base-content/70 space-y-1">
             <p className="font-semibold text-base-content/80 mb-1.5">📋 排程流程预览</p>
-            {form.reminder_days_before > 0 && (
-              <p>🔔 到期前 <b>{form.reminder_days_before} 天</b> → 发送提前提醒</p>
-            )}
             {form.generate_days_before > 0 ? (
               <p>📄 到期前 <b>{form.generate_days_before} 天</b> → 生成账单并发送</p>
             ) : (
@@ -352,6 +349,12 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
             <p>📅 每月 <b>{form.due_day} 号</b> → 账单到期日</p>
             {form.grace_days > 0 && (
               <p>⏳ 到期后 <b>{form.grace_days} 天</b> → 宽限期截止</p>
+            )}
+            {form.reminder_days_before > 0 && form.grace_days > 0 && (
+              <p>🔔 宽限期截止前 <b>{form.reminder_days_before} 天</b> → 发送逾期提醒</p>
+            )}
+            {form.reminder_days_before > 0 && form.grace_days === 0 && (
+              <p>🔔 到期后 <b>{form.reminder_days_before} 天</b> → 发送逾期提醒</p>
             )}
             <p className="text-[10px] text-base-content/40 pt-1">
               渠道: {CHANNEL_TYPES.find((c) => c.value === form.channel)?.label}

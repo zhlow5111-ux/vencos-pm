@@ -88,6 +88,7 @@ export interface FloorUnit {
   floor_label: string;
   tenant_name: string;
   tenant_phone: string;
+  tenant_email: string;         // Tenant email
   tenant_company_reg: string;   // SSM / Company registration no
   tenant_address: string;       // Other address (if any)
   director_name: string;        // Director name
@@ -609,12 +610,11 @@ export const CHANNEL_TYPES: SelectOption[] = [
 
 export const REMINDER_OPTIONS: SelectOption[] = [
   { value: '0', label: '不提醒' },
-  { value: '1', label: '提前1天' },
-  { value: '3', label: '提前3天' },
-  { value: '7', label: '提前7天' },
-  { value: '14', label: '提前14天' },
-  { value: '21', label: '提前21天' },
-  { value: '30', label: '提前30天' },
+  { value: '1', label: '截止前1天' },
+  { value: '2', label: '截止前2天' },
+  { value: '3', label: '截止前3天' },
+  { value: '5', label: '截止前5天' },
+  { value: '7', label: '截止前7天' },
 ];
 
 export const GENERATE_OPTIONS: SelectOption[] = [

@@ -517,10 +517,11 @@ function initDatabase() {
     try { db.exec(`ALTER TABLE vc_properties ADD COLUMN spa_date TEXT NOT NULL DEFAULT ''`); } catch (e) {}
   }
 
-  // V30: billing schedule generate_days_before + grace_days
+  // V30: billing schedule generate_days_before + grace_days + tenant_email
   if (currentVer < 30) {
     try { db.exec(`ALTER TABLE vc_billing_schedules ADD COLUMN generate_days_before INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
     try { db.exec(`ALTER TABLE vc_billing_schedules ADD COLUMN grace_days INTEGER NOT NULL DEFAULT 7`); } catch (e) {}
+    try { db.exec(`ALTER TABLE vc_floor_units ADD COLUMN tenant_email TEXT NOT NULL DEFAULT ''`); } catch (e) {}
   }
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);

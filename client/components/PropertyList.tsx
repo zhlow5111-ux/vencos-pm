@@ -114,7 +114,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
       await archiveTenantToHistory(floor, 'vacated', extra);
       await saveFloorUnit({
         ...floor,
-        tenant_name: '', tenant_phone: '', tenant_company_reg: '', tenant_address: '',
+        tenant_name: '', tenant_phone: '', tenant_email: '', tenant_company_reg: '', tenant_address: '',
         director_name: '', director_ic: '', director_phone: '', director_notes: '',
         tenant_bank_name: '', tenant_bank_account: '',
         agent_name: '', agent_phone: '', agent_company: '',
@@ -144,7 +144,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
       propertyId,
       selectedFloorIds: vacantFloorIds.length > 0 ? vacantFloorIds : floors.map((f) => f.id),
       tenant_name: '',
-      tenant_phone: '',
+      tenant_phone: '', tenant_email: '',
       tenant_company_reg: '',
       tenant_address: '',
       director_name: '',
@@ -186,7 +186,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
       selectedFloorIds: tenantFloors.map((f) => f.id),
       editingTenantName: tenantName,
       tenant_name: first.tenant_name,
-      tenant_phone: first.tenant_phone,
+      tenant_phone: first.tenant_phone, tenant_email: first.tenant_email || '',
       tenant_company_reg: first.tenant_company_reg || '',
       tenant_address: first.tenant_address || '',
       director_name: first.director_name || '',
@@ -269,7 +269,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
           property_id: floor.property_id,
           floor_label: floor.floor_label,
           tenant_name: tenantForm.tenant_name,
-          tenant_phone: tenantForm.tenant_phone,
+          tenant_phone: tenantForm.tenant_phone, tenant_email: tenantForm.tenant_email || '',
           tenant_company_reg: tenantForm.tenant_company_reg,
           tenant_address: tenantForm.tenant_address,
           director_name: tenantForm.director_name,
@@ -304,7 +304,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
             property_id: floor.property_id,
             floor_label: floor.floor_label,
             tenant_name: '',
-            tenant_phone: '',
+            tenant_phone: '', tenant_email: '',
             tenant_company_reg: '',
             tenant_address: '',
             director_name: '',
@@ -369,7 +369,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
       property_id: floor.property_id,
       floor_label: floor.floor_label,
       tenant_name: '',
-      tenant_phone: '',
+      tenant_phone: '', tenant_email: '',
       rent_amount: 0,
       deposit: 0,
       utility_deposit: 0,
@@ -738,6 +738,16 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                   placeholder="012-3456789"
                   value={tenantForm.tenant_phone}
                   onChange={(e) => setTenantForm({ ...tenantForm, tenant_phone: e.target.value })}
+                />
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-base-content mb-1 block">邮箱 Email</label>
+                <input
+                  className="input input-bordered input-sm w-full"
+                  type="email"
+                  placeholder="tenant@email.com"
+                  value={tenantForm.tenant_email || ''}
+                  onChange={(e) => setTenantForm({ ...tenantForm, tenant_email: e.target.value })}
                 />
               </div>
 

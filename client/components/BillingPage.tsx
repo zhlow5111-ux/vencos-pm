@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, CheckCircle, AlertTriangle, Clock, FileText, Trash2, Zap, Calendar, Download, Printer, MessageCircle, Send, Smartphone, Eye, Paperclip, Image, Upload } from 'lucide-react';
+import { Plus, CheckCircle, AlertTriangle, Clock, FileText, Trash2, Zap, Calendar, Download, Printer, MessageCircle, Send, Smartphone, Eye, Paperclip, Image, Upload, Mail } from 'lucide-react';
 import { Invoice, InvoiceStatus, INVOICE_STATUSES, PropertyDocument } from '../types';
 import { getInvoices, markInvoicePaid, markInvoiceOverdue, deleteInvoice, generateMonthlyInvoices, previewMonthlyInvoices, getInvoiceSummaryByMonth, getFloorUnits, getTemplates, MergedPreviewItem, savePaymentReceipt, getReceiptsForInvoice, readFileFromDiskChunked, generatePenaltyInvoices } from '../utils/db';
 import { downloadCsv } from '../utils/export';
@@ -326,6 +326,23 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
       });
 
       setWaModal({ open: true, invoice: inv, phone, message, sending: false });
+    } catch (e) {
+      console.error(e);
+      showToast('获取数据失败');
+    }
+  }
+
+  async function handleSendEmail(inv: Invoice) {
+    try {
+      const units = await getFloorUnits(inv.property_id);
+      const unit = units.find(u => u.floor_label === inv.floor_label || u.tenant_name === inv.tenant_name);
+      const email = unit?.tenant_email || '';
+      if (!email) { showToast('该租户未填写邮箱'); return; }
+      const subject = encodeURIComponent(`租金提醒 - ${inv.property_name} ${inv.floor_label} [${inv.invoice_no}]`);
+      const body = encodeURIComponent(
+        `尊敬的 ${inv.tenant_name || '租户'},\n\n提醒您，物业 ${inv.property_name} ${inv.floor_label} 的租金 RM ${inv.amount.toLocaleString()} 将于 ${inv.due_date || ''} 到期。\n\n账单编号: ${inv.invoice_no}\n\n请及时缴纳租金，谢谢！`
+      );
+      window.open(`mailto:${email}?subject=${subject}&body=${body}`, '_blank');
     } catch (e) {
       console.error(e);
       showToast('获取数据失败');
@@ -1222,7 +1239,10 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
             <Printer size={12} /> 打印
           </button>
           <button className="btn btn-xs btn-ghost text-success gap-1" onClick={() => handleSendWhatsApp(inv)} title="发送WhatsApp提醒">
-            <MessageCircle size={12} /> WhatsApp
+            <MessageCircle size={12} /> WA
+          </button>
+          <button className="btn btn-xs btn-ghost text-info gap-1" onClick={() => handleSendEmail(inv)} title="发送Email提醒">
+            <Mail size={12} /> Email
           </button>
           <button className="btn btn-xs btn-ghost text-error ml-auto" onClick={() => setDeleteConfirmId(inv.id)}>
             <Trash2 size={12} />
