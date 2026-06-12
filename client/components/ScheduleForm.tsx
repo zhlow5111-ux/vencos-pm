@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { X, Users, User } from 'lucide-react';
+import React, { useState, useEffect, useMemo } from 'react';
+import { X, Users, User, ChevronDown, ChevronRight, CheckSquare, Square, Search } from 'lucide-react';
 import { BillingSchedule, Property, FloorUnit, MessageTemplate, CHANNEL_TYPES } from '../types';
 import { saveSchedule, batchSaveSchedules, getProperties, getFloorUnits, getTemplates } from '../utils/db';
 
@@ -11,14 +11,20 @@ interface ScheduleFormProps {
 
 export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, onSaved }) => {
   const [properties, setProperties] = useState<Property[]>([]);
-  const [floorUnits, setFloorUnits] = useState<FloorUnit[]>([]);
+  const [floorUnitsMap, setFloorUnitsMap] = useState<Record<number, FloorUnit[]>>({});
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [loadingFloors, setLoadingFloors] = useState(false);
-  const [mode, setMode] = useState<'single' | 'all'>('single'); // single floor or all floors
+
+  // Selection state
+  const [selectedPropertyIds, setSelectedPropertyIds] = useState<number[]>(
+    schedule?.property_id ? [schedule.property_id] : []
+  );
+  const [selectedTenantId, setSelectedTenantId] = useState(schedule?.tenant_id || 0);
+  const [tenantMode, setTenantMode] = useState<'single' | 'all'>('single');
+  const [searchText, setSearchText] = useState('');
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
 
   const [form, setForm] = useState({
-    property_id: schedule?.property_id || 0,
-    tenant_id: schedule?.tenant_id || 0, // actually floor_unit_id
     amount: schedule?.amount || 0,
     due_day: schedule?.due_day || 1,
     generate_day: schedule?.generate_day ?? 0,
@@ -31,6 +37,8 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState('');
 
+  const isEditMode = !!schedule;
+
   useEffect(() => {
     loadInitial();
   }, []);
@@ -39,63 +47,173 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
     const [props, tmpls] = await Promise.all([getProperties(), getTemplates()]);
     setProperties(props);
     setTemplates(tmpls);
+    // expand all groups by default
+    const groups: Record<string, boolean> = {};
+    props.forEach((p) => {
+      const gn = (p as any).owner_name || '未分类';
+      groups[gn] = true;
+    });
+    setExpandedGroups(groups);
     // If editing, load floor units for existing property
     if (schedule?.property_id) {
       const units = await getFloorUnits(schedule.property_id);
-      setFloorUnits(units);
+      setFloorUnitsMap({ [schedule.property_id]: units });
     }
   }
 
-  async function handlePropertyChange(propertyId: number) {
-    setForm({ ...form, property_id: propertyId, tenant_id: 0, amount: 0 });
-    setMode('single');
-    if (propertyId) {
-      setLoadingFloors(true);
-      const units = await getFloorUnits(propertyId);
-      setFloorUnits(units);
-      setLoadingFloors(false);
+  // Group properties by owner_name (company)
+  const grouped = useMemo(() => {
+    const filtered = searchText
+      ? properties.filter(
+          (p) =>
+            p.name.toLowerCase().includes(searchText.toLowerCase()) ||
+            p.address.toLowerCase().includes(searchText.toLowerCase())
+        )
+      : properties;
+
+    const map = new Map<string, Property[]>();
+    filtered.forEach((p) => {
+      const gn = (p as any).owner_name || '未分类';
+      if (!map.has(gn)) map.set(gn, []);
+      map.get(gn)!.push(p);
+    });
+    return map;
+  }, [properties, searchText]);
+
+  const allPropertyIds = useMemo(() => {
+    const ids: number[] = [];
+    grouped.forEach((props) => props.forEach((p) => ids.push(p.id)));
+    return ids;
+  }, [grouped]);
+
+  const isAllSelected = allPropertyIds.length > 0 && allPropertyIds.every((id) => selectedPropertyIds.includes(id));
+  const isSomeSelected = allPropertyIds.some((id) => selectedPropertyIds.includes(id)) && !isAllSelected;
+
+  function toggleSelectAll() {
+    if (isAllSelected) {
+      setSelectedPropertyIds([]);
     } else {
-      setFloorUnits([]);
+      setSelectedPropertyIds([...allPropertyIds]);
+    }
+    setSelectedTenantId(0);
+    setTenantMode('all');
+  }
+
+  function toggleGroupAll(groupName: string) {
+    const groupIds = grouped.get(groupName)?.map((p) => p.id) || [];
+    const allGroupSelected = groupIds.every((id) => selectedPropertyIds.includes(id));
+    if (allGroupSelected) {
+      setSelectedPropertyIds(selectedPropertyIds.filter((id) => !groupIds.includes(id)));
+    } else {
+      const newIds = [...new Set([...selectedPropertyIds, ...groupIds])];
+      setSelectedPropertyIds(newIds);
+    }
+    setSelectedTenantId(0);
+    if (selectedPropertyIds.length > 1) setTenantMode('all');
+  }
+
+  function toggleProperty(pid: number) {
+    const exists = selectedPropertyIds.includes(pid);
+    let newIds: number[];
+    if (exists) {
+      newIds = selectedPropertyIds.filter((id) => id !== pid);
+    } else {
+      newIds = [...selectedPropertyIds, pid];
+    }
+    setSelectedPropertyIds(newIds);
+    setSelectedTenantId(0);
+
+    // If only 1 property selected, load its floor units
+    if (newIds.length === 1) {
+      setTenantMode('single');
+      loadFloorUnits(newIds[0]);
+    } else {
+      setTenantMode('all');
     }
   }
+
+  async function loadFloorUnits(pid: number) {
+    if (floorUnitsMap[pid]) return;
+    setLoadingFloors(true);
+    const units = await getFloorUnits(pid);
+    setFloorUnitsMap((prev) => ({ ...prev, [pid]: units }));
+    setLoadingFloors(false);
+  }
+
+  // Load floor units for all selected properties (for batch)
+  async function loadAllSelectedFloorUnits() {
+    const toLoad = selectedPropertyIds.filter((id) => !floorUnitsMap[id]);
+    if (toLoad.length === 0) return;
+    setLoadingFloors(true);
+    const results = await Promise.all(toLoad.map((id) => getFloorUnits(id).then((u) => [id, u] as [number, FloorUnit[]])));
+    const newMap = { ...floorUnitsMap };
+    results.forEach(([id, units]) => { newMap[id] = units; });
+    setFloorUnitsMap(newMap);
+    setLoadingFloors(false);
+  }
+
+  function toggleGroup(gn: string) {
+    setExpandedGroups((prev) => ({ ...prev, [gn]: !prev[gn] }));
+  }
+
+  // Current single-property floor units
+  const currentFloorUnits = selectedPropertyIds.length === 1 ? (floorUnitsMap[selectedPropertyIds[0]] || []) : [];
+  const occupiedFloors = currentFloorUnits.filter((f) => f.tenant_name);
+  const selectedFloor = currentFloorUnits.find((f) => f.id === selectedTenantId);
+
+  // Count total tenants across all selected properties
+  const totalTenantCount = useMemo(() => {
+    let count = 0;
+    selectedPropertyIds.forEach((pid) => {
+      const units = floorUnitsMap[pid] || [];
+      count += units.filter((f) => f.tenant_name).length;
+    });
+    return count;
+  }, [selectedPropertyIds, floorUnitsMap]);
 
   function handleTenantChange(floorUnitId: number) {
-    const fu = floorUnits.find(f => f.id === floorUnitId);
-    setForm({
-      ...form,
-      tenant_id: floorUnitId,
-      amount: fu?.rent_amount || 0,
-    });
-    setMode('single');
+    const fu = currentFloorUnits.find((f) => f.id === floorUnitId);
+    setSelectedTenantId(floorUnitId);
+    setForm({ ...form, amount: fu?.rent_amount || 0 });
+    setTenantMode('single');
   }
 
   function handleAllTenantsMode() {
-    setMode('all');
-    setForm({ ...form, tenant_id: 0, amount: 0 });
+    setTenantMode('all');
+    setSelectedTenantId(0);
+    setForm({ ...form, amount: 0 });
   }
-
-  const occupiedFloors = floorUnits.filter(f => f.tenant_name);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     try {
-      if (mode === 'all' && !schedule) {
-        // Batch create for all tenants of this property
-        const count = await batchSaveSchedules(form.property_id, floorUnits, {
-          due_day: form.due_day,
-          generate_day: form.generate_day,
-          reminder_day: form.reminder_day,
-          grace_days: form.grace_days,
-          template_id: form.template_id,
-          channel: form.channel,
-        });
-        setToast(`✓ 已为 ${count} 个租户创建排程`);
+      if (selectedPropertyIds.length > 1 || tenantMode === 'all') {
+        // Batch: load all floor units first
+        await loadAllSelectedFloorUnits();
+        let totalCreated = 0;
+        for (const pid of selectedPropertyIds) {
+          const units = floorUnitsMap[pid] || [];
+          if (units.filter((u) => u.tenant_name).length === 0) continue;
+          const count = await batchSaveSchedules(pid, units, {
+            due_day: form.due_day,
+            generate_day: form.generate_day,
+            reminder_day: form.reminder_day,
+            grace_days: form.grace_days,
+            template_id: form.template_id,
+            channel: form.channel,
+          });
+          totalCreated += count;
+        }
+        setToast(`✓ 已为 ${totalCreated} 个租户创建排程`);
         setTimeout(() => { setToast(''); onSaved(); }, 1500);
-      } else {
-        // Single schedule
+      } else if (selectedPropertyIds.length === 1) {
+        // Single property, single tenant
         await saveSchedule({
           ...(schedule?.id ? { id: schedule.id } : {}),
+          property_id: selectedPropertyIds[0],
+          tenant_id: selectedTenantId,
+          amount: form.amount,
           ...form,
         });
         setToast('✓ 已保存');
@@ -110,37 +228,126 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
   const dayOptions: number[] = [];
   for (let i = 1; i <= 28; i++) dayOptions.push(i);
 
-  const selectedFloor = floorUnits.find(f => f.id === form.tenant_id);
+  const canSubmit = (() => {
+    if (selectedPropertyIds.length === 0) return false;
+    if (selectedPropertyIds.length > 1 || tenantMode === 'all') return true;
+    return selectedTenantId > 0 && form.amount > 0;
+  })();
+
+  const submitLabel = (() => {
+    if (selectedPropertyIds.length > 1) return `为 ${selectedPropertyIds.length} 个物业创建排程`;
+    if (tenantMode === 'all' && selectedPropertyIds.length === 1) return `为 ${occupiedFloors.length} 个租户创建排程`;
+    return schedule ? '保存' : '创建排程';
+  })();
 
   return (
     <div className="fixed inset-0 bg-black/50 z-50 flex items-end sm:items-center justify-center">
-      <div className="bg-base-100 w-full sm:max-w-md sm:rounded-2xl rounded-t-2xl max-h-[90vh] flex flex-col">
+      <div className="bg-base-100 w-full sm:max-w-lg sm:rounded-2xl rounded-t-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between p-4 border-b border-base-300">
           <h3 className="font-bold text-lg">{schedule ? '编辑排程' : '新建自动账单排程'}</h3>
           <button className="btn btn-sm btn-circle btn-ghost" onClick={onClose}><X size={18} /></button>
         </div>
 
         <form onSubmit={handleSubmit} className="p-4 space-y-3 overflow-y-auto flex-1">
-          {/* Property Selection */}
+          {/* ===== Property Selection Panel ===== */}
           <div className="form-control">
-            <label className="label py-1"><span className="label-text text-xs">物业</span></label>
-            <select
-              className="select select-bordered select-sm w-full"
-              value={form.property_id}
-              onChange={(e) => handlePropertyChange(Number(e.target.value))}
-              required
-            >
-              <option value={0} disabled>选择物业</option>
-              {properties.map((p) => (
-                <option key={p.id} value={p.id}>{p.name} - {p.address}</option>
-              ))}
-            </select>
+            <label className="label py-1"><span className="label-text text-xs font-semibold">📋 选择物业</span></label>
+
+            {/* Search */}
+            <div className="relative mb-2">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 opacity-40" />
+              <input
+                type="text"
+                className="input input-bordered input-sm w-full pl-8"
+                placeholder="搜索物业名称或地址..."
+                value={searchText}
+                onChange={(e) => setSearchText(e.target.value)}
+              />
+            </div>
+
+            {/* Select All */}
+            {!isEditMode && (
+              <button
+                type="button"
+                className={`flex items-center gap-2 w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-all mb-1 ${
+                  isAllSelected ? 'bg-primary/10 text-primary' : 'hover:bg-base-200'
+                }`}
+                onClick={toggleSelectAll}
+              >
+                {isAllSelected ? <CheckSquare size={16} className="text-primary" /> : isSomeSelected ? <Square size={16} className="text-primary opacity-50" /> : <Square size={16} className="opacity-30" />}
+                全选所有物业 ({allPropertyIds.length})
+              </button>
+            )}
+
+            {/* Grouped Property List */}
+            <div className="border border-base-300 rounded-lg max-h-48 overflow-y-auto">
+              {Array.from(grouped.entries()).map(([groupName, props]) => {
+                const isExpanded = expandedGroups[groupName] !== false;
+                const groupIds = props.map((p) => p.id);
+                const allGroupSelected = groupIds.every((id) => selectedPropertyIds.includes(id));
+                const someGroupSelected = groupIds.some((id) => selectedPropertyIds.includes(id)) && !allGroupSelected;
+                return (
+                  <div key={groupName}>
+                    {/* Group Header */}
+                    <div className="flex items-center sticky top-0 bg-base-200/90 backdrop-blur px-3 py-1.5 border-b border-base-300">
+                      <button type="button" className="flex-1 flex items-center gap-1.5 text-xs font-semibold text-base-content/70" onClick={() => toggleGroup(groupName)}>
+                        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                        {groupName}
+                        <span className="badge badge-xs">{props.length}</span>
+                      </button>
+                      {!isEditMode && (
+                        <button
+                          type="button"
+                          className="text-[10px] text-primary hover:underline"
+                          onClick={() => toggleGroupAll(groupName)}
+                        >
+                          {allGroupSelected ? '取消' : '全选'}
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Properties in group */}
+                    {isExpanded && props.map((p) => {
+                      const isSelected = selectedPropertyIds.includes(p.id);
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          className={`flex items-center gap-2 w-full text-left px-3 py-2 text-xs border-b border-base-200 transition-all ${
+                            isSelected ? 'bg-primary/5' : 'hover:bg-base-200/50'
+                          } ${isEditMode ? 'cursor-default' : ''}`}
+                          onClick={() => !isEditMode && toggleProperty(p.id)}
+                          disabled={isEditMode}
+                        >
+                          {!isEditMode && (
+                            isSelected
+                              ? <CheckSquare size={14} className="text-primary flex-shrink-0" />
+                              : <Square size={14} className="opacity-30 flex-shrink-0" />
+                          )}
+                          <span className="truncate">{p.name}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+              {grouped.size === 0 && (
+                <div className="p-4 text-center text-xs opacity-50">无匹配物业</div>
+              )}
+            </div>
+
+            {/* Selection summary */}
+            {selectedPropertyIds.length > 0 && (
+              <div className="text-xs text-primary mt-1.5 font-medium">
+                ✓ 已选 {selectedPropertyIds.length} 个物业
+              </div>
+            )}
           </div>
 
-          {/* Floor/Tenant Selection */}
-          {form.property_id > 0 && (
+          {/* ===== Tenant Selection (single property only) ===== */}
+          {selectedPropertyIds.length === 1 && (
             <div className="form-control">
-              <label className="label py-1"><span className="label-text text-xs">租户</span></label>
+              <label className="label py-1"><span className="label-text text-xs font-semibold">👤 选择租户</span></label>
               {loadingFloors ? (
                 <div className="flex items-center gap-2 p-2 text-xs opacity-60">
                   <span className="loading loading-spinner loading-xs" /> 加载楼层...
@@ -151,11 +358,11 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
                 </div>
               ) : (
                 <>
-                  {/* Batch option - only for new schedules */}
-                  {!schedule && occupiedFloors.length > 1 && (
+                  {/* Batch option */}
+                  {!isEditMode && occupiedFloors.length > 1 && (
                     <button
                       type="button"
-                      className={`btn btn-sm w-full mb-2 gap-2 ${mode === 'all' ? 'btn-primary' : 'btn-outline'}`}
+                      className={`btn btn-sm w-full mb-2 gap-2 ${tenantMode === 'all' ? 'btn-primary' : 'btn-outline'}`}
                       onClick={handleAllTenantsMode}
                     >
                       <Users size={14} />
@@ -163,11 +370,10 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
                     </button>
                   )}
 
-                  {/* Individual tenant selection */}
                   <div className="space-y-1.5">
-                    {floorUnits.map((fu) => {
+                    {currentFloorUnits.map((fu) => {
                       if (!fu.tenant_name) return null;
-                      const isSelected = mode === 'single' && form.tenant_id === fu.id;
+                      const isSelected = tenantMode === 'single' && selectedTenantId === fu.id;
                       return (
                         <button
                           key={fu.id}
@@ -175,7 +381,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
                           className={`w-full text-left p-2.5 rounded-lg border transition-all text-sm ${
                             isSelected
                               ? 'border-primary bg-primary/10 ring-1 ring-primary'
-                              : mode === 'all'
+                              : tenantMode === 'all'
                               ? 'border-primary/30 bg-primary/5'
                               : 'border-base-300 hover:border-primary/50'
                           }`}
@@ -196,7 +402,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
                     })}
                   </div>
 
-                  {mode === 'all' && (
+                  {tenantMode === 'all' && (
                     <div className="text-xs text-primary mt-1 flex items-center gap-1">
                       <Users size={12} /> 将为以上 {occupiedFloors.length} 个租户各创建独立排程
                     </div>
@@ -206,8 +412,18 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
             </div>
           )}
 
-          {/* Amount - only for single mode */}
-          {mode === 'single' && (
+          {/* Multi-property batch info */}
+          {selectedPropertyIds.length > 1 && (
+            <div className="bg-primary/5 border border-primary/20 rounded-lg p-3 text-xs text-primary">
+              <div className="flex items-center gap-1.5 font-semibold mb-1">
+                <Users size={14} /> 批量创建模式
+              </div>
+              <p>将为 <b>{selectedPropertyIds.length}</b> 个物业的所有租户各创建独立排程（每个租户使用其现有租金金额）</p>
+            </div>
+          )}
+
+          {/* Amount - only for single tenant */}
+          {selectedPropertyIds.length === 1 && tenantMode === 'single' && (
             <div className="grid grid-cols-2 gap-3">
               <div className="form-control">
                 <label className="label py-1"><span className="label-text text-xs">月租金 (RM)</span></label>
@@ -237,7 +453,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
           )}
 
           {/* Due day for batch mode */}
-          {mode === 'all' && (
+          {(selectedPropertyIds.length > 1 || tenantMode === 'all') && (
             <div className="form-control">
               <label className="label py-1"><span className="label-text text-xs">每月到期日</span></label>
               <select
@@ -336,7 +552,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
           </div>
 
           {/* Active toggle */}
-          {mode === 'single' && (
+          {selectedPropertyIds.length <= 1 && tenantMode === 'single' && (
             <div className="form-control">
               <label className="label cursor-pointer py-1">
                 <span className="label-text text-xs">启用此排程</span>
@@ -367,7 +583,8 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
             )}
             <p className="text-[10px] text-base-content/40 pt-1">
               渠道: {CHANNEL_TYPES.find((c) => c.value === form.channel)?.label}
-              {mode === 'all' && ` · ${occupiedFloors.length} 个租户`}
+              {selectedPropertyIds.length > 1 && ` · ${selectedPropertyIds.length} 个物业`}
+              {selectedPropertyIds.length === 1 && tenantMode === 'all' && ` · ${occupiedFloors.length} 个租户`}
             </p>
           </div>
 
@@ -375,14 +592,12 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
           <button
             type="submit"
             className="btn btn-primary btn-sm w-full"
-            disabled={saving || (mode === 'single' && !form.tenant_id) || !form.property_id || (mode === 'single' && !form.amount)}
+            disabled={saving || !canSubmit}
           >
             {saving ? (
               <span className="loading loading-spinner loading-xs" />
-            ) : mode === 'all' ? (
-              `为 ${occupiedFloors.length} 个租户创建排程`
             ) : (
-              schedule ? '保存' : '创建排程'
+              submitLabel
             )}
           </button>
         </form>
