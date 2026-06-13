@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 31;
+  const SCHEMA_VERSION = 32;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -531,6 +531,12 @@ function initDatabase() {
     try { db.exec(`ALTER TABLE vc_billing_schedules ADD COLUMN reminder_day INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
   }
 
+  // V32: Tenant PIN login (phone + PIN from floor_units, not vc_users)
+  if (currentVer < 32) {
+    try { db.exec(`ALTER TABLE vc_floor_units ADD COLUMN tenant_pin TEXT NOT NULL DEFAULT '1234'`); } catch (e) {}
+    try { db.exec(`ALTER TABLE vc_floor_units ADD COLUMN tenant_must_change_pin INTEGER NOT NULL DEFAULT 1`); } catch (e) {}
+  }
+
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);
   console.log(`DB migration to v${SCHEMA_VERSION} complete.`);
 }
@@ -628,6 +634,63 @@ app.post('/api/auth/force-logout', authMiddleware, (req, res) => {
   } catch (err) {
     res.status(500).json({ error: 'Failed to revoke session' });
   }
+});
+
+// ========== Tenant Login (phone + PIN from vc_floor_units) ==========
+app.post('/api/tenant/login', (req, res) => {
+  const { phone, pin } = req.body;
+  if (!phone || !pin) return res.status(400).json({ error: 'Missing credentials' });
+
+  const unit = db.prepare(
+    `SELECT f.tenant_name, f.tenant_phone, f.tenant_pin, f.tenant_must_change_pin
+     FROM vc_floor_units f
+     WHERE f.tenant_phone=? AND f.tenant_pin=? AND f.tenant_name != ''
+     LIMIT 1`
+  ).get(phone, pin);
+
+  if (!unit) return res.status(401).json({ error: '电话号码或PIN错误' });
+
+  const token = jwt.sign(
+    { id: 0, name: unit.tenant_name, role: 'tenant', phone: unit.tenant_phone },
+    JWT_SECRET,
+    { expiresIn: '30d' }
+  );
+
+  res.json({
+    token,
+    user: {
+      id: 0,
+      name: unit.tenant_name,
+      role: 'tenant',
+      phone: unit.tenant_phone,
+      must_change_pin: unit.tenant_must_change_pin || 0,
+    }
+  });
+});
+
+app.post('/api/tenant/change-pin', (req, res) => {
+  const { phone, old_pin, new_pin } = req.body;
+  if (!phone || !old_pin || !new_pin) return res.status(400).json({ error: 'Missing fields' });
+  if (new_pin.length < 4) return res.status(400).json({ error: 'PIN至少4位' });
+
+  const unit = db.prepare(
+    `SELECT id FROM vc_floor_units WHERE tenant_phone=? AND tenant_pin=? AND tenant_name != '' LIMIT 1`
+  ).get(phone, old_pin);
+  if (!unit) return res.status(401).json({ error: '当前PIN错误' });
+
+  db.prepare(`UPDATE vc_floor_units SET tenant_pin=?, tenant_must_change_pin=0 WHERE tenant_phone=?`).run(new_pin, phone);
+  res.json({ ok: true });
+});
+
+app.post('/api/tenant/reset-pin', authMiddleware, (req, res) => {
+  if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  const { phone } = req.body;
+  if (!phone) return res.status(400).json({ error: 'Missing phone' });
+
+  const result = db.prepare(`UPDATE vc_floor_units SET tenant_pin='1234', tenant_must_change_pin=1 WHERE tenant_phone=?`).run(phone);
+  res.json({ ok: true, updated: result.changes });
 });
 
 // ========== SQL Proxy Routes ==========

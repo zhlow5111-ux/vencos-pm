@@ -89,6 +89,8 @@ export interface FloorUnit {
   tenant_name: string;
   tenant_phone: string;
   tenant_email: string;         // Tenant email
+  tenant_pin: string;           // Tenant login PIN (default 1234)
+  tenant_must_change_pin: number; // Force PIN change on first login
   tenant_company_reg: string;   // SSM / Company registration no
   tenant_address: string;       // Other address (if any)
   director_name: string;        // Director name
@@ -553,7 +555,7 @@ export const USER_ROLES: { value: UserRole; label: string; desc: string }[] = [
   { value: 'super_admin', label: '超级管理员', desc: '全部权限，管理系统和用户' },
   { value: 'admin', label: '管理员', desc: '管理全部物业，大部分功能' },
   { value: 'stakeholder', label: '业主', desc: '查看被授权公司的全部物业资料' },
-  { value: 'tenant', label: '租户', desc: '查看自己的租约和账单' },
+  // tenant role removed — tenants log in via Tenant Portal (phone + PIN from floor units)
   { value: 'worker', label: '维修人员', desc: '查看分配的维修工单' },
 ];
 

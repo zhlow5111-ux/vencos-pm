@@ -261,9 +261,19 @@ const App: React.FC = () => {
     );
   }
 
+  // Standalone tenant portal login (no admin user)
+  const [showTenantLogin, setShowTenantLogin] = useState(false);
+
   // Login screen
   if (!user) {
-    return <LoginScreen onLogin={handleLogin} />;
+    if (showTenantLogin) {
+      return (
+        <div data-theme={theme}>
+          <TenantPortal onBackToMain={() => setShowTenantLogin(false)} />
+        </div>
+      );
+    }
+    return <LoginScreen onLogin={handleLogin} onTenantPortal={() => setShowTenantLogin(true)} />;
   }
 
   const isAdminRole = user.role === 'super_admin' || user.role === 'admin';

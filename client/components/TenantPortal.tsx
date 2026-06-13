@@ -1,24 +1,36 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, Wrench, Plus, Camera, LogOut, Send, Clock, CheckCircle, FileText, DollarSign, Calendar, Building2 } from 'lucide-react';
+import { Home, Wrench, Plus, Camera, LogOut, Send, Clock, CheckCircle, FileText, DollarSign, Calendar, Building2, Key, ArrowLeft } from 'lucide-react';
 import { FloorUnit, Invoice, MaintenanceTicket, TICKET_CATEGORIES, TICKET_PRIORITIES, TICKET_STATUSES } from '../types';
 import { getFloorUnitsByPhone, getInvoicesForFloor, getTicketsByPhone, saveTicket } from '../utils/db';
+import { getAuthToken } from '../tasklet-shim';
 
 type TenantFloor = FloorUnit & { property_name: string; property_address: string };
 
 interface TenantPortalProps {
-  userPhone?: string; // auto-login when user is a tenant
+  userPhone?: string; // auto-login when user is a tenant (admin preview mode)
   hideHeader?: boolean;
+  onBackToMain?: () => void; // callback to go back to main login
 }
 
-export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeader }) => {
+export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeader, onBackToMain }) => {
   const [phone, setPhone] = useState(userPhone || '');
+  const [pin, setPin] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loading, setLoading] = useState(false);
   const [loggedIn, setLoggedIn] = useState(false);
   const [tenantName, setTenantName] = useState('');
   const [tenantPhone, setTenantPhone] = useState('');
 
-  // Auto-login if userPhone is provided
+  // PIN change flow
+  const [showPinChange, setShowPinChange] = useState(false);
+  const [oldPin, setOldPin] = useState('');
+  const [newPin, setNewPin] = useState('');
+  const [confirmNewPin, setConfirmNewPin] = useState('');
+  const [pinError, setPinError] = useState('');
+  const [pinSaving, setPinSaving] = useState(false);
+  const [mustChangePin, setMustChangePin] = useState(false);
+
+  // Auto-login if userPhone is provided (admin preview mode — no PIN needed)
   useEffect(() => {
     if (userPhone && !loggedIn) {
       setPhone(userPhone);
@@ -55,16 +67,40 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
 
   async function handleLogin() {
     if (!phone.trim()) { setLoginError('请输入电话号码'); return; }
+    if (!pin.trim()) { setLoginError('请输入PIN密码'); return; }
     setLoading(true); setLoginError('');
     try {
+      const resp = await fetch('/api/tenant/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: phone.trim(), pin: pin.trim() }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        setLoginError(err.error || '电话号码或PIN错误');
+        setLoading(false);
+        return;
+      }
+      const data = await resp.json();
+      // If must_change_pin, show PIN change dialog before entering portal
+      if (data.user.must_change_pin) {
+        setTenantName(data.user.name);
+        setTenantPhone(data.user.phone);
+        setOldPin(pin.trim());
+        setMustChangePin(true);
+        setShowPinChange(true);
+        setLoading(false);
+        return;
+      }
+      // Normal login — load floors
       const f = await getFloorUnitsByPhone(phone.trim());
       if (!f || f.length === 0) {
-        setLoginError('未找到此电话号码的租户记录');
+        setLoginError('未找到租户记录');
         setLoading(false);
         return;
       }
       setFloors(f);
-      setTenantName(f[0].tenant_name);
+      setTenantName(data.user.name);
       setTenantPhone(phone.trim());
       setLoggedIn(true);
       await loadInvoicesAndTickets(f, phone.trim());
@@ -73,6 +109,41 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
       setLoginError('登录失败');
     }
     setLoading(false);
+  }
+
+  async function handlePinChange(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    setPinError('');
+    if (!newPin.trim() || newPin.length < 4) { setPinError('PIN至少4位'); return; }
+    if (newPin !== confirmNewPin) { setPinError('两次输入的PIN不一致'); return; }
+    setPinSaving(true);
+    try {
+      const resp = await fetch('/api/tenant/change-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: tenantPhone || phone.trim(), old_pin: oldPin || pin.trim(), new_pin: newPin }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        setPinError(err.error || '修改失败');
+        setPinSaving(false);
+        return;
+      }
+      // PIN changed — now load portal
+      setShowPinChange(false);
+      setMustChangePin(false);
+      setNewPin(''); setConfirmNewPin(''); setOldPin('');
+      const f = await getFloorUnitsByPhone(tenantPhone || phone.trim());
+      if (f && f.length > 0) {
+        setFloors(f);
+        setLoggedIn(true);
+        await loadInvoicesAndTickets(f, tenantPhone || phone.trim());
+      }
+    } catch (e) {
+      console.error(e);
+      setPinError('修改失败，请重试');
+    }
+    setPinSaving(false);
   }
 
   async function loadInvoicesAndTickets(floorList?: TenantFloor[], phoneOverride?: string) {
@@ -150,6 +221,57 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
     return <span className="badge badge-success badge-sm">有效</span>;
   }
 
+  // ========== PIN CHANGE SCREEN ==========
+  if (showPinChange) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-base-100 p-6">
+        <div className="w-full max-w-sm space-y-6">
+          <div className="text-center">
+            <div className="bg-warning/10 w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-3">
+              <Key size={32} className="text-warning" />
+            </div>
+            <h1 className="text-xl font-bold">{mustChangePin ? '首次登录' : '修改PIN密码'}</h1>
+            <p className="text-sm text-base-content/60">
+              {mustChangePin ? `欢迎 ${tenantName}！请设置新的PIN密码` : '设置新的PIN密码'}
+            </p>
+          </div>
+          <form onSubmit={handlePinChange} className="space-y-3">
+            <div>
+              <label className="text-xs font-medium text-base-content/70 mb-1 block">新PIN密码</label>
+              <input
+                type="password"
+                className="input input-bordered w-full"
+                placeholder="至少4位"
+                value={newPin}
+                onChange={e => { setNewPin(e.target.value); setPinError(''); }}
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-base-content/70 mb-1 block">确认新PIN</label>
+              <input
+                type="password"
+                className="input input-bordered w-full"
+                placeholder="再次输入新PIN"
+                value={confirmNewPin}
+                onChange={e => { setConfirmNewPin(e.target.value); setPinError(''); }}
+              />
+            </div>
+            {pinError && <p className="text-error text-sm">{pinError}</p>}
+            <button type="submit" className="btn btn-primary w-full" disabled={pinSaving}>
+              {pinSaving ? <span className="loading loading-spinner loading-sm" /> : <><Key size={16} /> 设置新PIN并登录</>}
+            </button>
+            {!mustChangePin && (
+              <button type="button" className="btn btn-ghost btn-sm w-full" onClick={() => { setShowPinChange(false); setNewPin(''); setConfirmNewPin(''); }}>
+                取消
+              </button>
+            )}
+          </form>
+        </div>
+      </div>
+    );
+  }
+
   // ========== LOGIN SCREEN ==========
   if (!loggedIn) {
     return (
@@ -163,19 +285,38 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
             <p className="text-sm text-base-content/60">Tenant Portal</p>
           </div>
           <div className="space-y-3">
-            <input
-              className="input input-bordered w-full"
-              placeholder="输入电话号码登录"
-              value={phone}
-              onChange={e => setPhone(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleLogin()}
-            />
+            <div>
+              <label className="text-xs font-medium text-base-content/70 mb-1 block">电话号码</label>
+              <input
+                className="input input-bordered w-full"
+                placeholder="输入租赁登记的电话号码"
+                value={phone}
+                onChange={e => { setPhone(e.target.value); setLoginError(''); }}
+                autoFocus
+              />
+            </div>
+            <div>
+              <label className="text-xs font-medium text-base-content/70 mb-1 block">PIN密码</label>
+              <input
+                type="password"
+                className="input input-bordered w-full"
+                placeholder="输入PIN密码"
+                value={pin}
+                onChange={e => { setPin(e.target.value); setLoginError(''); }}
+                onKeyDown={e => e.key === 'Enter' && handleLogin()}
+              />
+            </div>
             {loginError && <p className="text-error text-sm">{loginError}</p>}
             <button className="btn btn-primary w-full" onClick={handleLogin} disabled={loading}>
               {loading ? <span className="loading loading-spinner loading-sm" /> : '登录'}
             </button>
           </div>
-          <p className="text-xs text-center text-base-content/50">请使用租赁登记时的电话号码</p>
+          <p className="text-xs text-center text-base-content/50">首次登录默认PIN: 1234</p>
+          {onBackToMain && (
+            <button className="btn btn-ghost btn-sm w-full" onClick={onBackToMain}>
+              <ArrowLeft size={14} /> 返回管理员登录
+            </button>
+          )}
         </div>
       </div>
     );
@@ -195,9 +336,16 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
             <h1 className="text-lg font-bold">🏠 租户入口</h1>
             <p className="text-xs opacity-70">欢迎, {tenantName}</p>
           </div>
-          <button className="btn btn-ghost btn-sm" onClick={() => { setLoggedIn(false); setFloors([]); setInvoices([]); setTickets([]); }}>
-            <LogOut size={16} /> 退出
-          </button>
+          <div className="flex items-center gap-1">
+            {!userPhone && (
+              <button className="btn btn-ghost btn-xs" onClick={() => { setOldPin(''); setShowPinChange(true); setMustChangePin(false); }} title="修改PIN">
+                <Key size={14} />
+              </button>
+            )}
+            <button className="btn btn-ghost btn-sm" onClick={() => { setLoggedIn(false); setFloors([]); setInvoices([]); setTickets([]); setPin(''); }}>
+              <LogOut size={16} /> 退出
+            </button>
+          </div>
         </header>
       )}
 

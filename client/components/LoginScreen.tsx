@@ -5,9 +5,10 @@ import { changePin } from '../utils/db';
 
 interface LoginScreenProps {
   onLogin: (user: { id: number; name: string; role: string; phone?: string }) => void;
+  onTenantPortal?: () => void;
 }
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
+export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin, onTenantPortal }) => {
   const [username, setUsername] = useState('');
   const [pin, setPin] = useState('');
   const [error, setError] = useState('');
@@ -221,6 +222,15 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onLogin }) => {
           {showHint && !changePinMode && (
             <div className="mt-4 text-xs text-base-content/40">
               默认账户: admin / 1234
+            </div>
+          )}
+
+          {/* Tenant portal link */}
+          {!changePinMode && onTenantPortal && (
+            <div className="mt-2">
+              <button className="btn btn-ghost btn-sm w-full text-primary" onClick={onTenantPortal}>
+                🏠 租户入口 Tenant Portal
+              </button>
             </div>
           )}
         </div>

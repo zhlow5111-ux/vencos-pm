@@ -472,7 +472,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         <div className="space-y-3">
           <div className="bg-secondary/5 border border-secondary/20 rounded-lg p-2.5">
             <p className="text-xs text-secondary">
-              👥 统一管理所有用户。每个用户一个账户，角色决定权限范围。新用户首次登录需修改密码。
+              👥 管理管理员、业主、维修人员账户。租户无需在此创建 — 在物业中分配租户后，租户用电话+PIN登录。
             </p>
           </div>
 
@@ -497,7 +497,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <select className="select select-bordered select-sm w-full" value={userForm.role}
                     onChange={e => setUserForm(f => ({ ...f, role: e.target.value as UserRole }))}>
                     <option value="" disabled>请选择角色</option>
-                    {USER_ROLES.map(r => (
+                    {USER_ROLES.filter(r => r.value !== 'tenant').map(r => (
                       <option key={r.value} value={r.value}>{r.label}</option>
                     ))}
                   </select>

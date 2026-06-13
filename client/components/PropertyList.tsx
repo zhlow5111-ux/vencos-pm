@@ -732,13 +732,35 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                 />
               </div>
               <div>
-                <label className="text-xs font-semibold text-base-content mb-1 block">联络电话</label>
+                <label className="text-xs font-semibold text-base-content mb-1 block">联络电话（租户登录凭证）</label>
                 <input
                   className="input input-bordered input-sm w-full"
                   placeholder="012-3456789"
                   value={tenantForm.tenant_phone}
                   onChange={(e) => setTenantForm({ ...tenantForm, tenant_phone: e.target.value })}
                 />
+                {tenantForm.tenant_phone && tenantForm.editingTenantName && (
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-[10px] text-base-content/50">租户用此电话 + PIN登录</p>
+                    <button
+                      type="button"
+                      className="btn btn-xs btn-outline btn-warning"
+                      onClick={async () => {
+                        if (!confirm('确定重置此租户的PIN为1234？')) return;
+                        try {
+                          const token = localStorage.getItem('vencos_token');
+                          const resp = await fetch('/api/tenant/reset-pin', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                            body: JSON.stringify({ phone: tenantForm.tenant_phone }),
+                          });
+                          if (resp.ok) alert('PIN已重置为1234');
+                          else alert('重置失败');
+                        } catch { alert('重置失败'); }
+                      }}
+                    >🔑 重置PIN</button>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="text-xs font-semibold text-base-content mb-1 block">邮箱 Email</label>
