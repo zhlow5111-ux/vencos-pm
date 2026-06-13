@@ -128,7 +128,10 @@ const App: React.FC = () => {
     }
     return null;
   });
-  const [portalMode, setPortalMode] = useState<PortalMode>('admin');
+  const [portalMode, setPortalMode] = useState<PortalMode>(() => {
+    const saved = localStorage.getItem('vencos_portal_mode');
+    return (saved && ['admin', 'stakeholder', 'tenant', 'worker'].includes(saved)) ? saved as PortalMode : 'admin';
+  });
   const [currentPage, setCurrentPage] = useState<Page>(() => {
     const saved = localStorage.getItem('vencos_currentPage');
     // Redirect old billing/maintenance to unified orders page
@@ -150,6 +153,11 @@ const App: React.FC = () => {
   useEffect(() => {
     localStorage.setItem('vencos_currentPage', currentPage);
   }, [currentPage]);
+
+  // Persist portal mode
+  useEffect(() => {
+    localStorage.setItem('vencos_portal_mode', portalMode);
+  }, [portalMode]);
 
   // Apply theme on mount and change
   useEffect(() => {
