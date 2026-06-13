@@ -1433,13 +1433,14 @@ export async function saveTemplate(t: Partial<MessageTemplate> & { name: string 
         channel='${t.channel || 'both'}',
         subject='${escapeSQL(t.subject || '')}',
         content='${escapeSQL(t.content || '')}',
+        template_type='${t.template_type || ''}',
         updated_at='${now}'
       WHERE id=${t.id}
     `);
   } else {
     await window.tasklet.sqlExec(`
-      INSERT INTO vc_message_templates (id, name, channel, subject, content, created_at, updated_at)
-      VALUES (${Date.now()}, '${escapeSQL(t.name)}', '${t.channel || 'both'}', '${escapeSQL(t.subject || '')}', '${escapeSQL(t.content || '')}', '${now}', '${now}')
+      INSERT INTO vc_message_templates (id, name, channel, subject, content, template_type, created_at, updated_at)
+      VALUES (${Date.now()}, '${escapeSQL(t.name)}', '${t.channel || 'both'}', '${escapeSQL(t.subject || '')}', '${escapeSQL(t.content || '')}', '${t.template_type || ''}', '${now}', '${now}')
     `);
   }
 }
@@ -1451,11 +1452,13 @@ export async function deleteTemplate(id: number): Promise<void> {
 // ========== Billing Schedules ==========
 export async function getSchedules(): Promise<BillingSchedule[]> {
   const rows = await window.tasklet.sqlQuery(`
-    SELECT s.*, p.name as property_name, f.tenant_name, f.tenant_phone, f.floor_label, t.name as template_name
+    SELECT s.*, p.name as property_name, f.tenant_name, f.tenant_phone, f.floor_label,
+           t.name as template_name, rt.name as reminder_template_name
     FROM vc_billing_schedules s
     LEFT JOIN vc_properties p ON s.property_id = p.id
     LEFT JOIN vc_floor_units f ON s.tenant_id = f.id
     LEFT JOIN vc_message_templates t ON s.template_id = t.id
+    LEFT JOIN vc_message_templates rt ON s.reminder_template_id = rt.id
     ORDER BY s.due_day ASC
   `);
   return rows as unknown as BillingSchedule[];
@@ -1475,6 +1478,7 @@ export async function saveSchedule(s: Partial<BillingSchedule>): Promise<void> {
         reminder_day='${s.reminder_day || ''}',
         grace_days=${s.grace_days ?? 7},
         template_id=${s.template_id || 0},
+        reminder_template_id=${s.reminder_template_id || 0},
         channel='${s.channel || 'both'}',
         active=${s.active ?? 1},
         updated_at='${now}'
@@ -1483,13 +1487,13 @@ export async function saveSchedule(s: Partial<BillingSchedule>): Promise<void> {
   } else {
     const id = generateId();
     await window.tasklet.sqlExec(`
-      INSERT INTO vc_billing_schedules (id, property_id, tenant_id, amount, due_day, generate_day, reminder_day, grace_days, template_id, channel, active, created_at, updated_at)
-      VALUES (${id}, ${s.property_id || 0}, ${s.tenant_id || 0}, ${amt}, ${s.due_day || 1}, ${s.generate_day || 0}, '${s.reminder_day || ''}', ${s.grace_days ?? 7}, ${s.template_id || 0}, '${s.channel || 'both'}', ${s.active ?? 1}, '${now}', '${now}')
+      INSERT INTO vc_billing_schedules (id, property_id, tenant_id, amount, due_day, generate_day, reminder_day, grace_days, template_id, reminder_template_id, channel, active, created_at, updated_at)
+      VALUES (${id}, ${s.property_id || 0}, ${s.tenant_id || 0}, ${amt}, ${s.due_day || 1}, ${s.generate_day || 0}, '${s.reminder_day || ''}', ${s.grace_days ?? 7}, ${s.template_id || 0}, ${s.reminder_template_id || 0}, '${s.channel || 'both'}', ${s.active ?? 1}, '${now}', '${now}')
     `);
   }
 }
 
-export async function batchSaveSchedules(propertyId: number, floorUnits: FloorUnit[], settings: { due_day: number; generate_day: number; reminder_day: string; grace_days: number; template_id: number; channel: string }): Promise<number> {
+export async function batchSaveSchedules(propertyId: number, floorUnits: FloorUnit[], settings: { due_day: number; generate_day: number; reminder_day: string; grace_days: number; template_id: number; reminder_template_id: number; channel: string }): Promise<number> {
   let count = 0;
   for (const fu of floorUnits) {
     if (!fu.tenant_name) continue;
@@ -1497,8 +1501,8 @@ export async function batchSaveSchedules(propertyId: number, floorUnits: FloorUn
     const id = generateId();
     const now = nowISO();
     await window.tasklet.sqlExec(`
-      INSERT INTO vc_billing_schedules (id, property_id, tenant_id, amount, due_day, generate_day, reminder_day, grace_days, template_id, channel, active, created_at, updated_at)
-      VALUES (${id}, ${propertyId}, ${fu.id}, ${amt}, ${settings.due_day}, ${settings.generate_day}, '${settings.reminder_day}', ${settings.grace_days}, ${settings.template_id}, '${settings.channel}', 1, '${now}', '${now}')
+      INSERT INTO vc_billing_schedules (id, property_id, tenant_id, amount, due_day, generate_day, reminder_day, grace_days, template_id, reminder_template_id, channel, active, created_at, updated_at)
+      VALUES (${id}, ${propertyId}, ${fu.id}, ${amt}, ${settings.due_day}, ${settings.generate_day}, '${settings.reminder_day}', ${settings.grace_days}, ${settings.template_id}, ${settings.reminder_template_id || 0}, '${settings.channel}', 1, '${now}', '${now}')
     `);
     count++;
   }

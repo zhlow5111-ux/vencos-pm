@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 34;
+  const SCHEMA_VERSION = 35;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -101,6 +101,7 @@ function initDatabase() {
       `CREATE TABLE IF NOT EXISTS vc_message_templates (
         id INTEGER PRIMARY KEY, name TEXT NOT NULL, channel TEXT NOT NULL DEFAULT 'both',
         subject TEXT NOT NULL DEFAULT '', content TEXT NOT NULL DEFAULT '',
+        template_type TEXT NOT NULL DEFAULT '',
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       )`,
       `CREATE TABLE IF NOT EXISTS vc_billing_schedules (
@@ -108,7 +109,8 @@ function initDatabase() {
         tenant_id INTEGER NOT NULL DEFAULT 0, amount REAL NOT NULL DEFAULT 0,
         due_day INTEGER NOT NULL DEFAULT 1, reminder_days_before INTEGER NOT NULL DEFAULT 3,
         generate_day INTEGER NOT NULL DEFAULT 0, reminder_day INTEGER NOT NULL DEFAULT 0,
-        template_id INTEGER NOT NULL DEFAULT 0, channel TEXT NOT NULL DEFAULT 'both',
+        template_id INTEGER NOT NULL DEFAULT 0, reminder_template_id INTEGER NOT NULL DEFAULT 0,
+        channel TEXT NOT NULL DEFAULT 'both',
         active INTEGER NOT NULL DEFAULT 1, created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       )`,
       `CREATE TABLE IF NOT EXISTS vc_documents (
@@ -270,11 +272,11 @@ function initDatabase() {
     // Seed default templates
     try {
       db.exec(`
-        INSERT INTO vc_message_templates (id, name, channel, subject, content, created_at, updated_at) VALUES
-        (1, '租金提醒', 'both', '租金到期提醒 - {property_name}', '尊敬的 {tenant_name},\n\n提醒您，物业 {property_name} 的租金 RM{amount} 将于 {due_date} 到期。\n\n请及时缴纳租金，谢谢！\n\nVencos Property Management', '${now}', '${now}'),
-        (2, '账单通知', 'both', '月度账单 - {property_name}', '尊敬的 {tenant_name},\n\n以下是您本月的租金账单：\n物业：{property_name}\n金额：RM{amount}\n到期日：{due_date}\n\n请在到期日前完成付款，谢谢！\n\nVencos Property Management', '${now}', '${now}'),
-        (3, '逾期提醒', 'both', '租金逾期通知 - {property_name}', '尊敬的 {tenant_name},\n\n您物业 {property_name} 的租金 RM{amount}（到期日：{due_date}）已逾期未付。\n\n请尽快处理，如有疑问请联系我们。\n\nVencos Property Management', '${now}', '${now}'),
-        (4, '收款确认', 'both', '付款确认 - {property_name}', '尊敬的 {tenant_name},\n\n已确认收到您物业 {property_name} 的租金 RM{amount}。\n\n感谢您的及时付款！\n\nVencos Property Management', '${now}', '${now}')
+        INSERT INTO vc_message_templates (id, name, channel, subject, content, template_type, created_at, updated_at) VALUES
+        (1, '租金提醒', 'both', '租金到期提醒 - {property_name}', '尊敬的 {tenant_name},\n\n提醒您，物业 {property_name} 的租金 RM{amount} 将于 {due_date} 到期。\n\n请及时缴纳租金，谢谢！\n\nVencos Property Management', 'reminder', '${now}', '${now}'),
+        (2, '账单通知', 'both', '月度账单 - {property_name}', '尊敬的 {tenant_name},\n\n以下是您本月的租金账单：\n物业：{property_name}\n金额：RM{amount}\n到期日：{due_date}\n\n请在到期日前完成付款，谢谢！\n\nVencos Property Management', 'billing', '${now}', '${now}'),
+        (3, '逾期提醒', 'both', '租金逾期通知 - {property_name}', '尊敬的 {tenant_name},\n\n您物业 {property_name} 的租金 RM{amount}（到期日：{due_date}）已逾期未付。\n\n请尽快处理，如有疑问请联系我们。\n\nVencos Property Management', 'reminder', '${now}', '${now}'),
+        (4, '收款确认', 'both', '付款确认 - {property_name}', '尊敬的 {tenant_name},\n\n已确认收到您物业 {property_name} 的租金 RM{amount}。\n\n感谢您的及时付款！\n\nVencos Property Management', 'confirmation', '${now}', '${now}')
       `);
     } catch(e) {}
     db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);
@@ -559,6 +561,15 @@ function initDatabase() {
       is_default INTEGER NOT NULL DEFAULT 0, notes TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
     )`);
+  }
+
+  // V35: Template types + reminder_template_id on schedules
+  if (currentVer < 35) {
+    try { db.exec(`ALTER TABLE vc_message_templates ADD COLUMN template_type TEXT NOT NULL DEFAULT ''`); } catch (e) {}
+    try { db.exec(`ALTER TABLE vc_billing_schedules ADD COLUMN reminder_template_id INTEGER NOT NULL DEFAULT 0`); } catch (e) {}
+    try { db.exec(`UPDATE vc_message_templates SET template_type='billing' WHERE name='账单通知' AND template_type=''`); } catch (e) {}
+    try { db.exec(`UPDATE vc_message_templates SET template_type='reminder' WHERE name IN ('租金提醒','逾期提醒') AND template_type=''`); } catch (e) {}
+    try { db.exec(`UPDATE vc_message_templates SET template_type='confirmation' WHERE name='收款确认' AND template_type=''`); } catch (e) {}
   }
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);

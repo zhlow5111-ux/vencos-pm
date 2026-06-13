@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { X, Users, User, ChevronDown, ChevronRight, CheckSquare, Square, Search } from 'lucide-react';
 import { BillingSchedule, Property, FloorUnit, MessageTemplate, CHANNEL_TYPES } from '../types';
-import { saveSchedule, batchSaveSchedules, getProperties, getFloorUnits, getTemplates } from '../utils/db';
+import { saveSchedule, batchSaveSchedules, getProperties, getFloorUnits, getTemplates, getSchedules } from '../utils/db';
 
 interface ScheduleFormProps {
   schedule?: BillingSchedule;
@@ -31,6 +31,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
     reminder_day: schedule?.reminder_day?.toString() ?? '',
     grace_days: schedule?.grace_days ?? 7,
     template_id: schedule?.template_id || 0,
+    reminder_template_id: schedule?.reminder_template_id || 0,
     channel: schedule?.channel || 'both',
     active: schedule?.active ?? 1,
   });
@@ -44,7 +45,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
   }, []);
 
   async function loadInitial() {
-    const [props, tmpls] = await Promise.all([getProperties(), getTemplates()]);
+    const [props, tmpls, existingSchedules] = await Promise.all([getProperties(), getTemplates(), getSchedules()]);
     setProperties(props);
     setTemplates(tmpls);
     // expand all groups by default
@@ -54,6 +55,11 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
       groups[gn] = true;
     });
     setExpandedGroups(groups);
+    // Default grace_days from last schedule (if creating new)
+    if (!schedule && existingSchedules.length > 0) {
+      const last = existingSchedules[existingSchedules.length - 1];
+      setForm(prev => ({ ...prev, grace_days: last.grace_days ?? 7 }));
+    }
     // If editing, load floor units for existing property
     if (schedule?.property_id) {
       const units = await getFloorUnits(schedule.property_id);
@@ -201,6 +207,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
             reminder_day: form.reminder_day as any,
             grace_days: form.grace_days,
             template_id: form.template_id,
+            reminder_template_id: form.reminder_template_id,
             channel: form.channel,
           });
           totalCreated += count;
@@ -540,19 +547,36 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
             </div>
           </div>
 
-          {/* Template */}
-          <div className="form-control">
-            <label className="label py-1"><span className="label-text text-xs">消息模板</span></label>
-            <select
-              className="select select-bordered select-sm w-full"
-              value={form.template_id}
-              onChange={(e) => setForm({ ...form, template_id: Number(e.target.value) })}
-            >
-              <option value={0}>不使用模板</option>
-              {templates.map((t) => (
-                <option key={t.id} value={t.id}>{t.name}</option>
-              ))}
-            </select>
+          {/* Templates — split by type */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="form-control">
+              <label className="label py-1"><span className="label-text text-xs">📄 账单模板</span></label>
+              <select
+                className="select select-bordered select-sm w-full"
+                value={form.template_id}
+                onChange={(e) => setForm({ ...form, template_id: Number(e.target.value) })}
+              >
+                <option value={0}>不使用模板</option>
+                {templates.filter(t => t.template_type === 'billing' || !t.template_type).map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+              <span className="text-[10px] opacity-40 mt-0.5">生成账单时使用</span>
+            </div>
+            <div className="form-control">
+              <label className="label py-1"><span className="label-text text-xs">🔔 提醒模板</span></label>
+              <select
+                className="select select-bordered select-sm w-full"
+                value={form.reminder_template_id}
+                onChange={(e) => setForm({ ...form, reminder_template_id: Number(e.target.value) })}
+              >
+                <option value={0}>不使用模板</option>
+                {templates.filter(t => t.template_type === 'reminder' || !t.template_type).map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+              <span className="text-[10px] opacity-40 mt-0.5">逾期提醒时使用</span>
+            </div>
           </div>
 
           {/* Active toggle */}

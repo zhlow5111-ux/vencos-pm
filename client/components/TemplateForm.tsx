@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { X, Eye } from 'lucide-react';
-import { MessageTemplate, CHANNEL_TYPES } from '../types';
+import { MessageTemplate, CHANNEL_TYPES, TEMPLATE_TYPES, TemplateType } from '../types';
 import { saveTemplate } from '../utils/db';
 
 interface TemplateFormProps {
@@ -15,6 +15,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({ template, onClose, o
     channel: template?.channel || 'both',
     subject: template?.subject || '',
     content: template?.content || '',
+    template_type: (template?.template_type || '') as TemplateType,
   });
   const [showPreview, setShowPreview] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -42,6 +43,7 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({ template, onClose, o
         channel: form.channel as MessageTemplate['channel'],
         subject: form.subject,
         content: form.content,
+        template_type: form.template_type,
       });
       onSaved();
     } catch (err) {
@@ -59,6 +61,20 @@ export const TemplateForm: React.FC<TemplateFormProps> = ({ template, onClose, o
         </div>
 
         <form onSubmit={handleSubmit} className="p-4 space-y-3 overflow-y-auto flex-1">
+          <div className="form-control">
+            <label className="label py-1"><span className="label-text text-xs">模板类型</span></label>
+            <select
+              className="select select-bordered select-sm w-full"
+              value={form.template_type}
+              onChange={(e) => setForm({ ...form, template_type: e.target.value as TemplateType })}
+            >
+              <option value="">未分类</option>
+              {TEMPLATE_TYPES.map((tt) => (
+                <option key={tt.value} value={tt.value}>{tt.label}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="form-control">
             <label className="label py-1"><span className="label-text text-xs">模板名称</span></label>
             <input

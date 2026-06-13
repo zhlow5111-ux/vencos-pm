@@ -374,12 +374,21 @@ export interface PenaltyConfig {
 // ========== Message Template ==========
 export type ChannelType = 'whatsapp' | 'email' | 'both';
 
+export type TemplateType = 'billing' | 'reminder' | 'confirmation' | '';
+
+export const TEMPLATE_TYPES: { value: TemplateType; label: string }[] = [
+  { value: 'billing', label: '账单通知' },
+  { value: 'reminder', label: '逾期提醒' },
+  { value: 'confirmation', label: '收款确认' },
+];
+
 export interface MessageTemplate {
   id: number;
   name: string;
   channel: ChannelType;
   subject: string;
   content: string;
+  template_type: TemplateType;
   created_at: string;
   updated_at: string;
 }
@@ -400,6 +409,8 @@ export interface BillingSchedule {
   grace_days: number;
   template_id: number;
   template_name: string;
+  reminder_template_id: number;
+  reminder_template_name: string;
   channel: ChannelType;
   active: number;
   created_at: string;

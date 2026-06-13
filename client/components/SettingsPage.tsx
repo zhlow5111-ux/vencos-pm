@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Plus, Mail, MessageSquare, Calendar, Power, PowerOff, Trash2, Edit2, Wifi, WifiOff, Bell, Building2, User, Shield, Key, Users, UserPlus, Save, X, Eye, EyeOff, Send, CheckCircle, XCircle, Clock, LogOut, MapPin, Briefcase, Phone, Navigation, Wrench } from 'lucide-react';
-import { MessageTemplate, BillingSchedule, Owner, SystemUser, UserRole, Agent, Worker, CHANNEL_TYPES, OWNER_TYPES, USER_ROLES, WORKER_SPECIALTIES } from '../types';
+import { MessageTemplate, BillingSchedule, Owner, SystemUser, UserRole, Agent, Worker, CHANNEL_TYPES, OWNER_TYPES, USER_ROLES, WORKER_SPECIALTIES, TEMPLATE_TYPES } from '../types';
 import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog, getProperties, addUserAccess, addUserOwnerAccess, forceLogoutUser, getAgents, saveAgent, deleteAgent, getAgentsByArea, getAllFloorUnits, getPenaltyConfigs, savePenaltyConfig, deletePenaltyConfig, getWorkers, saveWorker, deleteWorker } from '../utils/db';
 import { PenaltyConfig } from '../types';
 import { ConfirmModal } from './ConfirmModal';
@@ -987,13 +987,17 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
               <p className="text-sm">暂无消息模板</p>
             </div>
           ) : (
-            templates.map((t) => (
+            templates.map((t) => {
+              const typeInfo = TEMPLATE_TYPES.find(tt => tt.value === t.template_type);
+              const typeColor = t.template_type === 'billing' ? 'badge-info' : t.template_type === 'reminder' ? 'badge-warning' : t.template_type === 'confirmation' ? 'badge-success' : 'badge-ghost';
+              return (
               <div key={t.id} className="bg-base-100 rounded-xl p-3 shadow-sm border border-base-200 space-y-2">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     {channelIcon(t.channel)}
                     <span className="font-semibold text-sm">{t.name}</span>
                     <span className="badge badge-xs badge-outline">{channelLabel(t.channel)}</span>
+                    {typeInfo && <span className={`badge badge-xs ${typeColor}`}>{typeInfo.label}</span>}
                   </div>
                   <div className="flex gap-1">
                     <button className="btn btn-xs btn-ghost" onClick={() => onEditTemplate(t)}><Edit2 size={12} /></button>
@@ -1002,8 +1006,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                 </div>
                 {t.subject && <p className="text-xs text-base-content/60">主题：{t.subject}</p>}
                 <p className="text-xs text-base-content/70 whitespace-pre-wrap line-clamp-3">{t.content}</p>
+                {t.created_at && <p className="text-[10px] text-base-content/40">创建于 {new Date(t.created_at).toLocaleDateString('zh-CN')}</p>}
               </div>
-            ))
+              );
+            })
           )}
           <button className="btn btn-primary btn-sm w-full gap-1" onClick={onAddTemplate}>
             <Plus size={16} /> 新建模板
@@ -1050,7 +1056,8 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <span>{channelLabel(s.channel)}</span>
                   <span>·</span>
                   <span>{reminderLabel(s.reminder_day)}</span>
-                  {s.template_name && <><span>·</span><span>模板：{s.template_name}</span></>}
+                  {s.template_name && <><span>·</span><span>账单：{s.template_name}</span></>}
+                  {s.reminder_template_name && <><span>·</span><span>提醒：{s.reminder_template_name}</span></>}
                 </div>
               </div>
             ))
