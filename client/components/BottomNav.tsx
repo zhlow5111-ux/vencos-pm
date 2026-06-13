@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { LayoutDashboard, Building2, Receipt, Wrench, MoreHorizontal, TrendingUp, Key, Users, Settings, X, Briefcase } from 'lucide-react';
+import { LayoutDashboard, Building2, ClipboardList, MoreHorizontal, TrendingUp, Key, Users, Settings, X, Briefcase } from 'lucide-react';
 import { Page } from '../types';
 
 interface BottomNavProps {
@@ -11,7 +11,7 @@ interface BottomNavProps {
 const MAIN_NAV: { page: Page; label: string; Icon: React.FC<{ size?: number; className?: string }> }[] = [
   { page: 'dashboard', label: '总览', Icon: LayoutDashboard },
   { page: 'properties', label: '物业', Icon: Building2 },
-  { page: 'billing', label: '账单', Icon: Receipt },
+  { page: 'orders', label: '单据', Icon: ClipboardList },
   { page: 'settings', label: '设置', Icon: Settings },
 ];
 
@@ -19,11 +19,11 @@ const MORE_NAV: { page: Page; label: string; desc: string; Icon: React.FC<{ size
   { page: 'clients', label: '客户管理', desc: '客户列表 / 买家 / 卖家 / 租客', Icon: Users },
   { page: 'sales', label: '买卖管道', desc: '物业买卖流程追踪', Icon: TrendingUp },
   { page: 'rentals', label: '租赁管道', desc: '租赁流程追踪', Icon: Key },
-  { page: 'maintenance', label: '维修工单', desc: '租户维修请求管理', Icon: Wrench },
+  // maintenance is now inside OrderCenter (单据中心)
   { page: 'agents', label: '中介管理', desc: '中介列表 / 空置物业匹配 / 群发通知', Icon: Briefcase },
 ];
 
-const MORE_PAGES = new Set<Page>(['clients', 'sales', 'rentals', 'maintenance', 'agents']);
+const MORE_PAGES = new Set<Page>(['clients', 'sales', 'rentals', 'agents']);
 
 export const BottomNav: React.FC<BottomNavProps> = ({ currentPage, onNavigate, userRole }) => {
   const [showMore, setShowMore] = useState(false);

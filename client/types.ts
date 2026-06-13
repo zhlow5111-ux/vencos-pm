@@ -1,5 +1,5 @@
 // ========== Navigation ==========
-export type Page = 'dashboard' | 'properties' | 'sales' | 'rentals' | 'clients' | 'billing' | 'maintenance' | 'settings' | 'agents';
+export type Page = 'dashboard' | 'properties' | 'sales' | 'rentals' | 'clients' | 'billing' | 'maintenance' | 'orders' | 'settings' | 'agents';
 export type PortalMode = 'admin' | 'tenant' | 'worker' | 'stakeholder';
 
 // ========== Property ==========

@@ -721,15 +721,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onQuickAdd, us
 
       {/* Billing summary */}
       <div className="grid grid-cols-3 gap-3">
-        <button className="bg-success/5 border border-success/10 rounded-2xl p-4 text-center shadow-sm hover:shadow-md transition-shadow" onClick={() => onNavigate('billing')}>
+        <button className="bg-success/5 border border-success/10 rounded-2xl p-4 text-center shadow-sm hover:shadow-md transition-shadow" onClick={() => onNavigate('orders')}>
           <p className="text-lg font-bold text-success">{formatCurrency(s.totalCollected)}</p>
           <p className="text-[11px] text-success/70 font-medium mt-1">已收款</p>
         </button>
-        <button className="bg-warning/5 border border-warning/10 rounded-2xl p-4 text-center shadow-sm hover:shadow-md transition-shadow" onClick={() => onNavigate('billing')}>
+        <button className="bg-warning/5 border border-warning/10 rounded-2xl p-4 text-center shadow-sm hover:shadow-md transition-shadow" onClick={() => onNavigate('orders')}>
           <p className="text-lg font-bold text-warning">{s.pendingInvoices}</p>
           <p className="text-[11px] text-warning/70 font-medium mt-1">待收款</p>
         </button>
-        <button className="bg-error/5 border border-error/10 rounded-2xl p-4 text-center shadow-sm hover:shadow-md transition-shadow" onClick={() => onNavigate('billing')}>
+        <button className="bg-error/5 border border-error/10 rounded-2xl p-4 text-center shadow-sm hover:shadow-md transition-shadow" onClick={() => onNavigate('orders')}>
           <p className="text-lg font-bold text-error">{s.overdueInvoices}</p>
           <p className="text-[11px] text-error/70 font-medium mt-1">已逾期</p>
         </button>
@@ -766,14 +766,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, onQuickAdd, us
       {(s.openTickets > 0 || s.inProgressTickets > 0) && (<>
         <p className="text-[11px] font-semibold text-base-content/30 tracking-wider uppercase px-1">维修工单</p>
         <div className="grid grid-cols-2 gap-3">
-          <button className="bg-warning/5 border border-warning/10 rounded-2xl p-4 text-center shadow-sm hover:shadow-md transition-shadow" onClick={() => onNavigate('maintenance')}>
+          <button className="bg-warning/5 border border-warning/10 rounded-2xl p-4 text-center shadow-sm hover:shadow-md transition-shadow" onClick={() => onNavigate('orders')}>
             <div className="w-8 h-8 rounded-lg bg-warning/15 flex items-center justify-center mx-auto mb-2">
               <Wrench size={14} className="text-warning" />
             </div>
             <p className="text-xl font-bold text-warning">{s.openTickets}</p>
             <p className="text-[11px] text-base-content/40 font-medium mt-0.5">待处理工单</p>
           </button>
-          <button className="bg-info/5 border border-info/10 rounded-2xl p-4 text-center shadow-sm hover:shadow-md transition-shadow" onClick={() => onNavigate('maintenance')}>
+          <button className="bg-info/5 border border-info/10 rounded-2xl p-4 text-center shadow-sm hover:shadow-md transition-shadow" onClick={() => onNavigate('orders')}>
             <div className="w-8 h-8 rounded-lg bg-info/15 flex items-center justify-center mx-auto mb-2">
               <Wrench size={14} className="text-info" />
             </div>

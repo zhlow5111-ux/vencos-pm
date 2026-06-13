@@ -17,6 +17,7 @@ import { ClientList } from './components/ClientList';
 import { ClientForm } from './components/ClientForm';
 import { DealForm } from './components/DealForm';
 import { BillingPage } from './components/BillingPage';
+import { OrderCenter } from './components/OrderCenter';
 import { InvoiceForm } from './components/InvoiceForm';
 import { SettingsPage } from './components/SettingsPage';
 import { AgentPage } from './components/AgentPage';
@@ -110,6 +111,7 @@ const PAGE_TITLES: Record<Page, string> = {
   clients: '客户管理',
   billing: '账单管理',
   maintenance: '维修工单',
+  orders: '单据中心',
   settings: '系统设置',
   agents: '中介管理',
 };
@@ -129,6 +131,8 @@ const App: React.FC = () => {
   const [portalMode, setPortalMode] = useState<PortalMode>('admin');
   const [currentPage, setCurrentPage] = useState<Page>(() => {
     const saved = localStorage.getItem('vencos_currentPage');
+    // Redirect old billing/maintenance to unified orders page
+    if (saved === 'billing' || saved === 'maintenance') return 'orders';
     return (saved as Page) || 'dashboard';
   });
   const [modal, setModal] = useState<ModalState>(null);
@@ -394,6 +398,15 @@ const App: React.FC = () => {
         )}
         {currentPage === 'maintenance' && (
           <MaintenanceTickets refreshKey={refreshKey} onRefresh={refresh} />
+        )}
+        {currentPage === 'orders' && (
+          <OrderCenter
+            onAdd={() => openModal({ type: 'invoice' })}
+            onEdit={(inv) => openModal({ type: 'invoice', data: inv })}
+            refreshKey={refreshKey}
+            userId={user.role === 'stakeholder' ? user.id : undefined}
+            onRefresh={refresh}
+          />
         )}
         {currentPage === 'agents' && (
           <AgentPage refreshKey={refreshKey} />
