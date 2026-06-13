@@ -556,17 +556,25 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
 
       {/* Filter Tabs */}
       <div className="flex gap-1 bg-base-200 rounded-xl p-1">
-        {(['all', ...INVOICE_STATUSES.map((s) => s.value)] as const).map((val) => (
-          <button
-            key={val}
-            className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              filter === val ? 'bg-primary text-primary-content' : 'text-base-content hover:text-base-content'
-            }`}
-            onClick={() => setFilter(val as InvoiceStatus | 'all')}
-          >
-            {val === 'all' ? '全部' : INVOICE_STATUSES.find((s) => s.value === val)?.label}
-          </button>
-        ))}
+        {(['all', ...INVOICE_STATUSES.map((s) => s.value)] as const).map((val) => {
+          const count = val === 'all' ? invoices.length : invoices.filter((i) => i.status === val).length;
+          return (
+            <button
+              key={val}
+              className={`flex-1 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+                filter === val ? 'bg-primary text-primary-content' : 'text-base-content hover:text-base-content'
+              }`}
+              onClick={() => setFilter(val as InvoiceStatus | 'all')}
+            >
+              {val === 'all' ? '全部' : INVOICE_STATUSES.find((s) => s.value === val)?.label}
+              {count > 0 && (
+                <span className={`ml-1 inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full text-[10px] font-bold ${
+                  filter === val ? 'bg-primary-content/20 text-primary-content' : 'bg-base-300 text-base-content/70'
+                }`}>{count}</span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* Invoice List */}
