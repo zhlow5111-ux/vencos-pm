@@ -300,7 +300,7 @@ const App: React.FC = () => {
         <ThemeToggle isDark={theme === 'vencos-dark'} onToggle={toggleTheme} />
         <NotificationBell />
         <select className="select select-xs bg-base-200/80 border-base-300 text-xs min-w-[100px]" value={portalMode} onChange={e => setPortalMode(e.target.value as PortalMode)}>
-          {isAdminRole && <option value="admin">管理后台</option>}
+          <option value="admin">管理后台</option>
           <option value="stakeholder">业主入口</option>
           <option value="tenant">租户入口</option>
           <option value="worker">维修人员</option>
