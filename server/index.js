@@ -707,7 +707,7 @@ app.post('/api/tenant/change-pin', (req, res) => {
 });
 
 app.post('/api/tenant/reset-pin', authMiddleware, (req, res) => {
-  if (req.user.role !== 'admin' && req.user.role !== 'super_admin') {
+  if (!['admin', 'super_admin', 'stakeholder'].includes(req.user.role)) {
     return res.status(403).json({ error: 'Forbidden' });
   }
   const { phone } = req.body;
