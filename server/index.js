@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 33;
+  const SCHEMA_VERSION = 34;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -542,6 +542,25 @@ function initDatabase() {
     try { db.exec(`ALTER TABLE vc_floor_units ADD COLUMN tenant_email TEXT NOT NULL DEFAULT ''`); } catch (e) {}
   }
 
+  // V34: Payment notifications + bank accounts
+  if (currentVer < 34) {
+    db.exec(`CREATE TABLE IF NOT EXISTS vc_payment_notifications (
+      id INTEGER PRIMARY KEY, invoice_id INTEGER NOT NULL DEFAULT 0,
+      tenant_phone TEXT NOT NULL DEFAULT '', tenant_name TEXT NOT NULL DEFAULT '',
+      payment_method TEXT NOT NULL DEFAULT '', payment_ref TEXT NOT NULL DEFAULT '',
+      receipt_path TEXT NOT NULL DEFAULT '', receipt_filename TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'pending',
+      admin_notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT '', confirmed_at TEXT NOT NULL DEFAULT '', rejected_at TEXT NOT NULL DEFAULT ''
+    )`);
+    db.exec(`CREATE TABLE IF NOT EXISTS vc_bank_accounts (
+      id INTEGER PRIMARY KEY, bank_name TEXT NOT NULL DEFAULT '',
+      account_no TEXT NOT NULL DEFAULT '', account_name TEXT NOT NULL DEFAULT '',
+      is_default INTEGER NOT NULL DEFAULT 0, notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT '', updated_at TEXT NOT NULL DEFAULT ''
+    )`);
+  }
+
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);
   console.log(`DB migration to v${SCHEMA_VERSION} complete.`);
 }
@@ -699,6 +718,125 @@ app.post('/api/tenant/reset-pin', authMiddleware, (req, res) => {
 });
 
 // ========== SQL Proxy Routes ==========
+// ========== Payment Notification ==========
+app.post('/api/tenant/payment-notify', authMiddleware, (req, res) => {
+  const { invoice_id, tenant_phone, tenant_name, payment_method, payment_ref, receipt_data, receipt_filename, notes } = req.body;
+  if (!invoice_id) return res.status(400).json({ error: 'Missing invoice_id' });
+
+  // Verify invoice exists
+  const inv = db.prepare('SELECT * FROM vc_invoices WHERE id=?').get(invoice_id);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (inv.status !== 'pending' && inv.status !== 'overdue') return res.status(400).json({ error: 'Invoice is not payable' });
+
+  // Check no pending notification already exists
+  const existing = db.prepare('SELECT id FROM vc_payment_notifications WHERE invoice_id=? AND status=?').get(invoice_id, 'pending');
+  if (existing) return res.status(400).json({ error: '已有待确认的付款通知' });
+
+  const now = new Date().toISOString();
+  const id = Date.now();
+
+  // Save receipt to disk if provided
+  let receiptPath = '';
+  if (receipt_data && receipt_data.length > 50) {
+    try {
+      const ext = (receipt_filename || 'receipt.jpg').split('.').pop() || 'jpg';
+      const fname = `pay_${id}.${ext}`;
+      const fpath = path.join(DATA_DIR, 'receipts', fname);
+      fs.mkdirSync(path.dirname(fpath), { recursive: true });
+      // Strip data URL prefix if present
+      const raw = receipt_data.replace(/^data:[^;]+;base64,/, '');
+      fs.writeFileSync(fpath, raw, 'base64');
+      receiptPath = `/receipts/${fname}`;
+    } catch (e) { console.error('Receipt save error:', e); }
+  }
+
+  db.prepare(`INSERT INTO vc_payment_notifications (id, invoice_id, tenant_phone, tenant_name, payment_method, payment_ref, receipt_path, receipt_filename, notes, status, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`).run(
+    id, invoice_id, tenant_phone || '', tenant_name || '', payment_method || '', payment_ref || '', receiptPath, receipt_filename || '', notes || '', now
+  );
+
+  // Update invoice status to confirming
+  db.prepare("UPDATE vc_invoices SET status='confirming', updated_at=? WHERE id=?").run(now, invoice_id);
+
+  res.json({ ok: true, id });
+});
+
+// ========== Bank Accounts ==========
+app.get('/api/bank-accounts', authMiddleware, (req, res) => {
+  const rows = db.prepare('SELECT * FROM vc_bank_accounts ORDER BY is_default DESC, id').all();
+  res.json(rows);
+});
+
+app.post('/api/bank-accounts', authMiddleware, (req, res) => {
+  const { bank_name, account_no, account_name, is_default, notes } = req.body;
+  const now = new Date().toISOString();
+  const id = Date.now();
+  db.prepare(`INSERT INTO vc_bank_accounts (id, bank_name, account_no, account_name, is_default, notes, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(id, bank_name || '', account_no || '', account_name || '', is_default ? 1 : 0, notes || '', now, now);
+  res.json({ ok: true, id });
+});
+
+app.put('/api/bank-accounts/:id', authMiddleware, (req, res) => {
+  const { bank_name, account_no, account_name, is_default, notes } = req.body;
+  const now = new Date().toISOString();
+  db.prepare(`UPDATE vc_bank_accounts SET bank_name=?, account_no=?, account_name=?, is_default=?, notes=?, updated_at=? WHERE id=?`).run(
+    bank_name || '', account_no || '', account_name || '', is_default ? 1 : 0, notes || '', now, req.params.id
+  );
+  res.json({ ok: true });
+});
+
+app.delete('/api/bank-accounts/:id', authMiddleware, (req, res) => {
+  db.prepare('DELETE FROM vc_bank_accounts WHERE id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+
+// ========== Payment Notification Management ==========
+app.get('/api/payment-notifications', authMiddleware, (req, res) => {
+  const rows = db.prepare(`SELECT pn.*, i.invoice_no, i.amount as invoice_amount, i.billing_month, p.name as property_name
+    FROM vc_payment_notifications pn
+    LEFT JOIN vc_invoices i ON pn.invoice_id = i.id
+    LEFT JOIN vc_properties p ON i.property_id = p.id
+    ORDER BY pn.created_at DESC`).all();
+  res.json(rows);
+});
+
+app.get('/api/payment-notifications/invoice/:invoiceId', authMiddleware, (req, res) => {
+  const rows = db.prepare(`SELECT * FROM vc_payment_notifications WHERE invoice_id=? ORDER BY created_at DESC`).all(req.params.invoiceId);
+  res.json(rows);
+});
+
+app.post('/api/payment-notifications/:id/confirm', authMiddleware, (req, res) => {
+  const now = new Date().toISOString();
+  const notif = db.prepare('SELECT * FROM vc_payment_notifications WHERE id=?').get(req.params.id);
+  if (!notif) return res.status(404).json({ error: 'Not found' });
+
+  // Update notification
+  db.prepare("UPDATE vc_payment_notifications SET status='confirmed', confirmed_at=?, admin_notes=? WHERE id=?").run(now, req.body.admin_notes || '', req.params.id);
+
+  // Mark invoice as paid
+  db.prepare("UPDATE vc_invoices SET status='paid', paid_date=?, payment_method=?, payment_ref=?, updated_at=? WHERE id=?").run(
+    now.slice(0, 10), notif.payment_method || '', notif.payment_ref || '', now, notif.invoice_id
+  );
+
+  res.json({ ok: true });
+});
+
+app.post('/api/payment-notifications/:id/reject', authMiddleware, (req, res) => {
+  const now = new Date().toISOString();
+  const notif = db.prepare('SELECT * FROM vc_payment_notifications WHERE id=?').get(req.params.id);
+  if (!notif) return res.status(404).json({ error: 'Not found' });
+
+  // Update notification
+  db.prepare("UPDATE vc_payment_notifications SET status='rejected', rejected_at=?, admin_notes=? WHERE id=?").run(now, req.body.reason || '', req.params.id);
+
+  // Restore invoice status — check if overdue
+  const inv = db.prepare('SELECT due_date FROM vc_invoices WHERE id=?').get(notif.invoice_id);
+  const newStatus = (inv && inv.due_date && inv.due_date < now.slice(0, 10)) ? 'overdue' : 'pending';
+  db.prepare("UPDATE vc_invoices SET status=?, updated_at=? WHERE id=?").run(newStatus, now, notif.invoice_id);
+
+  res.json({ ok: true });
+});
+
 app.post('/api/sql/query', authMiddleware, (req, res) => {
   const { sql } = req.body;
   if (!sql) return res.status(400).json({ error: 'Missing SQL' });

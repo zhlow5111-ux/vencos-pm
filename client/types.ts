@@ -326,7 +326,7 @@ export interface RentalDeal {
 }
 
 // ========== Invoice / Billing ==========
-export type InvoiceStatus = 'pending' | 'paid' | 'overdue' | 'cancelled';
+export type InvoiceStatus = 'pending' | 'paid' | 'overdue' | 'cancelled' | 'confirming';
 
 export interface Invoice {
   id: number;
@@ -601,6 +601,7 @@ export const INVOICE_STATUSES: { value: InvoiceStatus; label: string; color: str
   { value: 'pending', label: '待付款', color: 'badge-warning' },
   { value: 'paid', label: '已付款', color: 'badge-success' },
   { value: 'overdue', label: '已逾期', color: 'badge-error' },
+  { value: 'confirming', label: '待确认', color: 'badge-info' },
   { value: 'cancelled', label: '已取消', color: 'badge-ghost' },
 ];
 

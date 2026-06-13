@@ -27,6 +27,7 @@ const STATUS_ICONS: Record<InvoiceStatus, React.ReactNode> = {
   pending: <Clock size={16} className="text-warning" />,
   paid: <CheckCircle size={16} className="text-success" />,
   overdue: <AlertTriangle size={16} className="text-error" />,
+  confirming: <Clock size={16} className="text-info" />,
   cancelled: <FileText size={16} className="text-base-content" />,
 };
 
@@ -131,7 +132,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
 
   function handleExportInvoices() {
     const headers = ['账单号', '物业', '楼层', '租户', '金额', '到期日', '状态', '账单月份', '备注'];
-    const statusMap: Record<string, string> = { pending: '待付款', paid: '已付款', overdue: '已逾期', cancelled: '已取消' };
+    const statusMap: Record<string, string> = { pending: '待付款', paid: '已付款', overdue: '已逾期', confirming: '待确认', cancelled: '已取消' };
     const rows = invoices.map(inv => [
       inv.invoice_no, inv.property_name || '', inv.floor_label || '', inv.tenant_name || '',
       inv.amount, inv.due_date || '', statusMap[inv.status] || inv.status,
@@ -368,7 +369,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
   async function handleBatchWhatsApp() {
     try {
       // Find all pending/overdue invoices with tenant phone
-      const pendingInvs = invoices.filter(i => i.status === 'pending' || i.status === 'overdue');
+      const pendingInvs = invoices.filter(i => i.status === 'pending' || i.status === 'overdue' || (i.status as string) === 'confirming');
       const templates = await getTemplates();
       const tpl = templates.length > 0 ? templates[0] : null;
       const templateContent = tpl?.content || '尊敬的 {tenant_name},\n\n提醒您，物业 {property_name} 的租金 {amount} 将于 {due_date} 到期。\n\n请及时缴纳租金，谢谢！';
@@ -1261,6 +1262,45 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
             <button className="btn btn-xs btn-success gap-1" onClick={() => handleMarkPaid(inv.id)}>
               <CheckCircle size={12} /> 确认收款
             </button>
+          )}
+          {(inv.status as string) === 'confirming' && (
+            <div className="flex items-center gap-1">
+              <span className="text-xs text-info">📤 租户已通知付款</span>
+              <button className="btn btn-xs btn-success gap-1" onClick={async () => {
+                try {
+                  const token = localStorage.getItem('vencos_token') || '';
+                  const nResp = await fetch(`/api/payment-notifications/invoice/${inv.id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                  const notifs = await nResp.json();
+                  const pending = notifs.find((n: any) => n.status === 'pending');
+                  if (pending) {
+                    await fetch(`/api/payment-notifications/${pending.id}/confirm`, {
+                      method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                      body: JSON.stringify({}),
+                    });
+                    showToast('✅ 已确认收款');
+                    await loadData();
+                  } else { handleMarkPaid(inv.id); }
+                } catch { handleMarkPaid(inv.id); }
+              }}><CheckCircle size={12} /> 确认</button>
+              <button className="btn btn-xs btn-error btn-outline gap-1" onClick={async () => {
+                const reason = prompt('退回原因（选填）:');
+                if (reason === null) return;
+                try {
+                  const token = localStorage.getItem('vencos_token') || '';
+                  const nResp = await fetch(`/api/payment-notifications/invoice/${inv.id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                  const notifs = await nResp.json();
+                  const pending = notifs.find((n: any) => n.status === 'pending');
+                  if (pending) {
+                    await fetch(`/api/payment-notifications/${pending.id}/reject`, {
+                      method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+                      body: JSON.stringify({ reason }),
+                    });
+                    showToast('已退回付款通知');
+                    await loadData();
+                  }
+                } catch (e) { console.error(e); }
+              }}><AlertTriangle size={12} /> 退回</button>
+            </div>
           )}
           {inv.status === 'paid' && (
             <div className="flex items-center gap-1 flex-wrap">

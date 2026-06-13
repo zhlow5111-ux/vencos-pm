@@ -6,7 +6,7 @@ import { PenaltyConfig } from '../types';
 import { ConfirmModal } from './ConfirmModal';
 import { sendWhatsAppMessage } from '../utils/whatsapp';
 
-type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions' | 'penalty' | 'workers';
+type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions' | 'penalty' | 'workers' | 'bank_accounts';
 
 interface SettingsPageProps {
   onAddTemplate: () => void;
@@ -26,7 +26,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 }) => {
   const [tab, setTabState] = useState<SettingsTab>(() => {
     const saved = localStorage.getItem('vencos_settingsTab');
-    return (saved && ['templates', 'schedules', 'integrations', 'owners', 'users_permissions', 'penalty', 'workers'].includes(saved)) ? saved as SettingsTab : 'owners';
+    return (saved && ['templates', 'schedules', 'integrations', 'owners', 'users_permissions', 'penalty', 'workers', 'bank_accounts'].includes(saved)) ? saved as SettingsTab : 'owners';
   });
   const setTab = (t: SettingsTab) => { setTabState(t); localStorage.setItem('vencos_settingsTab', t); };
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -420,6 +420,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     { key: 'schedules', label: '排程', icon: <Calendar size={13} /> },
     { key: 'integrations', label: '集成', icon: <Wifi size={13} /> },
     { key: 'penalty', label: '罚款', icon: <Bell size={13} /> },
+    { key: 'bank_accounts', label: '收款账户', icon: <Building2 size={13} /> },
   ];
 
   return (
@@ -1376,6 +1377,124 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
           )}
         </div>
       )}
+
+      {/* ===== BANK ACCOUNTS TAB ===== */}
+      {tab === 'bank_accounts' && (() => {
+        const [banks, setBanks] = React.useState<any[]>([]);
+        const [showBankForm, setShowBankForm] = React.useState(false);
+        const [bankForm, setBankForm] = React.useState({ bank_name: '', account_no: '', account_name: '', is_default: false, notes: '' });
+        const [editingBankId, setEditingBankId] = React.useState<number | null>(null);
+
+        React.useEffect(() => { loadBanks(); }, []);
+
+        async function loadBanks() {
+          try {
+            const token = localStorage.getItem('vencos_token') || '';
+            const resp = await fetch('/api/bank-accounts', { headers: { 'Authorization': `Bearer ${token}` } });
+            if (resp.ok) setBanks(await resp.json());
+          } catch {}
+        }
+
+        async function saveBankAccount() {
+          const token = localStorage.getItem('vencos_token') || '';
+          if (editingBankId) {
+            await fetch(`/api/bank-accounts/${editingBankId}`, {
+              method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify(bankForm),
+            });
+          } else {
+            await fetch('/api/bank-accounts', {
+              method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+              body: JSON.stringify(bankForm),
+            });
+          }
+          setShowBankForm(false);
+          setEditingBankId(null);
+          setBankForm({ bank_name: '', account_no: '', account_name: '', is_default: false, notes: '' });
+          await loadBanks();
+        }
+
+        async function deleteBankAccount(id: number) {
+          if (!confirm('确定删除此收款账户？')) return;
+          const token = localStorage.getItem('vencos_token') || '';
+          await fetch(`/api/bank-accounts/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+          await loadBanks();
+        }
+
+        return (
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold">💳 收款账户</h3>
+              <button className="btn btn-primary btn-xs gap-1" onClick={() => { setBankForm({ bank_name: '', account_no: '', account_name: '', is_default: false, notes: '' }); setEditingBankId(null); setShowBankForm(true); }}>
+                <Plus size={12} /> 新增
+              </button>
+            </div>
+            <p className="text-xs text-base-content/60">设置收款银行账户信息，将显示在租户账单页面上</p>
+
+            {banks.length === 0 ? (
+              <div className="text-center py-8 text-base-content/50 text-sm">暂无收款账户</div>
+            ) : (
+              banks.map(ba => (
+                <div key={ba.id} className="card bg-base-200">
+                  <div className="card-body p-3">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="font-bold text-sm">{ba.bank_name}</p>
+                        <p className="text-xs font-mono">{ba.account_no}</p>
+                        <p className="text-xs text-base-content/60">{ba.account_name}</p>
+                        {ba.notes && <p className="text-xs text-base-content/50 mt-0.5">{ba.notes}</p>}
+                      </div>
+                      <div className="flex gap-1">
+                        {ba.is_default === 1 && <span className="badge badge-primary badge-xs">默认</span>}
+                        <button className="btn btn-ghost btn-xs" onClick={() => {
+                          setBankForm({ bank_name: ba.bank_name, account_no: ba.account_no, account_name: ba.account_name, is_default: ba.is_default === 1, notes: ba.notes || '' });
+                          setEditingBankId(ba.id); setShowBankForm(true);
+                        }}>编辑</button>
+                        <button className="btn btn-ghost btn-xs text-error" onClick={() => deleteBankAccount(ba.id)}>删除</button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+
+            {showBankForm && (
+              <div className="modal modal-open" style={{ zIndex: 9999 }}>
+                <div className="modal-box max-w-sm">
+                  <h3 className="font-bold text-lg">{editingBankId ? '编辑' : '新增'}收款账户</h3>
+                  <div className="space-y-3 mt-3">
+                    <div className="form-control">
+                      <label className="label py-1"><span className="label-text text-xs">银行名称</span></label>
+                      <input className="input input-bordered input-sm w-full" placeholder="如：Maybank" value={bankForm.bank_name} onChange={e => setBankForm({ ...bankForm, bank_name: e.target.value })} />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-1"><span className="label-text text-xs">账号</span></label>
+                      <input className="input input-bordered input-sm w-full" placeholder="银行账号" value={bankForm.account_no} onChange={e => setBankForm({ ...bankForm, account_no: e.target.value })} />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-1"><span className="label-text text-xs">户名</span></label>
+                      <input className="input input-bordered input-sm w-full" placeholder="账户持有人名称" value={bankForm.account_name} onChange={e => setBankForm({ ...bankForm, account_name: e.target.value })} />
+                    </div>
+                    <div className="form-control">
+                      <label className="label py-1"><span className="label-text text-xs">备注 (选填)</span></label>
+                      <input className="input input-bordered input-sm w-full" placeholder="备注" value={bankForm.notes} onChange={e => setBankForm({ ...bankForm, notes: e.target.value })} />
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" className="toggle toggle-sm toggle-primary" checked={bankForm.is_default} onChange={e => setBankForm({ ...bankForm, is_default: e.target.checked })} />
+                      <span className="text-xs">设为默认账户</span>
+                    </label>
+                  </div>
+                  <div className="modal-action">
+                    <button className="btn btn-ghost btn-sm" onClick={() => setShowBankForm(false)}>取消</button>
+                    <button className="btn btn-primary btn-sm" onClick={saveBankAccount} disabled={!bankForm.bank_name.trim() || !bankForm.account_no.trim()}>保存</button>
+                  </div>
+                </div>
+                <div className="modal-backdrop" onClick={() => setShowBankForm(false)} />
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       <ConfirmModal
         open={deleteModal !== null}
