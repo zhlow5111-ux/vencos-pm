@@ -299,14 +299,12 @@ const App: React.FC = () => {
         <span className="text-xs text-base-content/50 font-medium whitespace-nowrap">{user.name}</span>
         <ThemeToggle isDark={theme === 'vencos-dark'} onToggle={toggleTheme} />
         <NotificationBell />
-        {isAdminRole && (
-          <select className="select select-xs bg-base-200/80 border-base-300 text-xs min-w-[100px]" value={portalMode} onChange={e => setPortalMode(e.target.value as PortalMode)}>
-            <option value="admin">管理后台</option>
-            <option value="stakeholder">业主入口</option>
-            <option value="tenant">租户入口</option>
-            <option value="worker">维修人员</option>
-          </select>
-        )}
+        <select className="select select-xs bg-base-200/80 border-base-300 text-xs min-w-[100px]" value={portalMode} onChange={e => setPortalMode(e.target.value as PortalMode)}>
+          {isAdminRole && <option value="admin">管理后台</option>}
+          <option value="stakeholder">业主入口</option>
+          <option value="tenant">租户入口</option>
+          <option value="worker">维修人员</option>
+        </select>
         <button className="btn btn-xs btn-ghost text-base-content/30 hover:text-base-content/60" onClick={handleLogout} title="登出">
           <LogOut size={14} />
         </button>
