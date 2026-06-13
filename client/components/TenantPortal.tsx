@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, FileText, Wrench, User, Plus, Camera, Send, Clock, CheckCircle, Key, ArrowLeft, LogOut, Building2, DollarSign, Upload, CreditCard, Phone, AlertTriangle, ChevronDown, ChevronUp, RefreshCw, X } from 'lucide-react';
+import { Home, FileText, Wrench, User, Plus, Camera, Send, Clock, CheckCircle, Key, ArrowLeft, LogOut, Building2, DollarSign, Upload, CreditCard, Phone, AlertTriangle, ChevronDown, ChevronUp, RefreshCw, X, ZoomIn, ZoomOut, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
 import { FloorUnit, Invoice, MaintenanceTicket, TICKET_CATEGORIES, TICKET_PRIORITIES, TICKET_STATUSES } from '../types';
 import { getFloorUnitsByPhone, getInvoicesForFloor, getTicketsByPhone, saveTicket } from '../utils/db';
 import { getAuthToken, setAuthToken } from '../tasklet-shim';
@@ -58,6 +58,8 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
   const [repairPhotos, setRepairPhotos] = useState<string[]>([]);
   const [repairSubmitting, setRepairSubmitting] = useState(false);
   const [repairSubmitted, setRepairSubmitted] = useState(false);
+  const [tpPhotoViewer, setTpPhotoViewer] = useState<{ photos: string[]; index: number } | null>(null);
+  const [tpPhotoZoom, setTpPhotoZoom] = useState(1);
   const photoRef = useRef<HTMLInputElement>(null);
 
   // ===== AUTO-LOGIN (admin preview mode) =====
@@ -655,7 +657,7 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
                           <p className="text-xs text-base-content/60">{cat?.label} · {t.property_name}</p>
                           {t.description && <p className="text-xs text-base-content/70 whitespace-pre-wrap">{t.description}</p>}
                           {tPhotos.length > 0 && (
-                            <div className="flex gap-1 overflow-x-auto">{tPhotos.map((p, i) => <img key={i} src={p} className="w-14 h-14 rounded object-cover shrink-0" />)}</div>
+                            <div className="flex gap-1 overflow-x-auto">{tPhotos.map((p, i) => <img key={i} src={p} className="w-14 h-14 rounded object-cover shrink-0 cursor-pointer hover:ring-2 hover:ring-primary" onClick={() => { setTpPhotoZoom(1); setTpPhotoViewer({ photos: tPhotos, index: i }); }} />)}</div>
                           )}
 
                           {/* Progress bar */}
@@ -853,6 +855,33 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
         </div>
         <div style={{ height: 'env(safe-area-inset-bottom, 0px)' }} />
       </nav>
+
+      {/* Photo Viewer Modal */}
+      {tpPhotoViewer && (
+        <div className="modal modal-open" style={{ zIndex: 9999 }} onClick={() => setTpPhotoViewer(null)}>
+          <div className="modal-box max-w-2xl relative" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-lg">📷 照片 ({tpPhotoViewer.index + 1}/{tpPhotoViewer.photos.length})</h3>
+              <button className="btn btn-sm btn-circle btn-ghost" onClick={() => setTpPhotoViewer(null)}><X size={18} /></button>
+            </div>
+            <div className="flex items-center justify-center gap-2 mb-2">
+              {tpPhotoViewer.photos.length > 1 && (
+                <button className="btn btn-sm btn-ghost" onClick={() => setTpPhotoViewer(v => v ? { ...v, index: (v.index - 1 + v.photos.length) % v.photos.length } : null)}><ChevronLeft size={18} /></button>
+              )}
+              <button className="btn btn-xs btn-ghost gap-1" onClick={() => setTpPhotoZoom(z => Math.max(0.5, z - 0.25))}><ZoomOut size={14} /></button>
+              <span className="text-xs font-mono min-w-[40px] text-center">{Math.round(tpPhotoZoom * 100)}%</span>
+              <button className="btn btn-xs btn-ghost gap-1" onClick={() => setTpPhotoZoom(z => Math.min(3, z + 0.25))}><ZoomIn size={14} /></button>
+              {tpPhotoZoom !== 1 && <button className="btn btn-xs btn-ghost gap-1" onClick={() => setTpPhotoZoom(1)}><RotateCcw size={14} /></button>}
+              {tpPhotoViewer.photos.length > 1 && (
+                <button className="btn btn-sm btn-ghost" onClick={() => setTpPhotoViewer(v => v ? { ...v, index: (v.index + 1) % v.photos.length } : null)}><ChevronRight size={18} /></button>
+              )}
+            </div>
+            <div className="flex justify-center overflow-auto max-h-[70vh] bg-base-200 rounded-lg">
+              <img src={tpPhotoViewer.photos[tpPhotoViewer.index]} alt="照片" className="rounded-lg transition-transform" style={{ transform: `scale(${tpPhotoZoom})`, transformOrigin: 'top center' }} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

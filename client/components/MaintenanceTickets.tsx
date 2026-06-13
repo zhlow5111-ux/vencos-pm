@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Wrench, Plus, ChevronDown, ChevronUp, Camera, AlertTriangle } from 'lucide-react';
+import { Wrench, Plus, ChevronDown, ChevronUp, Camera, AlertTriangle, ZoomIn, ZoomOut, RotateCcw, X, ChevronLeft, ChevronRight } from 'lucide-react';
 import { MaintenanceTicket, Worker, TICKET_CATEGORIES, TICKET_PRIORITIES, TICKET_STATUSES, WORKER_SPECIALTIES } from '../types';
 import { getTickets, getWorkers, updateTicketStatus, assignWorkerToTicket, updateTicketNotes, deleteTicket } from '../utils/db';
 import { ConfirmModal } from './ConfirmModal';
@@ -16,6 +16,8 @@ export const MaintenanceTickets: React.FC<Props> = ({ refreshKey, onRefresh }) =
   const [filter, setFilter] = useState('all');
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [notesDraft, setNotesDraft] = useState<Record<number, string>>({});
+  const [photoViewer, setPhotoViewer] = useState<{ photos: string[]; index: number } | null>(null);
+  const [photoZoom, setPhotoZoom] = useState(1);
 
   useEffect(() => { load(); }, [refreshKey]);
 
@@ -121,7 +123,7 @@ export const MaintenanceTickets: React.FC<Props> = ({ refreshKey, onRefresh }) =
                               <p className="text-xs font-semibold text-base-content mb-1">📷 照片 ({photos.length})</p>
                               <div className="flex gap-2 overflow-x-auto">
                                 {photos.map((p, i) => (
-                                  <img key={i} src={p} alt={`Photo ${i + 1}`} className="w-24 h-24 object-cover rounded-lg shrink-0" />
+                                  <img key={i} src={p} alt={`Photo ${i + 1}`} className="w-24 h-24 object-cover rounded-lg shrink-0 cursor-pointer hover:ring-2 hover:ring-primary transition-all" onClick={(e) => { e.stopPropagation(); setPhotoZoom(1); setPhotoViewer({ photos, index: i }); }} />
                                 ))}
                               </div>
                             </div>
@@ -190,6 +192,33 @@ export const MaintenanceTickets: React.FC<Props> = ({ refreshKey, onRefresh }) =
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteConfirm(null)}
       />
+
+      {/* Photo Viewer Modal */}
+      {photoViewer && (
+        <div className="modal modal-open" style={{ zIndex: 9999 }} onClick={() => setPhotoViewer(null)}>
+          <div className="modal-box max-w-2xl relative" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-lg">📷 照片 ({photoViewer.index + 1}/{photoViewer.photos.length})</h3>
+              <button className="btn btn-sm btn-circle btn-ghost" onClick={() => setPhotoViewer(null)}><X size={18} /></button>
+            </div>
+            <div className="flex items-center justify-center gap-2 mb-2">
+              {photoViewer.photos.length > 1 && (
+                <button className="btn btn-sm btn-ghost" onClick={() => setPhotoViewer(v => v ? { ...v, index: (v.index - 1 + v.photos.length) % v.photos.length } : null)}><ChevronLeft size={18} /></button>
+              )}
+              <button className="btn btn-xs btn-ghost gap-1" onClick={() => setPhotoZoom(z => Math.max(0.5, z - 0.25))}><ZoomOut size={14} /></button>
+              <span className="text-xs font-mono min-w-[40px] text-center">{Math.round(photoZoom * 100)}%</span>
+              <button className="btn btn-xs btn-ghost gap-1" onClick={() => setPhotoZoom(z => Math.min(3, z + 0.25))}><ZoomIn size={14} /></button>
+              {photoZoom !== 1 && <button className="btn btn-xs btn-ghost gap-1" onClick={() => setPhotoZoom(1)}><RotateCcw size={14} /></button>}
+              {photoViewer.photos.length > 1 && (
+                <button className="btn btn-sm btn-ghost" onClick={() => setPhotoViewer(v => v ? { ...v, index: (v.index + 1) % v.photos.length } : null)}><ChevronRight size={18} /></button>
+              )}
+            </div>
+            <div className="flex justify-center overflow-auto max-h-[70vh] bg-base-200 rounded-lg">
+              <img src={photoViewer.photos[photoViewer.index]} alt="照片" className="rounded-lg transition-transform" style={{ transform: `scale(${photoZoom})`, transformOrigin: 'top center' }} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
