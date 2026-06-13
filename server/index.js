@@ -912,9 +912,13 @@ app.get('/api/diag', (req, res) => {
     try { propCount = db.prepare('SELECT COUNT(*) as cnt FROM vc_properties').get(); } catch {}
     try { loanCols = db.prepare("PRAGMA table_info(vc_loans)").all().map(c => c.name); } catch {}
     try { propCols = db.prepare("PRAGMA table_info(vc_properties)").all().map(c => c.name); } catch {}
+    let floorUnitCols = [];
+    try { floorUnitCols = db.prepare("PRAGMA table_info(vc_floor_units)").all().map(c => c.name); } catch {}
+    let sampleUnit = null;
+    try { sampleUnit = db.prepare("SELECT id, tenant_name, tenant_phone, tenant_pin, tenant_must_change_pin FROM vc_floor_units WHERE tenant_name != '' LIMIT 3").all(); } catch {}
     let users = [];
     try { users = db.prepare('SELECT id, username, name, role, phone, active, must_change_pin, last_login FROM vc_users ORDER BY id').all(); } catch {}
-    res.json({ tables, meta, loanCount, loans, propsWithLoan, propCount, loanCols, propCols, users });
+    res.json({ tables, meta, loanCount, loans, propsWithLoan, propCount, loanCols, propCols, floorUnitCols, sampleUnit, users });
   } catch (err) {
     res.json({ error: err.message });
   }

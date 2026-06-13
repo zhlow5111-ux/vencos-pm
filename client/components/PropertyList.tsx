@@ -353,8 +353,9 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
       setFloorUnits(updatedFloors);
       setTenantForm(null);
       setLeaseLinkerTarget(null);
-    } catch (e) {
+    } catch (e: any) {
       console.error('Save tenant failed:', e);
+      alert('保存失败: ' + (e?.message || String(e)));
     } finally {
       setSavingTenant(false);
     }
