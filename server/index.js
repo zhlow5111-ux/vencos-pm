@@ -1113,6 +1113,16 @@ const distPath = path.join(__dirname, '../dist');
 app.use(express.static(distPath));
 app.use('/icons', express.static(path.join(distPath, 'icons')));
 
+// ========== Billing Log API ==========
+app.get('/api/billing-log', authMiddleware, (req, res) => {
+  try {
+    const rows = db.prepare('SELECT * FROM vc_billing_log ORDER BY created_at DESC LIMIT 200').all();
+    res.json(rows);
+  } catch (err) {
+    res.json([]);
+  }
+});
+
 // SPA fallback - serve index.html for all non-API routes
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) {
@@ -1204,15 +1214,7 @@ function runAutoBilling() {
 setTimeout(() => runAutoBilling(), 5000);
 setInterval(() => runAutoBilling(), 60 * 60 * 1000);
 
-// Billing log API
-app.get('/api/billing-log', authMiddleware, (req, res) => {
-  try {
-    const rows = db.prepare('SELECT * FROM vc_billing_log ORDER BY created_at DESC LIMIT 200').all();
-    res.json(rows);
-  } catch (err) {
-    res.json([]);
-  }
-});
+// (billing-log route moved above catch-all)
 
 // ========== Start Server ==========
 app.listen(PORT, '0.0.0.0', () => {
