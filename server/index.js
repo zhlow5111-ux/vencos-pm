@@ -1093,6 +1093,10 @@ app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) {
     return res.status(404).json({ error: 'Not found' });
   }
+  // Don't serve index.html for missing asset files (prevents cache MIME mismatch)
+  if (req.path.startsWith('/assets/')) {
+    return res.status(404).send('Not found');
+  }
   res.sendFile(path.join(distPath, 'index.html'));
 });
 

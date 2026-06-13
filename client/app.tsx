@@ -4,7 +4,7 @@ import './app.css';
 import './tasklet-shim';
 import { setAuthToken, clearAuthToken, getAuthToken } from './tasklet-shim';
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, Component, ErrorInfo, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { Page, PortalMode, Property, Client, SaleDeal, RentalDeal, Invoice, MessageTemplate, BillingSchedule, Owner, SystemUser } from './types';
 import { BottomNav } from './components/BottomNav';
@@ -450,4 +450,38 @@ const App: React.FC = () => {
   );
 };
 
-createRoot(document.getElementById('root')!).render(<App />);
+// Error Boundary — prevents blank page on crash
+class AppErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('App crash:', error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: 40, fontFamily: 'sans-serif', textAlign: 'center' }}>
+          <h2 style={{ color: '#e53e3e', marginBottom: 16 }}>⚠️ 系统遇到错误</h2>
+          <p style={{ color: '#666', marginBottom: 8 }}>错误信息: {this.state.error?.message}</p>
+          <p style={{ color: '#999', fontSize: 12, marginBottom: 20 }}>{this.state.error?.stack?.split('\n').slice(0, 3).join('\n')}</p>
+          <button
+            onClick={() => { localStorage.clear(); window.location.reload(); }}
+            style={{ padding: '10px 24px', background: '#3b82f6', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer', marginRight: 10 }}
+          >清除缓存并重新加载</button>
+          <button
+            onClick={() => window.location.reload()}
+            style={{ padding: '10px 24px', background: '#6b7280', color: '#fff', border: 'none', borderRadius: 8, cursor: 'pointer' }}
+          >重新加载</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+createRoot(document.getElementById('root')!).render(<AppErrorBoundary><App /></AppErrorBoundary>);
