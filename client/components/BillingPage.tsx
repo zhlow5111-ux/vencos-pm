@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, CheckCircle, AlertTriangle, Clock, FileText, Trash2, Zap, Calendar, Download, Printer, MessageCircle, Send, Smartphone, Eye, Paperclip, Image, Upload, Mail, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { Plus, CheckCircle, AlertTriangle, Clock, FileText, Trash2, Zap, Calendar, Download, Printer, MessageCircle, Send, Smartphone, Eye, Paperclip, Image, Upload, Mail, ZoomIn, ZoomOut, RotateCcw, X } from 'lucide-react';
 import { Invoice, InvoiceStatus, INVOICE_STATUSES, PropertyDocument } from '../types';
 import { getInvoices, markInvoicePaid, markInvoiceOverdue, deleteInvoice, generateMonthlyInvoices, previewMonthlyInvoices, getInvoiceSummaryByMonth, getFloorUnits, getTemplates, MergedPreviewItem, savePaymentReceipt, getReceiptsForInvoice, readFileFromDiskChunked, generatePenaltyInvoices } from '../utils/db';
 import { downloadCsv } from '../utils/export';
