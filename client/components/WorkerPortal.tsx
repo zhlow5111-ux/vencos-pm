@@ -24,12 +24,26 @@ export const WorkerPortal: React.FC<WorkerPortalProps> = ({ userPhone, hideHeade
     }
   }, [userPhone]);
 
+  // Restore session from localStorage when embedded (admin portal switching)
+  useEffect(() => {
+    if (hideHeader && !userPhone && !worker) {
+      const saved = localStorage.getItem('vencos_worker_session');
+      if (saved) {
+        try {
+          const { phone: savedPhone } = JSON.parse(saved);
+          if (savedPhone) handleLoginWithPhone(savedPhone);
+        } catch {}
+      }
+    }
+  }, []);
+
   async function handleLoginWithPhone(ph: string) {
     setLoading(true); setLoginError('');
     try {
       const w = await getWorkerByPhone(ph);
       if (!w) { setLoginError('未找到此电话号码的维修人员账号'); setLoading(false); return; }
       setWorker(w);
+      if (hideHeader) localStorage.setItem('vencos_worker_session', JSON.stringify({ phone: ph }));
       const t = await getTickets(undefined, w.id);
       setTickets(t);
     } catch (e) { console.error(e); setLoginError('登录失败'); }
@@ -92,7 +106,7 @@ export const WorkerPortal: React.FC<WorkerPortalProps> = ({ userPhone, hideHeade
             <p className="text-xs text-base-content">{worker.name}</p>
           </div>
           {!userPhone && (
-            <button className="btn btn-ghost btn-sm" onClick={() => setWorker(null)}>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setWorker(null); localStorage.removeItem('vencos_worker_session'); }}>
               <LogOut size={16} /> 退出
             </button>
           )}

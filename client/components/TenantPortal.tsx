@@ -38,6 +38,19 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
     }
   }, [userPhone]);
 
+  // Restore session from localStorage when embedded (admin portal switching)
+  useEffect(() => {
+    if (hideHeader && !userPhone && !loggedIn) {
+      const saved = localStorage.getItem('vencos_tenant_session');
+      if (saved) {
+        try {
+          const { phone: savedPhone } = JSON.parse(saved);
+          if (savedPhone) { setPhone(savedPhone); handleAutoLogin(savedPhone); }
+        } catch {}
+      }
+    }
+  }, []);
+
   async function handleAutoLogin(ph: string) {
     setLoading(true);
     try {
@@ -103,6 +116,7 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
       setTenantName(data.user.name);
       setTenantPhone(phone.trim());
       setLoggedIn(true);
+      if (hideHeader) localStorage.setItem('vencos_tenant_session', JSON.stringify({ phone: phone.trim(), name: data.user.name }));
       await loadInvoicesAndTickets(f, phone.trim());
     } catch (e) {
       console.error(e);
@@ -133,11 +147,13 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
       setShowPinChange(false);
       setMustChangePin(false);
       setNewPin(''); setConfirmNewPin(''); setOldPin('');
-      const f = await getFloorUnitsByPhone(tenantPhone || phone.trim());
+      const ph = tenantPhone || phone.trim();
+      const f = await getFloorUnitsByPhone(ph);
       if (f && f.length > 0) {
         setFloors(f);
         setLoggedIn(true);
-        await loadInvoicesAndTickets(f, tenantPhone || phone.trim());
+        if (hideHeader) localStorage.setItem('vencos_tenant_session', JSON.stringify({ phone: ph, name: tenantName }));
+        await loadInvoicesAndTickets(f, ph);
       }
     } catch (e) {
       console.error(e);
@@ -342,7 +358,7 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
                 <Key size={14} />
               </button>
             )}
-            <button className="btn btn-ghost btn-sm" onClick={() => { setLoggedIn(false); setFloors([]); setInvoices([]); setTickets([]); setPin(''); }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setLoggedIn(false); setFloors([]); setInvoices([]); setTickets([]); setPin(''); localStorage.removeItem('vencos_tenant_session'); }}>
               <LogOut size={16} /> 退出
             </button>
           </div>

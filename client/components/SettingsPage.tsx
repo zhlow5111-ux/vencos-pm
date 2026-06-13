@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Plus, Mail, MessageSquare, Calendar, Power, PowerOff, Trash2, Edit2, Wifi, WifiOff, Bell, Building2, User, Shield, Key, Users, UserPlus, Save, X, Eye, EyeOff, Send, CheckCircle, XCircle, Clock, LogOut, MapPin, Briefcase, Phone, Navigation } from 'lucide-react';
-import { MessageTemplate, BillingSchedule, Owner, SystemUser, UserRole, Agent, CHANNEL_TYPES, OWNER_TYPES, USER_ROLES } from '../types';
-import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog, getProperties, addUserAccess, addUserOwnerAccess, forceLogoutUser, getAgents, saveAgent, deleteAgent, getAgentsByArea, getAllFloorUnits, getPenaltyConfigs, savePenaltyConfig, deletePenaltyConfig } from '../utils/db';
+import { Plus, Mail, MessageSquare, Calendar, Power, PowerOff, Trash2, Edit2, Wifi, WifiOff, Bell, Building2, User, Shield, Key, Users, UserPlus, Save, X, Eye, EyeOff, Send, CheckCircle, XCircle, Clock, LogOut, MapPin, Briefcase, Phone, Navigation, Wrench } from 'lucide-react';
+import { MessageTemplate, BillingSchedule, Owner, SystemUser, UserRole, Agent, Worker, CHANNEL_TYPES, OWNER_TYPES, USER_ROLES, WORKER_SPECIALTIES } from '../types';
+import { getTemplates, deleteTemplate, getSchedules, deleteSchedule, toggleSchedule, getOwners, deleteOwner, getSystemUsers, saveSystemUser, deleteSystemUser, getWhatsAppConfig, saveWhatsAppConfig, getMessageLog, getProperties, addUserAccess, addUserOwnerAccess, forceLogoutUser, getAgents, saveAgent, deleteAgent, getAgentsByArea, getAllFloorUnits, getPenaltyConfigs, savePenaltyConfig, deletePenaltyConfig, getWorkers, saveWorker, deleteWorker } from '../utils/db';
 import { PenaltyConfig } from '../types';
 import { ConfirmModal } from './ConfirmModal';
 import { sendWhatsAppMessage } from '../utils/whatsapp';
 
-type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions' | 'penalty';
+type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions' | 'penalty' | 'workers';
 
 interface SettingsPageProps {
   onAddTemplate: () => void;
@@ -26,7 +26,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 }) => {
   const [tab, setTabState] = useState<SettingsTab>(() => {
     const saved = localStorage.getItem('vencos_settingsTab');
-    return (saved && ['templates', 'schedules', 'integrations', 'owners', 'users_permissions', 'penalty'].includes(saved)) ? saved as SettingsTab : 'owners';
+    return (saved && ['templates', 'schedules', 'integrations', 'owners', 'users_permissions', 'penalty', 'workers'].includes(saved)) ? saved as SettingsTab : 'owners';
   });
   const setTab = (t: SettingsTab) => { setTabState(t); localStorage.setItem('vencos_settingsTab', t); };
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -72,6 +72,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     setTimeout(() => setWaToast(''), 3000);
   }, []);
 
+  // Worker state (moved from MaintenanceTickets)
+  const [workersData, setWorkersData] = useState<Worker[]>([]);
+  const [workerForm, setWorkerForm] = useState<Partial<Worker> | null>(null);
+  const [workerToast, setWorkerToast] = useState('');
+
   // User form state
   const [showUserForm, setShowUserForm] = useState(false);
   const [editingUser, setEditingUser] = useState<SystemUser | null>(null);
@@ -88,9 +93,10 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   async function loadData() {
     setLoading(true);
     try {
-      const [t, s, o, u, waCfg, logs, ag, pc] = await Promise.all([
+      const [t, s, o, u, waCfg, logs, ag, pc, wk] = await Promise.all([
         getTemplates(), getSchedules(), getOwners(), getSystemUsers(),
         getWhatsAppConfig(), getMessageLog(20), getAgents(), getPenaltyConfigs(),
+        getWorkers(),
       ]);
       setTemplates(t);
       setSchedules(s);
@@ -105,6 +111,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       setWaLoaded(true);
       setMsgLog(logs);
       setAgents(ag);
+      setWorkersData(wk);
     } catch (e) {
       console.error(e);
     }
@@ -123,6 +130,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     else if (type === 'user') await deleteSystemUser(id);
     else if (type === 'agent') await deleteAgent(id);
     else if ((type as string) === 'penalty') await deletePenaltyConfig(id);
+    else if (type === 'worker') await deleteWorker(id);
     await loadData();
   }
 
@@ -336,6 +344,14 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 
 
   // Build vacancy notification message for agents
+  async function handleSaveWorker() {
+    if (!workerForm || !workerForm.name?.trim()) { setWorkerToast('请输入姓名'); setTimeout(() => setWorkerToast(''), 3000); return; }
+    await saveWorker(workerForm as Worker & { name: string });
+    setWorkerForm(null);
+    setWorkerToast('已保存'); setTimeout(() => setWorkerToast(''), 2000);
+    await loadData();
+  }
+
   function buildVacancyMessage(property: any, agent: Agent): string {
     const lines = [
       `🏢 空置物业通知`,
@@ -399,6 +415,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     const tabItems: { key: SettingsTab; label: string; icon: React.ReactNode }[] = [
     { key: 'owners', label: '持有人', icon: <Building2 size={13} /> },
     { key: 'users_permissions', label: '用户与权限', icon: <Shield size={13} /> },
+    { key: 'workers', label: '维修人员', icon: <Wrench size={13} /> },
     { key: 'templates', label: '模板', icon: <Mail size={13} /> },
     { key: 'schedules', label: '排程', icon: <Calendar size={13} /> },
     { key: 'integrations', label: '集成', icon: <Wifi size={13} /> },
@@ -643,6 +660,76 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
+
+      {/* ===== WORKERS TAB ===== */}
+      {tab === 'workers' && (
+        <div className="space-y-3">
+          <div className="bg-warning/5 border border-warning/20 rounded-lg p-2.5">
+            <p className="text-xs text-warning">
+              🔧 管理维修人员。添加后可在单据中心→维修工单中指派任务。维修人员可用电话号码登录维修入口。
+            </p>
+          </div>
+
+          {workerToast && (
+            <div className="toast toast-top toast-center z-50">
+              <div className="alert alert-success py-2 px-4"><span className="text-sm">{workerToast}</span></div>
+            </div>
+          )}
+
+          <button className="btn btn-warning btn-sm w-full" onClick={() => setWorkerForm({})}>
+            <Plus size={16} /> 添加维修人员
+          </button>
+
+          {workerForm !== null && (
+            <div className="card bg-base-300">
+              <div className="card-body p-3 space-y-2">
+                <input className="input input-bordered input-sm w-full" placeholder="姓名 *" value={workerForm.name || ''} onChange={e => setWorkerForm({ ...workerForm, name: e.target.value })} />
+                <input className="input input-bordered input-sm w-full" placeholder="电话（维修入口登录用）" value={workerForm.phone || ''} onChange={e => setWorkerForm({ ...workerForm, phone: e.target.value })} />
+                <input className="input input-bordered input-sm w-full" placeholder="邮箱" value={workerForm.email || ''} onChange={e => setWorkerForm({ ...workerForm, email: e.target.value })} />
+                <select className="select select-bordered select-sm w-full" value={workerForm.specialty || 'general'} onChange={e => setWorkerForm({ ...workerForm, specialty: e.target.value })}>
+                  {WORKER_SPECIALTIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                </select>
+                <textarea className="textarea textarea-bordered textarea-sm w-full" placeholder="备注" rows={2} value={workerForm.notes || ''} onChange={e => setWorkerForm({ ...workerForm, notes: e.target.value })} />
+                <div className="flex gap-2">
+                  <button className="btn btn-warning btn-sm flex-1" onClick={handleSaveWorker}>保存</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setWorkerForm(null)}>取消</button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {workersData.length === 0 && workerForm === null ? (
+            <div className="text-center py-12 text-base-content/50">
+              <Wrench size={40} className="mx-auto mb-2 opacity-30" />
+              <p>暂无维修人员</p>
+              <p className="text-xs mt-1">添加后，维修人员可通过电话号码登录维修入口查看并处理工单</p>
+            </div>
+          ) : (
+            workersData.map(w => (
+              <div key={w.id} className="card bg-base-200">
+                <div className="card-body p-3">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <h3 className="font-bold text-sm">{w.name}</h3>
+                      <p className="text-xs text-base-content/60">
+                        {WORKER_SPECIALTIES.find(s => s.value === w.specialty)?.label || w.specialty}
+                        {w.phone && ` • 📱 ${w.phone}`}
+                        {w.email && ` • ✉️ ${w.email}`}
+                      </p>
+                      <p className="text-xs text-primary mt-0.5">活跃工单: {w.active_tickets || 0}</p>
+                      {w.phone && <p className="text-[10px] text-base-content/40 mt-0.5">登录方式: 维修人员入口 → 输入电话 {w.phone}</p>}
+                    </div>
+                    <div className="flex gap-1">
+                      <button className="btn btn-ghost btn-xs" onClick={() => setWorkerForm(w)}>编辑</button>
+                      <button className="btn btn-error btn-xs btn-outline" onClick={() => setDeleteModal({ type: 'worker', id: w.id, msg: '确定删除此维修人员？' })}>删除</button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      )}
 
       {/* ===== AGENTS TAB ===== */}
       {tab === 'agents' && (
