@@ -719,11 +719,23 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
                         <span className="badge badge-primary badge-sm">{f.floor_label === 'G' ? '底层' : `${f.floor_label}楼`}</span>
                       </div>
                       <p className="text-xs text-base-content/60">{f.property_address}</p>
-                      <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
-                        <div className="flex justify-between"><span className="text-base-content/60">月租</span><span className="font-bold text-primary">RM {(f.rent_amount || 0).toLocaleString()}</span></div>
-                        <div className="flex justify-between"><span className="text-base-content/60">押金</span><span>RM {(f.deposit || 0).toLocaleString()}</span></div>
-                        {f.utility_deposit ? <div className="flex justify-between"><span className="text-base-content/60">水电押金</span><span>RM {f.utility_deposit.toLocaleString()}</span></div> : null}
-                        <div className="flex justify-between"><span className="text-base-content/60">租期</span><span>{f.lease_start || '-'} 至 {f.lease_end || '-'}</span></div>
+                      <div className="text-xs space-y-1">
+                        <div className="flex items-center gap-4">
+                          <span className="text-base-content/60 w-16 shrink-0">月租</span>
+                          <span className="font-bold text-primary">RM {(f.rent_amount || 0).toLocaleString()}</span>
+                        </div>
+                        <div className="flex items-center gap-4">
+                          <span className="text-base-content/60 w-16 shrink-0">押金</span>
+                          <span>RM {(f.deposit || 0).toLocaleString()}</span>
+                        </div>
+                        {f.utility_deposit ? <div className="flex items-center gap-4">
+                          <span className="text-base-content/60 w-16 shrink-0">水电押金</span>
+                          <span>RM {f.utility_deposit.toLocaleString()}</span>
+                        </div> : null}
+                        <div className="flex items-center gap-4">
+                          <span className="text-base-content/60 w-16 shrink-0">租期</span>
+                          <span>{f.lease_start || '-'} 至 {f.lease_end || '-'}</span>
+                        </div>
                       </div>
                       <div className="flex items-center gap-1 mt-1">
                         <span className={`badge badge-sm ${li.cls}`}>{li.label}</span>
