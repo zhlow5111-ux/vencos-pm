@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 32;
+  const SCHEMA_VERSION = 33;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -535,6 +535,11 @@ function initDatabase() {
   if (currentVer < 32) {
     try { db.exec(`ALTER TABLE vc_floor_units ADD COLUMN tenant_pin TEXT NOT NULL DEFAULT '1234'`); } catch (e) {}
     try { db.exec(`ALTER TABLE vc_floor_units ADD COLUMN tenant_must_change_pin INTEGER NOT NULL DEFAULT 1`); } catch (e) {}
+  }
+
+  // V33: Add tenant_email to floor_units (was missing from V31 migration)
+  if (currentVer < 33) {
+    try { db.exec(`ALTER TABLE vc_floor_units ADD COLUMN tenant_email TEXT NOT NULL DEFAULT ''`); } catch (e) {}
   }
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);
