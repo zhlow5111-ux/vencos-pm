@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Wrench, Plus, ChevronDown, ChevronUp, Camera, AlertTriangle } from 'lucide-react';
-import { MaintenanceTicket, Worker, TICKET_CATEGORIES, TICKET_PRIORITIES, TICKET_STATUSES } from '../types';
+import { MaintenanceTicket, Worker, TICKET_CATEGORIES, TICKET_PRIORITIES, TICKET_STATUSES, WORKER_SPECIALTIES } from '../types';
 import { getTickets, getWorkers, updateTicketStatus, assignWorkerToTicket, updateTicketNotes, deleteTicket } from '../utils/db';
 import { ConfirmModal } from './ConfirmModal';
 

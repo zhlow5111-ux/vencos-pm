@@ -169,14 +169,17 @@ const App: React.FC = () => {
     setTheme(prev => prev === 'vencos-dark' ? 'vencos-light' : 'vencos-dark');
   }, []);
 
-  // Set portal mode based on user role when user logs in
+  // Set portal mode based on user role ONLY on fresh login (not session restore)
+  const isSessionRestore = useRef(true);
   useEffect(() => {
-    if (user) {
-      if (user.role === 'tenant') setPortalMode('tenant');
-      else if (user.role === 'worker') setPortalMode('worker');
-      else if (user.role === 'stakeholder') setPortalMode('stakeholder');
-      else setPortalMode('admin');
-    }
+    if (!user) { isSessionRestore.current = false; return; }
+    // Skip the initial mount — portalMode was already loaded from localStorage
+    if (isSessionRestore.current) { isSessionRestore.current = false; return; }
+    // Fresh login: set portalMode based on role
+    if (user.role === 'tenant') setPortalMode('tenant');
+    else if (user.role === 'worker') setPortalMode('worker');
+    else if (user.role === 'stakeholder') setPortalMode('stakeholder');
+    else setPortalMode('admin');
   }, [user]);
 
   const refresh = useCallback(() => {

@@ -226,7 +226,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
   }
 
   const dayOptions: number[] = [];
-  for (let i = 1; i <= 28; i++) dayOptions.push(i);
+  for (let i = 1; i <= 31; i++) dayOptions.push(i);
 
   const canSubmit = (() => {
     if (selectedPropertyIds.length === 0) return false;

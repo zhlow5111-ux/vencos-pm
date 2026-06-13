@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Plus, CheckCircle, AlertTriangle, Clock, FileText, Trash2, Zap, Calendar, Download, Printer, MessageCircle, Send, Smartphone, Eye, Paperclip, Image, Upload, Mail } from 'lucide-react';
+import { Plus, CheckCircle, AlertTriangle, Clock, FileText, Trash2, Zap, Calendar, Download, Printer, MessageCircle, Send, Smartphone, Eye, Paperclip, Image, Upload, Mail, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import { Invoice, InvoiceStatus, INVOICE_STATUSES, PropertyDocument } from '../types';
 import { getInvoices, markInvoicePaid, markInvoiceOverdue, deleteInvoice, generateMonthlyInvoices, previewMonthlyInvoices, getInvoiceSummaryByMonth, getFloorUnits, getTemplates, MergedPreviewItem, savePaymentReceipt, getReceiptsForInvoice, readFileFromDiskChunked, generatePenaltyInvoices } from '../utils/db';
 import { downloadCsv } from '../utils/export';
@@ -86,6 +86,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
   const [receiptModal, setReceiptModal] = useState<PropertyDocument | null>(null);
   const [receiptData, setReceiptData] = useState<string>('');
   const [receiptLoading, setReceiptLoading] = useState(false);
+  const [receiptZoom, setReceiptZoom] = useState(1);
 
   // === Track which invoices have receipts ===
   const [invoiceReceipts, setInvoiceReceipts] = useState<Record<number, boolean>>({});
@@ -645,9 +646,10 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
                   </div>
                   <div className="form-control flex-1">
                     <label className="label py-1"><span className="label-text text-xs">截止日</span></label>
-                    <select className="select select-bordered select-sm w-full" value={genDueDay} onChange={(e) => setGenDueDay(Number(e.target.value))}>
-                      {Array.from({ length: 28 }, (_, i) => i + 1).map((d) => (<option key={d} value={d}>{d}号</option>))}
-                    </select>
+                    <div className="flex items-center gap-1">
+                      <input type="number" className="input input-bordered input-sm w-full" min={1} max={31} value={genDueDay} onChange={(e) => setGenDueDay(Math.min(31, Math.max(1, Number(e.target.value) || 1)))} />
+                      <span className="text-xs whitespace-nowrap">号</span>
+                    </div>
                   </div>
                 </div>
                 <div className="modal-action">
@@ -1023,8 +1025,16 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
                 </div>
                 {receiptData ? (
                   receiptModal.file_mime?.startsWith('image/') ? (
-                    <div className="flex justify-center">
-                      <img src={receiptData} alt="收款凭证" className="max-w-full max-h-[60vh] rounded-lg shadow" />
+                    <div>
+                      <div className="flex items-center justify-center gap-2 mb-2">
+                        <button className="btn btn-xs btn-ghost gap-1" onClick={() => setReceiptZoom(z => Math.max(0.5, z - 0.25))}><ZoomOut size={14} /></button>
+                        <span className="text-xs font-mono min-w-[40px] text-center">{Math.round(receiptZoom * 100)}%</span>
+                        <button className="btn btn-xs btn-ghost gap-1" onClick={() => setReceiptZoom(z => Math.min(3, z + 0.25))}><ZoomIn size={14} /></button>
+                        {receiptZoom !== 1 && <button className="btn btn-xs btn-ghost gap-1" onClick={() => setReceiptZoom(1)}><RotateCcw size={14} /></button>}
+                      </div>
+                      <div className="flex justify-center overflow-auto max-h-[60vh]">
+                        <img src={receiptData} alt="收款凭证" className="rounded-lg shadow transition-transform" style={{ transform: `scale(${receiptZoom})`, transformOrigin: 'top center' }} />
+                      </div>
                     </div>
                   ) : receiptModal.file_mime === 'application/pdf' ? (
                     <div className="flex justify-center">
@@ -1045,12 +1055,12 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
               </div>
             ) : null}
             <div className="modal-action">
-              <button className="btn btn-ghost btn-sm" onClick={() => { setReceiptModal(null); setReceiptData(''); }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setReceiptModal(null); setReceiptData(''); setReceiptZoom(1); }}>
                 关闭
               </button>
             </div>
           </div>
-          <div className="modal-backdrop" onClick={() => { setReceiptModal(null); setReceiptData(''); }} />
+          <div className="modal-backdrop" onClick={() => { setReceiptModal(null); setReceiptData(''); setReceiptZoom(1); }} />
         </div>
       )}
 
