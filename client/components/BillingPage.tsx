@@ -1264,8 +1264,40 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
             </button>
           )}
           {(inv.status as string) === 'confirming' && (
-            <div className="flex items-center gap-1">
-              <span className="text-xs text-info">📤 租户已通知付款</span>
+            <div className="flex flex-col gap-1">
+              <span className="text-xs text-info font-medium">📤 租户已通知付款</span>
+              <div className="flex items-center gap-1 flex-wrap">
+              <button className="btn btn-xs btn-info btn-outline gap-1" onClick={async () => {
+                try {
+                  const token = localStorage.getItem('vencos_token') || '';
+                  const nResp = await fetch(`/api/payment-notifications/invoice/${inv.id}`, { headers: { 'Authorization': `Bearer ${token}` } });
+                  const notifs = await nResp.json();
+                  const pending = notifs.find((n: any) => n.status === 'pending');
+                  if (!pending) { showToast('未找到付款通知'); return; }
+                  // Show notification details modal
+                  setReceiptLoading(true);
+                  setReceiptModal(null);
+                  setReceiptData('');
+                  // Load receipt image if available
+                  if (pending.receipt_path) {
+                    const rResp = await fetch(`/api/payment-notifications/${pending.id}/receipt`, { headers: { 'Authorization': `Bearer ${token}` } });
+                    if (rResp.ok) {
+                      const rData = await rResp.json();
+                      setReceiptData(rData.data);
+                      setReceiptModal({ id: pending.id, file_name: pending.receipt_filename || '凭证', file_mime: rData.mime } as any);
+                    }
+                  }
+                  // Also show payment details in toast-like info
+                  const details = [
+                    pending.payment_method && `付款方式: ${pending.payment_method}`,
+                    pending.payment_ref && `参考号: ${pending.payment_ref}`,
+                    pending.tenant_name && `租户: ${pending.tenant_name}`,
+                    pending.notes && `备注: ${pending.notes}`,
+                  ].filter(Boolean).join(' | ');
+                  if (details && !pending.receipt_path) showToast(details);
+                  setReceiptLoading(false);
+                } catch (e) { console.error(e); showToast('加载凭证失败'); setReceiptLoading(false); }
+              }}><Image size={12} /> 查看凭证</button>
               <button className="btn btn-xs btn-success gap-1" onClick={async () => {
                 try {
                   const token = localStorage.getItem('vencos_token') || '';
@@ -1300,6 +1332,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
                   }
                 } catch (e) { console.error(e); }
               }}><AlertTriangle size={12} /> 退回</button>
+              </div>
             </div>
           )}
           {inv.status === 'paid' && (

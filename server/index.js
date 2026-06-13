@@ -821,6 +821,22 @@ app.post('/api/payment-notifications/:id/confirm', authMiddleware, (req, res) =>
   res.json({ ok: true });
 });
 
+app.get('/api/payment-notifications/:id/receipt', authMiddleware, (req, res) => {
+  const notif = db.prepare('SELECT * FROM vc_payment_notifications WHERE id=?').get(req.params.id);
+  if (!notif) return res.status(404).json({ error: 'Not found' });
+  if (!notif.receipt_path) return res.status(404).json({ error: 'No receipt' });
+  const fpath = path.join(DATA_DIR, notif.receipt_path);
+  if (!fs.existsSync(fpath)) return res.status(404).json({ error: 'File not found on disk' });
+  try {
+    const raw = fs.readFileSync(fpath);
+    const ext = (notif.receipt_filename || 'file.jpg').split('.').pop().toLowerCase();
+    const mimeMap = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', pdf: 'application/pdf', gif: 'image/gif', webp: 'image/webp' };
+    const mime = mimeMap[ext] || 'application/octet-stream';
+    const base64 = raw.toString('base64');
+    res.json({ data: `data:${mime};base64,${base64}`, filename: notif.receipt_filename, mime });
+  } catch (e) { res.status(500).json({ error: 'Failed to read file' }); }
+});
+
 app.post('/api/payment-notifications/:id/reject', authMiddleware, (req, res) => {
   const now = new Date().toISOString();
   const notif = db.prepare('SELECT * FROM vc_payment_notifications WHERE id=?').get(req.params.id);
