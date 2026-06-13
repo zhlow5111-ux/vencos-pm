@@ -28,7 +28,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
     amount: schedule?.amount || 0,
     due_day: schedule?.due_day || 1,
     generate_day: schedule?.generate_day ?? 0,
-    reminder_day: schedule?.reminder_day ?? 0,
+    reminder_day: schedule?.reminder_day?.toString() ?? '',
     grace_days: schedule?.grace_days ?? 7,
     template_id: schedule?.template_id || 0,
     channel: schedule?.channel || 'both',
@@ -198,7 +198,7 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
           const count = await batchSaveSchedules(pid, units, {
             due_day: form.due_day,
             generate_day: form.generate_day,
-            reminder_day: form.reminder_day,
+            reminder_day: form.reminder_day as any,
             grace_days: form.grace_days,
             template_id: form.template_id,
             channel: form.channel,
@@ -477,14 +477,14 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
                   type="number"
                   className="input input-bordered input-sm w-full"
                   value={form.generate_day || ''}
-                  onChange={(e) => setForm({ ...form, generate_day: Math.min(28, Math.max(0, Number(e.target.value))) })}
+                  onChange={(e) => setForm({ ...form, generate_day: Math.min(31, Math.max(0, Number(e.target.value))) })}
                   min={0}
-                  max={28}
+                  max={31}
                   placeholder="0"
                 />
                 <span className="text-xs opacity-60 whitespace-nowrap">号</span>
               </div>
-              <span className="text-[10px] opacity-40 mt-0.5">{form.generate_day === 0 ? '到期当天生成' : form.generate_day < form.due_day ? '上月生成' : form.generate_day === form.due_day ? '到期当天生成' : '当月生成'}</span>
+              <span className="text-[10px] opacity-40 mt-0.5">{form.generate_day === 0 ? '到期当天生成' : form.generate_day < form.due_day ? '当月生成' : form.generate_day === form.due_day ? '到期当天生成' : '上月提前生成'}</span>
             </div>
             <div className="form-control">
               <label className="label py-1"><span className="label-text text-xs">⏳ 宽限期 <span className="text-[10px] opacity-50">(到期后天数)</span></span></label>
@@ -519,20 +519,24 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
               </select>
             </div>
             <div className="form-control">
-              <label className="label py-1"><span className="label-text text-xs">🔔 逾期提醒日 <span className="text-[10px] opacity-50">(每月几号)</span></span></label>
+              <label className="label py-1"><span className="label-text text-xs">🔔 逾期提醒日 <span className="text-[10px] opacity-50">(可多天，逗号分隔)</span></span></label>
               <div className="flex items-center gap-1">
                 <input
-                  type="number"
+                  type="text"
                   className="input input-bordered input-sm w-full"
-                  value={form.reminder_day || ''}
-                  onChange={(e) => setForm({ ...form, reminder_day: Math.min(28, Math.max(0, Number(e.target.value))) })}
-                  min={0}
-                  max={28}
-                  placeholder="0"
+                  value={form.reminder_day}
+                  onChange={(e) => {
+                    const v = e.target.value.replace(/[^0-9,，]/g, '').replace(/，/g, ',');
+                    setForm({ ...form, reminder_day: v });
+                  }}
+                  placeholder="如 5,10,15"
                 />
                 <span className="text-xs opacity-60 whitespace-nowrap">号</span>
               </div>
-              <span className="text-[10px] opacity-40 mt-0.5">{form.reminder_day === 0 ? '不提醒' : `每月${form.reminder_day}号发送`}</span>
+              <span className="text-[10px] opacity-40 mt-0.5">{(() => {
+                const days = form.reminder_day.split(',').map(d => parseInt(d.trim())).filter(d => d > 0 && d <= 31);
+                return days.length === 0 ? '不提醒' : `每月${days.join('、')}号发送`;
+              })()}</span>
             </div>
           </div>
 
@@ -570,17 +574,20 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
           <div className="bg-base-200/60 rounded-lg p-3 text-xs text-base-content/70 space-y-1">
             <p className="font-semibold text-base-content/80 mb-1.5">📋 排程流程预览</p>
             {form.generate_day > 0 && form.generate_day !== form.due_day ? (
-              <p>📄 {form.generate_day < form.due_day ? '上月' : '每月'} <b>{form.generate_day} 号</b> → 生成账单并发送</p>
+              <p>📄 {form.generate_day > form.due_day ? '上月' : '每月'} <b>{form.generate_day} 号</b> → 生成账单</p>
             ) : (
-              <p>📄 每月 <b>{form.due_day} 号</b> → 到期当天生成账单并发送</p>
+              <p>📄 每月 <b>{form.due_day} 号</b> → 到期当天生成账单</p>
             )}
             <p>📅 每月 <b>{form.due_day} 号</b> → 账单到期日</p>
             {form.grace_days > 0 && (
               <p>⏳ 到期后 <b>{form.grace_days} 天</b> → 宽限期截止</p>
             )}
-            {form.reminder_day > 0 && (
-              <p>🔔 每月 <b>{form.reminder_day} 号</b> → 发送逾期提醒</p>
-            )}
+            {(() => {
+              const days = String(form.reminder_day || '').split(',').map(d => parseInt(d.trim())).filter(d => d > 0 && d <= 31);
+              return days.length > 0 ? (
+                <p>🔔 每月 <b>{days.join('、')} 号</b> → 发送逾期提醒</p>
+              ) : null;
+            })()}
             <p className="text-[10px] text-base-content/40 pt-1">
               渠道: {CHANNEL_TYPES.find((c) => c.value === form.channel)?.label}
               {selectedPropertyIds.length > 1 && ` · ${selectedPropertyIds.length} 个物业`}

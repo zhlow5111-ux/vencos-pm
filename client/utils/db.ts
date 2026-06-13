@@ -1472,7 +1472,7 @@ export async function saveSchedule(s: Partial<BillingSchedule>): Promise<void> {
         amount=${amt},
         due_day=${s.due_day || 1},
         generate_day=${s.generate_day || 0},
-        reminder_day=${s.reminder_day || 0},
+        reminder_day='${s.reminder_day || ''}',
         grace_days=${s.grace_days ?? 7},
         template_id=${s.template_id || 0},
         channel='${s.channel || 'both'}',
@@ -1484,12 +1484,12 @@ export async function saveSchedule(s: Partial<BillingSchedule>): Promise<void> {
     const id = generateId();
     await window.tasklet.sqlExec(`
       INSERT INTO vc_billing_schedules (id, property_id, tenant_id, amount, due_day, generate_day, reminder_day, grace_days, template_id, channel, active, created_at, updated_at)
-      VALUES (${id}, ${s.property_id || 0}, ${s.tenant_id || 0}, ${amt}, ${s.due_day || 1}, ${s.generate_day || 0}, ${s.reminder_day || 0}, ${s.grace_days ?? 7}, ${s.template_id || 0}, '${s.channel || 'both'}', ${s.active ?? 1}, '${now}', '${now}')
+      VALUES (${id}, ${s.property_id || 0}, ${s.tenant_id || 0}, ${amt}, ${s.due_day || 1}, ${s.generate_day || 0}, '${s.reminder_day || ''}', ${s.grace_days ?? 7}, ${s.template_id || 0}, '${s.channel || 'both'}', ${s.active ?? 1}, '${now}', '${now}')
     `);
   }
 }
 
-export async function batchSaveSchedules(propertyId: number, floorUnits: FloorUnit[], settings: { due_day: number; generate_day: number; reminder_day: number; grace_days: number; template_id: number; channel: string }): Promise<number> {
+export async function batchSaveSchedules(propertyId: number, floorUnits: FloorUnit[], settings: { due_day: number; generate_day: number; reminder_day: string; grace_days: number; template_id: number; channel: string }): Promise<number> {
   let count = 0;
   for (const fu of floorUnits) {
     if (!fu.tenant_name) continue;
@@ -1498,7 +1498,7 @@ export async function batchSaveSchedules(propertyId: number, floorUnits: FloorUn
     const now = nowISO();
     await window.tasklet.sqlExec(`
       INSERT INTO vc_billing_schedules (id, property_id, tenant_id, amount, due_day, generate_day, reminder_day, grace_days, template_id, channel, active, created_at, updated_at)
-      VALUES (${id}, ${propertyId}, ${fu.id}, ${amt}, ${settings.due_day}, ${settings.generate_day}, ${settings.reminder_day}, ${settings.grace_days}, ${settings.template_id}, '${settings.channel}', 1, '${now}', '${now}')
+      VALUES (${id}, ${propertyId}, ${fu.id}, ${amt}, ${settings.due_day}, ${settings.generate_day}, '${settings.reminder_day}', ${settings.grace_days}, ${settings.template_id}, '${settings.channel}', 1, '${now}', '${now}')
     `);
     count++;
   }

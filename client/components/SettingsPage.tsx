@@ -313,8 +313,11 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
   function channelLabel(ch: string) {
     return CHANNEL_TYPES.find((c) => c.value === ch)?.label || ch;
   }
-  function reminderLabel(day: number) {
-    return day > 0 ? `每月${day}号提醒` : '不提醒';
+  function reminderLabel(day: string | number) {
+    const str = String(day || '');
+    const days = str.split(',').map(d => parseInt(d.trim())).filter(d => d > 0 && d <= 31);
+    if (days.length === 0) return '不提醒';
+    return `每月${days.join('、')}号提醒`;
   }
 
   const formatLastLogin = (dt: string) => {

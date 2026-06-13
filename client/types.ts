@@ -396,7 +396,7 @@ export interface BillingSchedule {
   amount: number;
   due_day: number;
   generate_day: number;
-  reminder_day: number;
+  reminder_day: string;
   grace_days: number;
   template_id: number;
   template_name: string;
