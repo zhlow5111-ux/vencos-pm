@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, FileText, Wrench, User, Plus, Camera, Send, Clock, CheckCircle, Key, ArrowLeft, LogOut, Building2, DollarSign, Upload, CreditCard, Phone, AlertTriangle, ChevronDown, ChevronUp, RefreshCw, X, ZoomIn, ZoomOut, RotateCcw, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Home, FileText, Wrench, User, Plus, Camera, Send, Clock, CheckCircle, Key, ArrowLeft, LogOut, Building2, DollarSign, Upload, CreditCard, Phone, AlertTriangle, ChevronDown, ChevronUp, RefreshCw, X, ZoomIn, ZoomOut, RotateCcw, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { FloorUnit, Invoice, MaintenanceTicket, TICKET_CATEGORIES, TICKET_PRIORITIES, TICKET_STATUSES } from '../types';
 import { getFloorUnitsByPhone, getInvoicesForFloor, getTicketsByPhone, saveTicket } from '../utils/db';
 import { getAuthToken, setAuthToken } from '../tasklet-shim';
@@ -862,6 +862,7 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
           <div className="modal-box max-w-2xl relative" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold text-lg">📷 照片 ({tpPhotoViewer.index + 1}/{tpPhotoViewer.photos.length})</h3>
+              <a href={tpPhotoViewer.photos[tpPhotoViewer.index]} download={`photo_${tpPhotoViewer.index + 1}.jpg`} className="btn btn-sm btn-circle btn-ghost" title="下载图片"><Download size={18} /></a>
               <button className="btn btn-sm btn-circle btn-ghost" onClick={() => setTpPhotoViewer(null)}><X size={18} /></button>
             </div>
             <div className="flex items-center justify-center gap-2 mb-2">

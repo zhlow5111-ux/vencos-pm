@@ -31,6 +31,45 @@ const STATUS_ICONS: Record<InvoiceStatus, React.ReactNode> = {
   cancelled: <FileText size={16} className="text-base-content" />,
 };
 
+// ===== Billing Log Sub-Component =====
+const BillingLogContent: React.FC = () => {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [logLoading, setLogLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const token = localStorage.getItem('vencos_token') || '';
+        const resp = await fetch('/api/billing-log', { headers: { 'Authorization': `Bearer ${token}` } });
+        if (resp.ok) setLogs(await resp.json());
+      } catch {}
+      setLogLoading(false);
+    })();
+  }, []);
+
+  if (logLoading) return <div className="flex justify-center py-8"><span className="loading loading-spinner loading-md" /></div>;
+  if (logs.length === 0) return <div className="text-center py-8 text-base-content/50 text-sm">暂无生成/提醒记录</div>;
+
+  const typeLabels: Record<string, string> = { generate: '📄 自动生成', auto_overdue: '⚠️ 自动逾期', reminder: '🔔 提醒发送' };
+
+  return (
+    <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+      {logs.map(log => (
+        <div key={log.id} className="bg-base-200 rounded-lg p-2.5 space-y-0.5">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-medium">{typeLabels[log.log_type] || log.log_type}</span>
+            <span className={`badge badge-xs ${log.status === 'success' ? 'badge-success' : 'badge-error'}`}>{log.status === 'success' ? '成功' : '失败'}</span>
+          </div>
+          {log.property_name && <p className="text-xs text-base-content/70">{log.property_name} · {log.tenant_name}</p>}
+          {log.amount > 0 && <p className="text-xs font-semibold">RM {log.amount.toLocaleString()}</p>}
+          <p className="text-xs text-base-content/50">{log.details}</p>
+          <p className="text-[10px] text-base-content/30">{log.created_at?.slice(0, 16).replace('T', ' ')}</p>
+        </div>
+      ))}
+    </div>
+  );
+};
+
 export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refreshKey, userId }) => {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [filter, setFilter] = useState<InvoiceStatus | 'all'>('all');
@@ -93,6 +132,7 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
 
   // === Penalty generation state ===
   const [penaltyGenerating, setPenaltyGenerating] = useState(false);
+  const [showBillingLog, setShowBillingLog] = useState(false);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -110,6 +150,13 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
         getInvoices(userId),
         getInvoiceSummaryByMonth(),
       ]);
+      // Auto-mark overdue: pending invoices past due date
+      const today = new Date().toISOString().slice(0, 10);
+      for (const inv of data) {
+        if (inv.status === 'pending' && inv.due_date && inv.due_date < today) {
+          try { await markInvoiceOverdue(inv.id); inv.status = 'overdue'; } catch {}
+        }
+      }
       setInvoices(data);
       setMonthlySummary(summary);
 
@@ -500,6 +547,9 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
         <button className="btn btn-ghost btn-sm gap-1" onClick={handleExportInvoices} title="导出CSV">
           <Download size={14} /> 导出
         </button>
+        <button className="btn btn-ghost btn-sm gap-1" onClick={() => setShowBillingLog(true)} title="查看生成/提醒记录">
+          <FileText size={14} /> 记录
+        </button>
       </div>
 
       {/* Summary Cards */}
@@ -611,6 +661,20 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
       </button>
 
       {/* Delete Confirm Modal */}
+      {/* ===== Billing Log Modal ===== */}
+      {showBillingLog && (
+        <div className="modal modal-open" style={{ zIndex: 9999 }}>
+          <div className="modal-box max-w-lg">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-lg">📋 生成/提醒记录</h3>
+              <button className="btn btn-sm btn-circle btn-ghost" onClick={() => setShowBillingLog(false)}><X size={16} /></button>
+            </div>
+            <BillingLogContent />
+          </div>
+          <div className="modal-backdrop" onClick={() => setShowBillingLog(false)} />
+        </div>
+      )}
+
       <ConfirmModal
         open={deleteConfirmId !== null}
         message="确定删除此账单？此操作不可撤销。"

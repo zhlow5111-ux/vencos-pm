@@ -6,7 +6,7 @@ import { PenaltyConfig } from '../types';
 import { ConfirmModal } from './ConfirmModal';
 import { sendWhatsAppMessage } from '../utils/whatsapp';
 
-type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions' | 'penalty' | 'workers' | 'bank_accounts';
+type SettingsTab = 'templates' | 'schedules' | 'integrations' | 'owners' | 'users_permissions' | 'penalty' | 'bank_accounts';
 
 interface SettingsPageProps {
   onAddTemplate: () => void;
@@ -19,6 +19,128 @@ interface SettingsPageProps {
   refreshKey: number;
 }
 
+// ===== Extracted BankAccountsTab (proper component with hooks) =====
+const BankAccountsTab: React.FC = () => {
+  const [banks, setBanks] = React.useState<any[]>([]);
+  const [showBankForm, setShowBankForm] = React.useState(false);
+  const [bankForm, setBankForm] = React.useState({ bank_name: '', account_no: '', account_name: '', is_default: false, notes: '' });
+  const [editingBankId, setEditingBankId] = React.useState<number | null>(null);
+
+  React.useEffect(() => { loadBanks(); }, []);
+
+  async function loadBanks() {
+    try {
+      const token = localStorage.getItem('vencos_token') || '';
+      const resp = await fetch('/api/bank-accounts', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (resp.ok) setBanks(await resp.json());
+    } catch {}
+  }
+
+  async function saveBankAccount() {
+    try {
+      const token = localStorage.getItem('vencos_token') || '';
+      if (editingBankId) {
+        await fetch(`/api/bank-accounts/${editingBankId}`, {
+          method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(bankForm),
+        });
+      } else {
+        await fetch('/api/bank-accounts', {
+          method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+          body: JSON.stringify(bankForm),
+        });
+      }
+      setShowBankForm(false);
+      setEditingBankId(null);
+      setBankForm({ bank_name: '', account_no: '', account_name: '', is_default: false, notes: '' });
+      await loadBanks();
+    } catch (e) { console.error('Bank save error:', e); }
+  }
+
+  async function deleteBankAccount(id: number) {
+    if (!confirm('确定删除此收款账户？')) return;
+    try {
+      const token = localStorage.getItem('vencos_token') || '';
+      await fetch(`/api/bank-accounts/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
+      await loadBanks();
+    } catch (e) { console.error('Bank delete error:', e); }
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between">
+        <h3 className="text-sm font-bold">💳 收款账户</h3>
+        <button className="btn btn-primary btn-xs gap-1" onClick={() => { setBankForm({ bank_name: '', account_no: '', account_name: '', is_default: false, notes: '' }); setEditingBankId(null); setShowBankForm(true); }}>
+          <Plus size={12} /> 新增
+        </button>
+      </div>
+      <p className="text-xs text-base-content/60">设置收款银行账户信息，将显示在租户账单页面上</p>
+
+      {banks.length === 0 ? (
+        <div className="text-center py-8 text-base-content/50 text-sm">暂无收款账户</div>
+      ) : (
+        banks.map(ba => (
+          <div key={ba.id} className="card bg-base-200">
+            <div className="card-body p-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="font-bold text-sm">{ba.bank_name}</p>
+                  <p className="text-xs font-mono">{ba.account_no}</p>
+                  <p className="text-xs text-base-content/60">{ba.account_name}</p>
+                  {ba.notes && <p className="text-xs text-base-content/50 mt-0.5">{ba.notes}</p>}
+                </div>
+                <div className="flex gap-1">
+                  {ba.is_default === 1 && <span className="badge badge-primary badge-xs">默认</span>}
+                  <button className="btn btn-ghost btn-xs" onClick={() => {
+                    setBankForm({ bank_name: ba.bank_name, account_no: ba.account_no, account_name: ba.account_name, is_default: ba.is_default === 1, notes: ba.notes || '' });
+                    setEditingBankId(ba.id); setShowBankForm(true);
+                  }}>编辑</button>
+                  <button className="btn btn-ghost btn-xs text-error" onClick={() => deleteBankAccount(ba.id)}>删除</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        ))
+      )}
+
+      {showBankForm && (
+        <div className="modal modal-open" style={{ zIndex: 9999 }}>
+          <div className="modal-box max-w-sm">
+            <h3 className="font-bold text-lg">{editingBankId ? '编辑' : '新增'}收款账户</h3>
+            <div className="space-y-3 mt-3">
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-xs">银行名称</span></label>
+                <input className="input input-bordered input-sm w-full" placeholder="如：Maybank" value={bankForm.bank_name} onChange={e => setBankForm({ ...bankForm, bank_name: e.target.value })} />
+              </div>
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-xs">账号</span></label>
+                <input className="input input-bordered input-sm w-full" placeholder="银行账号" value={bankForm.account_no} onChange={e => setBankForm({ ...bankForm, account_no: e.target.value })} />
+              </div>
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-xs">户名</span></label>
+                <input className="input input-bordered input-sm w-full" placeholder="账户持有人名称" value={bankForm.account_name} onChange={e => setBankForm({ ...bankForm, account_name: e.target.value })} />
+              </div>
+              <div className="form-control">
+                <label className="label py-1"><span className="label-text text-xs">备注 (选填)</span></label>
+                <input className="input input-bordered input-sm w-full" placeholder="备注" value={bankForm.notes} onChange={e => setBankForm({ ...bankForm, notes: e.target.value })} />
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" className="toggle toggle-sm toggle-primary" checked={bankForm.is_default} onChange={e => setBankForm({ ...bankForm, is_default: e.target.checked })} />
+                <span className="text-xs">设为默认账户</span>
+              </label>
+            </div>
+            <div className="modal-action">
+              <button className="btn btn-ghost btn-sm" onClick={() => setShowBankForm(false)}>取消</button>
+              <button className="btn btn-primary btn-sm" onClick={saveBankAccount} disabled={!bankForm.bank_name.trim() || !bankForm.account_no.trim()}>保存</button>
+            </div>
+          </div>
+          <div className="modal-backdrop" onClick={() => setShowBankForm(false)} />
+        </div>
+      )}
+    </div>
+  );
+};
+
 export const SettingsPage: React.FC<SettingsPageProps> = ({
   onAddTemplate, onEditTemplate, onAddSchedule, onEditSchedule,
   onAddOwner, onEditOwner, onManageUserAccess,
@@ -26,7 +148,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
 }) => {
   const [tab, setTabState] = useState<SettingsTab>(() => {
     const saved = localStorage.getItem('vencos_settingsTab');
-    return (saved && ['templates', 'schedules', 'integrations', 'owners', 'users_permissions', 'penalty', 'workers', 'bank_accounts'].includes(saved)) ? saved as SettingsTab : 'owners';
+    return (saved && ['templates', 'schedules', 'integrations', 'owners', 'users_permissions', 'penalty', 'bank_accounts'].includes(saved)) ? saved as SettingsTab : 'owners';
   });
   const setTab = (t: SettingsTab) => { setTabState(t); localStorage.setItem('vencos_settingsTab', t); };
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
@@ -286,6 +408,18 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         active: userForm.active ? 1 : 0,
       });
       // Auto-grant all company access for admin/stakeholder
+      // Sync to vc_workers when role is worker
+      if (userForm.role === 'worker' && userForm.phone.trim()) {
+        const specialty = (userForm as any).specialty || 'general';
+        const existingWorker = await window.tasklet.sqlQuery(`SELECT id FROM vc_workers WHERE phone='${userForm.phone.trim()}'`);
+        if ((existingWorker as any[]).length === 0) {
+          const wId = Date.now();
+          const wNow = new Date().toISOString().slice(0, 19).replace('T', ' ');
+          await window.tasklet.sqlExec(`INSERT INTO vc_workers (id, name, phone, email, specialty, notes, active, created_at, updated_at) VALUES (${wId}, '${userForm.name.trim()}', '${userForm.phone.trim()}', '${userForm.email.trim()}', '${specialty}', '', 1, '${wNow}', '${wNow}')`);
+        } else {
+          await window.tasklet.sqlExec(`UPDATE vc_workers SET name='${userForm.name.trim()}', email='${userForm.email.trim()}', specialty='${(userForm as any).specialty || 'general'}' WHERE phone='${userForm.phone.trim()}'`);
+        }
+      }
       if (userForm.grantAllCompanies && (userForm.role === 'admin' || userForm.role === 'stakeholder')) {
         try {
           for (const o of owners) {
@@ -418,7 +552,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
     const tabItems: { key: SettingsTab; label: string; icon: React.ReactNode }[] = [
     { key: 'owners', label: '持有人', icon: <Building2 size={13} /> },
     { key: 'users_permissions', label: '用户与权限', icon: <Shield size={13} /> },
-    { key: 'workers', label: '维修人员', icon: <Wrench size={13} /> },
     { key: 'templates', label: '模板', icon: <Mail size={13} /> },
     { key: 'schedules', label: '排程', icon: <Calendar size={13} /> },
     { key: 'integrations', label: '集成', icon: <Wifi size={13} /> },
@@ -551,6 +684,16 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   <input className="input input-bordered input-sm w-full" placeholder="选填" value={userForm.notes}
                     onChange={e => setUserForm(f => ({ ...f, notes: e.target.value }))} />
                 </div>
+                {userForm.role === 'worker' && (
+                  <div className="form-control col-span-2">
+                    <label className="label py-0.5"><span className="label-text text-xs">专业类型</span></label>
+                    <select className="select select-bordered select-sm w-full" value={(userForm as any).specialty || 'general'}
+                      onChange={e => setUserForm(f => ({ ...f, specialty: e.target.value } as any))}>
+                      {WORKER_SPECIALTIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+                    </select>
+                    <p className="text-[10px] text-base-content/40 mt-0.5">🔧 维修人员通过「维修入口」使用手机号码登录</p>
+                  </div>
+                )}
                 {(userForm.role === 'admin' || userForm.role === 'stakeholder') && (
                   <div className="form-control col-span-2">
                     <label className="flex items-center gap-2 cursor-pointer py-1">
@@ -664,76 +807,6 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
         </div>
       )}
 
-
-      {/* ===== WORKERS TAB ===== */}
-      {tab === 'workers' && (
-        <div className="space-y-3">
-          <div className="bg-warning/5 border border-warning/20 rounded-lg p-2.5">
-            <p className="text-xs text-warning">
-              🔧 管理维修人员。添加后可在单据中心→维修工单中指派任务。维修人员可用电话号码登录维修入口。
-            </p>
-          </div>
-
-          {workerToast && (
-            <div className="toast toast-top toast-center z-50">
-              <div className="alert alert-success py-2 px-4"><span className="text-sm">{workerToast}</span></div>
-            </div>
-          )}
-
-          <button className="btn btn-warning btn-sm w-full" onClick={() => setWorkerForm({})}>
-            <Plus size={16} /> 添加维修人员
-          </button>
-
-          {workerForm !== null && (
-            <div className="card bg-base-300">
-              <div className="card-body p-3 space-y-2">
-                <input className="input input-bordered input-sm w-full" placeholder="姓名 *" value={workerForm.name || ''} onChange={e => setWorkerForm({ ...workerForm, name: e.target.value })} />
-                <input className="input input-bordered input-sm w-full" placeholder="电话（维修入口登录用）" value={workerForm.phone || ''} onChange={e => setWorkerForm({ ...workerForm, phone: e.target.value })} />
-                <input className="input input-bordered input-sm w-full" placeholder="邮箱" value={workerForm.email || ''} onChange={e => setWorkerForm({ ...workerForm, email: e.target.value })} />
-                <select className="select select-bordered select-sm w-full" value={workerForm.specialty || 'general'} onChange={e => setWorkerForm({ ...workerForm, specialty: e.target.value })}>
-                  {WORKER_SPECIALTIES.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-                </select>
-                <textarea className="textarea textarea-bordered textarea-sm w-full" placeholder="备注" rows={2} value={workerForm.notes || ''} onChange={e => setWorkerForm({ ...workerForm, notes: e.target.value })} />
-                <div className="flex gap-2">
-                  <button className="btn btn-warning btn-sm flex-1" onClick={handleSaveWorker}>保存</button>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setWorkerForm(null)}>取消</button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {workersData.length === 0 && workerForm === null ? (
-            <div className="text-center py-12 text-base-content/50">
-              <Wrench size={40} className="mx-auto mb-2 opacity-30" />
-              <p>暂无维修人员</p>
-              <p className="text-xs mt-1">添加后，维修人员可通过电话号码登录维修入口查看并处理工单</p>
-            </div>
-          ) : (
-            workersData.map(w => (
-              <div key={w.id} className="card bg-base-200">
-                <div className="card-body p-3">
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <h3 className="font-bold text-sm">{w.name}</h3>
-                      <p className="text-xs text-base-content/60">
-                        {WORKER_SPECIALTIES.find(s => s.value === w.specialty)?.label || w.specialty}
-                        {w.phone && ` • 📱 ${w.phone}`}
-                        {w.email && ` • ✉️ ${w.email}`}
-                      </p>
-                      <p className="text-xs text-primary mt-0.5">活跃工单: {w.active_tickets || 0}</p>
-                      {w.phone && <p className="text-[10px] text-base-content/40 mt-0.5">登录方式: 维修人员入口 → 输入电话 {w.phone}</p>}
-                    </div>
-                    <div className="flex gap-1">
-                      <button className="btn btn-ghost btn-xs" onClick={() => setWorkerForm(w)}>编辑</button>
-                      <button className="btn btn-error btn-xs btn-outline" onClick={() => setDeleteModal({ type: 'worker', id: w.id, msg: '确定删除此维修人员？' })}>删除</button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
-      )}
 
       {/* ===== AGENTS TAB ===== */}
       {tab === 'agents' && (
@@ -1059,6 +1132,9 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
                   {s.template_name && <><span>·</span><span>账单：{s.template_name}</span></>}
                   {s.reminder_template_name && <><span>·</span><span>提醒：{s.reminder_template_name}</span></>}
                 </div>
+                {s.created_at && (
+                  <p className="text-[10px] text-base-content/30 mt-0.5">创建于 {new Date(s.created_at).toLocaleDateString('zh-CN', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}</p>
+                )}
               </div>
             ))
           )}
@@ -1389,122 +1465,7 @@ export const SettingsPage: React.FC<SettingsPageProps> = ({
       )}
 
       {/* ===== BANK ACCOUNTS TAB ===== */}
-      {tab === 'bank_accounts' && (() => {
-        const [banks, setBanks] = React.useState<any[]>([]);
-        const [showBankForm, setShowBankForm] = React.useState(false);
-        const [bankForm, setBankForm] = React.useState({ bank_name: '', account_no: '', account_name: '', is_default: false, notes: '' });
-        const [editingBankId, setEditingBankId] = React.useState<number | null>(null);
-
-        React.useEffect(() => { loadBanks(); }, []);
-
-        async function loadBanks() {
-          try {
-            const token = localStorage.getItem('vencos_token') || '';
-            const resp = await fetch('/api/bank-accounts', { headers: { 'Authorization': `Bearer ${token}` } });
-            if (resp.ok) setBanks(await resp.json());
-          } catch {}
-        }
-
-        async function saveBankAccount() {
-          const token = localStorage.getItem('vencos_token') || '';
-          if (editingBankId) {
-            await fetch(`/api/bank-accounts/${editingBankId}`, {
-              method: 'PUT', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-              body: JSON.stringify(bankForm),
-            });
-          } else {
-            await fetch('/api/bank-accounts', {
-              method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-              body: JSON.stringify(bankForm),
-            });
-          }
-          setShowBankForm(false);
-          setEditingBankId(null);
-          setBankForm({ bank_name: '', account_no: '', account_name: '', is_default: false, notes: '' });
-          await loadBanks();
-        }
-
-        async function deleteBankAccount(id: number) {
-          if (!confirm('确定删除此收款账户？')) return;
-          const token = localStorage.getItem('vencos_token') || '';
-          await fetch(`/api/bank-accounts/${id}`, { method: 'DELETE', headers: { 'Authorization': `Bearer ${token}` } });
-          await loadBanks();
-        }
-
-        return (
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-bold">💳 收款账户</h3>
-              <button className="btn btn-primary btn-xs gap-1" onClick={() => { setBankForm({ bank_name: '', account_no: '', account_name: '', is_default: false, notes: '' }); setEditingBankId(null); setShowBankForm(true); }}>
-                <Plus size={12} /> 新增
-              </button>
-            </div>
-            <p className="text-xs text-base-content/60">设置收款银行账户信息，将显示在租户账单页面上</p>
-
-            {banks.length === 0 ? (
-              <div className="text-center py-8 text-base-content/50 text-sm">暂无收款账户</div>
-            ) : (
-              banks.map(ba => (
-                <div key={ba.id} className="card bg-base-200">
-                  <div className="card-body p-3">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="font-bold text-sm">{ba.bank_name}</p>
-                        <p className="text-xs font-mono">{ba.account_no}</p>
-                        <p className="text-xs text-base-content/60">{ba.account_name}</p>
-                        {ba.notes && <p className="text-xs text-base-content/50 mt-0.5">{ba.notes}</p>}
-                      </div>
-                      <div className="flex gap-1">
-                        {ba.is_default === 1 && <span className="badge badge-primary badge-xs">默认</span>}
-                        <button className="btn btn-ghost btn-xs" onClick={() => {
-                          setBankForm({ bank_name: ba.bank_name, account_no: ba.account_no, account_name: ba.account_name, is_default: ba.is_default === 1, notes: ba.notes || '' });
-                          setEditingBankId(ba.id); setShowBankForm(true);
-                        }}>编辑</button>
-                        <button className="btn btn-ghost btn-xs text-error" onClick={() => deleteBankAccount(ba.id)}>删除</button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              ))
-            )}
-
-            {showBankForm && (
-              <div className="modal modal-open" style={{ zIndex: 9999 }}>
-                <div className="modal-box max-w-sm">
-                  <h3 className="font-bold text-lg">{editingBankId ? '编辑' : '新增'}收款账户</h3>
-                  <div className="space-y-3 mt-3">
-                    <div className="form-control">
-                      <label className="label py-1"><span className="label-text text-xs">银行名称</span></label>
-                      <input className="input input-bordered input-sm w-full" placeholder="如：Maybank" value={bankForm.bank_name} onChange={e => setBankForm({ ...bankForm, bank_name: e.target.value })} />
-                    </div>
-                    <div className="form-control">
-                      <label className="label py-1"><span className="label-text text-xs">账号</span></label>
-                      <input className="input input-bordered input-sm w-full" placeholder="银行账号" value={bankForm.account_no} onChange={e => setBankForm({ ...bankForm, account_no: e.target.value })} />
-                    </div>
-                    <div className="form-control">
-                      <label className="label py-1"><span className="label-text text-xs">户名</span></label>
-                      <input className="input input-bordered input-sm w-full" placeholder="账户持有人名称" value={bankForm.account_name} onChange={e => setBankForm({ ...bankForm, account_name: e.target.value })} />
-                    </div>
-                    <div className="form-control">
-                      <label className="label py-1"><span className="label-text text-xs">备注 (选填)</span></label>
-                      <input className="input input-bordered input-sm w-full" placeholder="备注" value={bankForm.notes} onChange={e => setBankForm({ ...bankForm, notes: e.target.value })} />
-                    </div>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" className="toggle toggle-sm toggle-primary" checked={bankForm.is_default} onChange={e => setBankForm({ ...bankForm, is_default: e.target.checked })} />
-                      <span className="text-xs">设为默认账户</span>
-                    </label>
-                  </div>
-                  <div className="modal-action">
-                    <button className="btn btn-ghost btn-sm" onClick={() => setShowBankForm(false)}>取消</button>
-                    <button className="btn btn-primary btn-sm" onClick={saveBankAccount} disabled={!bankForm.bank_name.trim() || !bankForm.account_no.trim()}>保存</button>
-                  </div>
-                </div>
-                <div className="modal-backdrop" onClick={() => setShowBankForm(false)} />
-              </div>
-            )}
-          </div>
-        );
-      })()}
+      {tab === 'bank_accounts' && <BankAccountsTab />}
 
       <ConfirmModal
         open={deleteModal !== null}

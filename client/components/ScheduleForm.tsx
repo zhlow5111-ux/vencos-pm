@@ -198,9 +198,15 @@ export const ScheduleForm: React.FC<ScheduleFormProps> = ({ schedule, onClose, o
         // Batch: load all floor units first
         await loadAllSelectedFloorUnits();
         let totalCreated = 0;
+        const allExisting = await getSchedules();
         for (const pid of selectedPropertyIds) {
           const units = floorUnitsMap[pid] || [];
           if (units.filter((u) => u.tenant_name).length === 0) continue;
+          // Check for duplicates
+          const dupes = units.filter(u => u.tenant_name && allExisting.some(es => es.property_id === pid && es.tenant_id === u.id));
+          if (dupes.length > 0 && !confirm(`⚠️ 以下单位已有排程：\n${dupes.map(u => `${u.floor_label}楼 - ${u.tenant_name}`).join('\n')}\n\n确定要创建重复排程吗？`)) {
+            setSaving(false); return;
+          }
           const count = await batchSaveSchedules(pid, units, {
             due_day: form.due_day,
             generate_day: form.generate_day,

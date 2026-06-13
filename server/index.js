@@ -20,7 +20,7 @@ db.pragma('foreign_keys = ON');
 
 // ========== DB Schema Initialization ==========
 function initDatabase() {
-  const SCHEMA_VERSION = 35;
+  const SCHEMA_VERSION = 36;
   db.exec(`CREATE TABLE IF NOT EXISTS vc_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`);
   const row = db.prepare(`SELECT value FROM vc_meta WHERE key='schema_version'`).get();
   const currentVer = Number(row?.value || 0);
@@ -179,6 +179,9 @@ function initDatabase() {
         agent_name TEXT NOT NULL DEFAULT '', agent_phone TEXT NOT NULL DEFAULT '',
         agent_company TEXT NOT NULL DEFAULT '',
         linked_lease_ref TEXT NOT NULL DEFAULT '',
+        tenant_email TEXT NOT NULL DEFAULT '',
+        tenant_pin TEXT NOT NULL DEFAULT '1234',
+        tenant_must_change_pin INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL, updated_at TEXT NOT NULL
       )`,
       `CREATE TABLE IF NOT EXISTS vc_renovation_expenses (
@@ -570,6 +573,17 @@ function initDatabase() {
     try { db.exec(`UPDATE vc_message_templates SET template_type='billing' WHERE name='账单通知' AND template_type=''`); } catch (e) {}
     try { db.exec(`UPDATE vc_message_templates SET template_type='reminder' WHERE name IN ('租金提醒','逾期提醒') AND template_type=''`); } catch (e) {}
     try { db.exec(`UPDATE vc_message_templates SET template_type='confirmation' WHERE name='收款确认' AND template_type=''`); } catch (e) {}
+  }
+
+  // V36: Billing log table + auto-overdue
+  if (currentVer < 36) {
+    db.exec(`CREATE TABLE IF NOT EXISTS vc_billing_log (
+      id INTEGER PRIMARY KEY, log_type TEXT NOT NULL DEFAULT 'generate',
+      schedule_id INTEGER NOT NULL DEFAULT 0, invoice_id INTEGER NOT NULL DEFAULT 0,
+      property_name TEXT NOT NULL DEFAULT '', tenant_name TEXT NOT NULL DEFAULT '',
+      amount REAL NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'success',
+      details TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT ''
+    )`);
   }
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);
@@ -1109,6 +1123,95 @@ app.get('*', (req, res) => {
     return res.status(404).send('Not found');
   }
   res.sendFile(path.join(distPath, 'index.html'));
+});
+
+// ========== Auto-Billing Cron (runs every hour) ==========
+function runAutoBilling() {
+  const now = new Date();
+  const today = now.getDate();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const dateStr = `${year}-${month}-${String(today).padStart(2, '0')}`;
+  const nowISO = now.toISOString().slice(0, 19).replace('T', ' ');
+
+  console.log(`[AutoBilling] Check at ${nowISO}, day=${today}`);
+
+  try {
+    // 1. Auto-overdue: mark pending invoices past due date as overdue
+    const pendingInvoices = db.prepare(`SELECT id, due_date, amount, property_id FROM vc_invoices WHERE status='pending' AND due_date < '${dateStr}'`).all();
+    for (const inv of pendingInvoices) {
+      db.prepare(`UPDATE vc_invoices SET status='overdue', updated_at='${nowISO}' WHERE id=${inv.id}`).run();
+      console.log(`[AutoBilling] Marked INV-${String(inv.id).slice(-8)} overdue (due: ${inv.due_date})`);
+      try {
+        db.prepare(`INSERT INTO vc_billing_log (id, log_type, invoice_id, amount, status, details, created_at) VALUES (${Date.now()}, 'auto_overdue', ${inv.id}, ${inv.amount}, 'success', 'Auto-marked overdue (due: ${inv.due_date})', '${nowISO}')`).run();
+      } catch {}
+    }
+
+    // 2. Auto-generate invoices from active schedules
+    const schedules = db.prepare(`
+      SELECT s.*, p.name as property_name, f.tenant_name, f.tenant_phone, f.floor_label
+      FROM vc_billing_schedules s
+      LEFT JOIN vc_properties p ON s.property_id = p.id
+      LEFT JOIN vc_floor_units f ON s.tenant_id = f.id
+      WHERE s.active = 1 AND s.generate_day > 0
+    `).all();
+
+    for (const sch of schedules) {
+      const genDay = sch.generate_day;
+      if (genDay !== today) continue;
+
+      // Determine billing month
+      let billYear = year;
+      let billMonth = now.getMonth() + 1;
+      if (genDay > sch.due_day) {
+        // Generate in advance: bill is for next month
+        billMonth++;
+        if (billMonth > 12) { billMonth = 1; billYear++; }
+      }
+      const billMonthStr = `${billYear}-${String(billMonth).padStart(2, '0')}`;
+      const dueDate = `${billMonthStr}-${String(sch.due_day).padStart(2, '0')}`;
+
+      // Check if invoice already exists for this schedule + month
+      const existing = db.prepare(`SELECT id FROM vc_invoices WHERE tenant_id=${sch.tenant_id} AND property_id=${sch.property_id} AND strftime('%Y-%m', due_date) = '${billMonthStr}' AND amount = ${sch.amount}`).get();
+      if (existing) continue;
+
+      // Create invoice
+      const invId = Date.now() + Math.floor(Math.random() * 1000);
+      const propName = sch.property_name || '';
+      const tenantName = sch.tenant_name || '';
+      const floorLabel = sch.floor_label || '';
+      db.prepare(`INSERT INTO vc_invoices (id, property_id, tenant_id, tenant_name, floor_label, amount, due_date, status, is_penalty, notes, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)`).run(
+        invId, sch.property_id, sch.tenant_id, tenantName, floorLabel, sch.amount, dueDate,
+        `自动生成 - 排程#${sch.id}`, nowISO, nowISO
+      );
+
+      console.log(`[AutoBilling] Generated invoice for ${propName} ${floorLabel} ${tenantName} RM${sch.amount} due ${dueDate}`);
+      try {
+        db.prepare(`INSERT INTO vc_billing_log (id, log_type, schedule_id, invoice_id, property_name, tenant_name, amount, status, details, created_at)
+          VALUES (?, 'generate', ?, ?, ?, ?, ?, 'success', ?, ?)`).run(
+          Date.now() + Math.floor(Math.random() * 100), sch.id, invId, propName, tenantName, sch.amount,
+          `自动生成${billMonthStr}账单 到期${dueDate}`, nowISO
+        );
+      } catch {}
+    }
+  } catch (err) {
+    console.error('[AutoBilling] Error:', err.message);
+  }
+}
+
+// Run on startup and then every hour
+setTimeout(() => runAutoBilling(), 5000);
+setInterval(() => runAutoBilling(), 60 * 60 * 1000);
+
+// Billing log API
+app.get('/api/billing-log', authMiddleware, (req, res) => {
+  try {
+    const rows = db.prepare('SELECT * FROM vc_billing_log ORDER BY created_at DESC LIMIT 200').all();
+    res.json(rows);
+  } catch (err) {
+    res.json([]);
+  }
 });
 
 // ========== Start Server ==========

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Wrench, Plus, ChevronDown, ChevronUp, Camera, AlertTriangle, ZoomIn, ZoomOut, RotateCcw, X, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Wrench, Plus, ChevronDown, ChevronUp, Camera, AlertTriangle, ZoomIn, ZoomOut, RotateCcw, X, ChevronLeft, ChevronRight, Download } from 'lucide-react';
 import { MaintenanceTicket, Worker, TICKET_CATEGORIES, TICKET_PRIORITIES, TICKET_STATUSES, WORKER_SPECIALTIES } from '../types';
 import { getTickets, getWorkers, updateTicketStatus, assignWorkerToTicket, updateTicketNotes, deleteTicket } from '../utils/db';
 import { ConfirmModal } from './ConfirmModal';
@@ -199,6 +199,7 @@ export const MaintenanceTickets: React.FC<Props> = ({ refreshKey, onRefresh }) =
           <div className="modal-box max-w-2xl relative" onClick={e => e.stopPropagation()}>
             <div className="flex items-center justify-between mb-3">
               <h3 className="font-bold text-lg">📷 照片 ({photoViewer.index + 1}/{photoViewer.photos.length})</h3>
+              <a href={photoViewer.photos[photoViewer.index]} download={`photo_${photoViewer.index + 1}.jpg`} className="btn btn-sm btn-circle btn-ghost" title="下载图片"><Download size={18} /></a>
               <button className="btn btn-sm btn-circle btn-ghost" onClick={() => setPhotoViewer(null)}><X size={18} /></button>
             </div>
             <div className="flex items-center justify-center gap-2 mb-2">
