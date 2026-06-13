@@ -584,7 +584,27 @@ function initDatabase() {
       amount REAL NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'success',
       details TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL DEFAULT ''
     )`);
+    db.exec(`CREATE TABLE IF NOT EXISTS vc_overdue_log (
+      id INTEGER PRIMARY KEY, invoice_id INTEGER NOT NULL,
+      overdue_days INTEGER NOT NULL DEFAULT 0,
+      reminder_sent INTEGER NOT NULL DEFAULT 0,
+      send_channel TEXT NOT NULL DEFAULT 'none',
+      status TEXT NOT NULL DEFAULT 'pending',
+      details TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL DEFAULT ''
+    )`);
   }
+
+  // Ensure V36 tables exist (hotfix for servers already at v36 without overdue_log)
+  try { db.exec(`CREATE TABLE IF NOT EXISTS vc_overdue_log (
+    id INTEGER PRIMARY KEY, invoice_id INTEGER NOT NULL,
+    overdue_days INTEGER NOT NULL DEFAULT 0,
+    reminder_sent INTEGER NOT NULL DEFAULT 0,
+    send_channel TEXT NOT NULL DEFAULT 'none',
+    status TEXT NOT NULL DEFAULT 'pending',
+    details TEXT NOT NULL DEFAULT '',
+    created_at TEXT NOT NULL DEFAULT ''
+  )`); } catch(e) {}
 
   db.exec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);
   console.log(`DB migration to v${SCHEMA_VERSION} complete.`);
