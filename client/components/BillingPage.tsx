@@ -35,37 +35,82 @@ const STATUS_ICONS: Record<InvoiceStatus, React.ReactNode> = {
 const BillingLogContent: React.FC = () => {
   const [logs, setLogs] = useState<any[]>([]);
   const [logLoading, setLogLoading] = useState(true);
+  const [running, setRunning] = useState(false);
+  const [runResult, setRunResult] = useState<string>('');
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const token = localStorage.getItem('vencos_token') || '';
-        const resp = await fetch('/api/billing-log', { headers: { 'Authorization': `Bearer ${token}` } });
-        if (resp.ok) setLogs(await resp.json());
-      } catch {}
-      setLogLoading(false);
-    })();
-  }, []);
+  const loadLogs = async () => {
+    setLogLoading(true);
+    try {
+      const token = localStorage.getItem('vencos_token') || '';
+      const resp = await fetch('/api/billing-log', { headers: { 'Authorization': `Bearer ${token}` } });
+      if (resp.ok) setLogs(await resp.json());
+    } catch {}
+    setLogLoading(false);
+  };
 
-  if (logLoading) return <div className="flex justify-center py-8"><span className="loading loading-spinner loading-md" /></div>;
-  if (logs.length === 0) return <div className="text-center py-8 text-base-content/50 text-sm">暂无生成/提醒记录</div>;
+  useEffect(() => { loadLogs(); }, []);
+
+  const handleManualRun = async () => {
+    setRunning(true);
+    setRunResult('');
+    try {
+      const token = localStorage.getItem('vencos_token') || '';
+      const resp = await fetch('/api/billing/run-now', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' }
+      });
+      const data = await resp.json();
+      if (data.ok) {
+        setRunResult(`✅ 完成：生成 ${data.generated} 张账单，标记逾期 ${data.overdueMarked} 张`);
+        loadLogs(); // Refresh logs
+      } else {
+        setRunResult(`❌ 失败：${data.error || '未知错误'}`);
+      }
+    } catch (err: any) {
+      setRunResult(`❌ 网络错误：${err?.message || '请重试'}`);
+    }
+    setRunning(false);
+  };
 
   const typeLabels: Record<string, string> = { generate: '📄 自动生成', auto_overdue: '⚠️ 自动逾期', reminder: '🔔 提醒发送' };
 
   return (
-    <div className="space-y-2 max-h-[60vh] overflow-y-auto">
-      {logs.map(log => (
-        <div key={log.id} className="bg-base-200 rounded-lg p-2.5 space-y-0.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium">{typeLabels[log.log_type] || log.log_type}</span>
-            <span className={`badge badge-xs ${log.status === 'success' ? 'badge-success' : 'badge-error'}`}>{log.status === 'success' ? '成功' : '失败'}</span>
-          </div>
-          {log.property_name && <p className="text-xs text-base-content/70">{log.property_name} · {log.tenant_name}</p>}
-          {log.amount > 0 && <p className="text-xs font-semibold">RM {log.amount.toLocaleString()}</p>}
-          <p className="text-xs text-base-content/50">{log.details}</p>
-          <p className="text-[10px] text-base-content/30">{log.created_at?.slice(0, 16).replace('T', ' ')}</p>
+    <div className="space-y-3">
+      {/* Manual run button */}
+      <div className="flex items-center gap-2">
+        <button className="btn btn-sm btn-outline btn-primary gap-1 flex-1" onClick={handleManualRun} disabled={running}>
+          {running ? <span className="loading loading-spinner loading-xs" /> : <Zap size={14} />}
+          {running ? '运行中...' : '手动运行自动账单'}
+        </button>
+      </div>
+      {runResult && (
+        <div className={`text-xs p-2 rounded-lg ${runResult.startsWith('✅') ? 'bg-success/10 text-success' : 'bg-error/10 text-error'}`}>
+          {runResult}
         </div>
-      ))}
+      )}
+      <p className="text-[10px] text-base-content/40">自动引擎每30分钟检查一次。排程账单在每月指定日期自动生成，逾期账单自动标记。</p>
+
+      {/* Logs */}
+      {logLoading ? (
+        <div className="flex justify-center py-8"><span className="loading loading-spinner loading-md" /></div>
+      ) : logs.length === 0 ? (
+        <div className="text-center py-6 text-base-content/50 text-sm">暂无生成/提醒记录</div>
+      ) : (
+        <div className="space-y-2 max-h-[50vh] overflow-y-auto">
+          {logs.map(log => (
+            <div key={log.id} className="bg-base-200 rounded-lg p-2.5 space-y-0.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium">{typeLabels[log.log_type] || log.log_type}</span>
+                <span className={`badge badge-xs ${log.status === 'success' ? 'badge-success' : 'badge-error'}`}>{log.status === 'success' ? '成功' : '失败'}</span>
+              </div>
+              {log.property_name && <p className="text-xs text-base-content/70">{log.property_name} · {log.tenant_name}</p>}
+              {log.amount > 0 && <p className="text-xs font-semibold">RM {log.amount.toLocaleString()}</p>}
+              <p className="text-xs text-base-content/50">{log.details}</p>
+              <p className="text-[10px] text-base-content/30">{log.created_at?.slice(0, 16).replace('T', ' ')}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

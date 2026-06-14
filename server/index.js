@@ -1155,29 +1155,35 @@ app.get('*', (req, res) => {
   res.sendFile(path.join(distPath, 'index.html'));
 });
 
-// ========== Auto-Billing Cron (runs every hour) ==========
-function runAutoBilling() {
+// ========== Auto-Billing Engine ==========
+function runAutoBilling(forceLog) {
   const now = new Date();
   const today = now.getDate();
   const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const monthNum = now.getMonth() + 1;
+  const month = String(monthNum).padStart(2, '0');
   const dateStr = `${year}-${month}-${String(today).padStart(2, '0')}`;
   const nowISO = now.toISOString().slice(0, 19).replace('T', ' ');
+  let generated = 0, overdueMarked = 0;
 
-  console.log(`[AutoBilling] Check at ${nowISO}, day=${today}`);
+  console.log(`[AutoBilling] Run at ${nowISO}, day=${today}`);
 
   try {
     // 1. Auto-overdue: mark pending invoices past due date as overdue
     const pendingInvoices = db.prepare(`SELECT id, due_date, amount, property_id FROM vc_invoices WHERE status='pending' AND due_date < '${dateStr}'`).all();
     for (const inv of pendingInvoices) {
       db.prepare(`UPDATE vc_invoices SET status='overdue', updated_at='${nowISO}' WHERE id=${inv.id}`).run();
+      overdueMarked++;
       console.log(`[AutoBilling] Marked INV-${String(inv.id).slice(-8)} overdue (due: ${inv.due_date})`);
       try {
-        db.prepare(`INSERT INTO vc_billing_log (id, log_type, invoice_id, amount, status, details, created_at) VALUES (${Date.now()}, 'auto_overdue', ${inv.id}, ${inv.amount}, 'success', 'Auto-marked overdue (due: ${inv.due_date})', '${nowISO}')`).run();
+        db.prepare(`INSERT INTO vc_billing_log (id, log_type, invoice_id, amount, status, details, created_at) VALUES (?, 'auto_overdue', ?, ?, 'success', ?, ?)`).run(
+          Date.now() + Math.floor(Math.random() * 1000), inv.id, inv.amount, `自动标记逾期 (到期日: ${inv.due_date})`, nowISO
+        );
       } catch {}
     }
 
     // 2. Auto-generate invoices from active schedules
+    // WITH CATCH-UP: if today >= generate_day, check if this month's invoice was already created
     const schedules = db.prepare(`
       SELECT s.*, p.name as property_name, f.tenant_name, f.tenant_phone, f.floor_label
       FROM vc_billing_schedules s
@@ -1188,11 +1194,12 @@ function runAutoBilling() {
 
     for (const sch of schedules) {
       const genDay = sch.generate_day;
-      if (genDay !== today) continue;
+      // Catch-up: generate if today >= genDay (not just ==), handles server downtime
+      if (today < genDay) continue;
 
       // Determine billing month
       let billYear = year;
-      let billMonth = now.getMonth() + 1;
+      let billMonth = monthNum;
       if (genDay > sch.due_day) {
         // Generate in advance: bill is for next month
         billMonth++;
@@ -1201,22 +1208,26 @@ function runAutoBilling() {
       const billMonthStr = `${billYear}-${String(billMonth).padStart(2, '0')}`;
       const dueDate = `${billMonthStr}-${String(sch.due_day).padStart(2, '0')}`;
 
-      // Check if invoice already exists for this schedule + month
-      const existing = db.prepare(`SELECT id FROM vc_invoices WHERE tenant_id=${sch.tenant_id} AND property_id=${sch.property_id} AND strftime('%Y-%m', due_date) = '${billMonthStr}' AND amount = ${sch.amount}`).get();
+      // Check if invoice already exists for this schedule + month (prevent duplicates)
+      const existing = db.prepare(`SELECT id FROM vc_invoices WHERE tenant_id=? AND property_id=? AND billing_month=? AND amount=?`).get(
+        sch.tenant_id, sch.property_id, billMonthStr, sch.amount
+      );
       if (existing) continue;
 
       // Create invoice
       const invId = Date.now() + Math.floor(Math.random() * 1000);
+      const invNo = 'INV-' + String(invId).slice(-8);
       const propName = sch.property_name || '';
       const tenantName = sch.tenant_name || '';
       const floorLabel = sch.floor_label || '';
-      db.prepare(`INSERT INTO vc_invoices (id, property_id, tenant_id, tenant_name, floor_label, amount, due_date, status, is_penalty, notes, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', 0, ?, ?, ?)`).run(
-        invId, sch.property_id, sch.tenant_id, tenantName, floorLabel, sch.amount, dueDate,
-        `自动生成 - 排程#${sch.id}`, nowISO, nowISO
+      db.prepare(`INSERT INTO vc_invoices (id, invoice_no, property_id, tenant_id, amount, due_date, status, description, floor_label, billing_month, rent_amount, charges_amount, adjustments, charges_detail, auto_generated, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, 0, '[]', '[]', 1, ?, ?)`).run(
+        invId, invNo, sch.property_id, sch.tenant_id, sch.amount, dueDate,
+        `${billMonthStr} 租金 - ${propName} ${floorLabel} (自动生成)`, floorLabel, billMonthStr, sch.amount, nowISO, nowISO
       );
+      generated++;
 
-      console.log(`[AutoBilling] Generated invoice for ${propName} ${floorLabel} ${tenantName} RM${sch.amount} due ${dueDate}`);
+      console.log(`[AutoBilling] Generated ${invNo} for ${propName} ${floorLabel} ${tenantName} RM${sch.amount} due ${dueDate}`);
       try {
         db.prepare(`INSERT INTO vc_billing_log (id, log_type, schedule_id, invoice_id, property_name, tenant_name, amount, status, details, created_at)
           VALUES (?, 'generate', ?, ?, ?, ?, ?, 'success', ?, ?)`).run(
@@ -1228,11 +1239,24 @@ function runAutoBilling() {
   } catch (err) {
     console.error('[AutoBilling] Error:', err.message);
   }
+
+  console.log(`[AutoBilling] Done: ${generated} invoices generated, ${overdueMarked} marked overdue`);
+  return { generated, overdueMarked, date: dateStr };
 }
 
-// Run on startup and then every hour
-setTimeout(() => runAutoBilling(), 5000);
-setInterval(() => runAutoBilling(), 60 * 60 * 1000);
+// Manual trigger API for admin
+app.post('/api/billing/run-now', authMiddleware, (req, res) => {
+  try {
+    const result = runAutoBilling(true);
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Run on startup (10s delay) and then every 30 minutes
+setTimeout(() => runAutoBilling(), 10000);
+setInterval(() => runAutoBilling(), 30 * 60 * 1000);
 
 // (billing-log route moved above catch-all)
 

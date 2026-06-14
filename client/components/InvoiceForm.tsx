@@ -226,8 +226,9 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onClose, onSa
         merged_data: mergedData,
       });
       onSaved();
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      alert('创建失败：' + (err?.message || '未知错误，请重试'));
     }
     setSaving(false);
   }
