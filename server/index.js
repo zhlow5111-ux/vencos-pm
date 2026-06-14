@@ -1254,9 +1254,22 @@ app.post('/api/billing/run-now', authMiddleware, (req, res) => {
   }
 });
 
-// Run on startup (10s delay) and then every 30 minutes
+// Run on startup (10s delay) and then once daily at 00:05 UTC (08:05 MYT)
 setTimeout(() => runAutoBilling(), 10000);
-setInterval(() => runAutoBilling(), 30 * 60 * 1000);
+function scheduleDailyRun() {
+  const now = new Date();
+  const next = new Date(now);
+  next.setUTCHours(0, 5, 0, 0);
+  if (next <= now) next.setDate(next.getDate() + 1);
+  const ms = next - now;
+  console.log(`[AutoBilling] Next daily run in ${Math.round(ms/60000)} minutes (${next.toISOString()})`);
+  setTimeout(() => {
+    runAutoBilling();
+    // After running, schedule next day
+    setInterval(() => runAutoBilling(), 24 * 60 * 60 * 1000);
+  }, ms);
+}
+scheduleDailyRun();
 
 // (billing-log route moved above catch-all)
 
