@@ -88,7 +88,7 @@ const BillingLogContent: React.FC = () => {
           {runResult}
         </div>
       )}
-      <p className="text-[10px] text-base-content/40">自动引擎每天08:05自动运行。排程账单在每月指定日期自动生成，逾期账单自动标记。生成成功后记录即时同步显示。</p>
+      <p className="text-[10px] text-base-content/40">排程账单在每月指定日期自动生成，逾期账单自动标记。</p>
 
       {/* Logs */}
       {logLoading ? (
