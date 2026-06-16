@@ -127,7 +127,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
   const [uploadError, setUploadError] = useState('');
   const [deleteDocId, setDeleteDocId] = useState<number | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB (files stored on disk, not SQLite)
+  const MAX_FILE_SIZE = 30 * 1024 * 1024; // 30MB (files stored on disk, not SQLite)
 
   // Tenant history state
   const [tenantHistoryList, setTenantHistoryList] = useState<TenantHistory[]>([]);
@@ -232,7 +232,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
     if (!file) return;
     setUploadError('');
     if (file.size > MAX_FILE_SIZE) {
-      setUploadError(`文件过大（${(file.size / 1024 / 1024).toFixed(1)}MB），最大支持 10MB`);
+      setUploadError(`文件过大（${(file.size / 1024 / 1024).toFixed(1)}MB），最大支持 30MB`);
       setUploadFileName('');
       setUploadFileData('');
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -1801,7 +1801,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                         <button className="btn btn-ghost btn-xs" onClick={() => setUploadError('')}>✕</button>
                       </div>
                     )}
-                    <p className="text-[10px] opacity-50">支持格式: PDF, 图片, Word 等，最大 10MB</p>
+                    <p className="text-[10px] opacity-50">支持格式: PDF, 图片, Word 等，最大 30MB</p>
                   </div>
 
                   {/* Document list */}
