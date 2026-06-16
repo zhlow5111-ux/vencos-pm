@@ -271,9 +271,9 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
   }
 
   // Merge a single remaining sub-unit back to parent floor
-  async function handleMergeSubUnit(floorId: number, parentLabel: string) {
+  async function handleMergeSubUnit(floorId: number, parentLabel: string, propertyId?: number) {
     if (!confirm(`确定要将分租单位合并回 ${parentLabel} 层？`)) return;
-    await mergeSubUnitToParent(floorId, parentLabel);
+    await mergeSubUnitToParent(floorId, parentLabel, propertyId);
     const updatedFloors = await getAllFloorUnits();
     setFloorUnits(updatedFloors);
   }
@@ -1768,7 +1768,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                     {subUnits.length === 1 && (
                       <button
                         className="btn btn-xs btn-ghost text-warning gap-1 w-full"
-                        onClick={() => handleMergeSubUnit(subUnits[0].id, parentLabel)}
+                        onClick={() => handleMergeSubUnit(subUnits[0].id, parentLabel, prop.id)}
                       >
                         📦 合并回 {parentLabel} 层
                       </button>

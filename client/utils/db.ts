@@ -1806,6 +1806,22 @@ function getNextSubUnitSuffix(existingLabels: string[], parentLabel: string): st
   return 'Z';
 }
 
+// Cascade floor_label rename across all related tables
+async function cascadeFloorLabelRename(propertyId: number, oldLabel: string, newLabel: string): Promise<void> {
+  const tables = [
+    'vc_invoices',
+    'vc_documents',
+    'vc_recurring_charges',
+    'vc_renovation_expenses',
+    'vc_tenant_history',
+  ];
+  for (const t of tables) {
+    await window.tasklet.sqlExec(
+      `UPDATE ${t} SET floor_label='${escapeSQL(newLabel)}' WHERE property_id=${propertyId} AND floor_label='${escapeSQL(oldLabel)}'`
+    );
+  }
+}
+
 export async function splitFloorUnit(floorId: number, propertyId: number): Promise<void> {
   const floors = await getFloorUnits(propertyId);
   const floor = floors.find(f => f.id === floorId);
@@ -1819,6 +1835,9 @@ export async function splitFloorUnit(floorId: number, propertyId: number): Promi
   const suffixA = getNextSubUnitSuffix(existingLabels, parentLabel);
   const labelA = parentLabel + '-' + suffixA;
   await window.tasklet.sqlExec(`UPDATE vc_floor_units SET floor_label='${escapeSQL(labelA)}', updated_at='${now}' WHERE id=${floorId}`);
+
+  // Cascade: move all old records from parentLabel → labelA so history stays linked
+  await cascadeFloorLabelRename(propertyId, parentLabel, labelA);
 
   // Create new "-B" as vacant
   const updatedLabels = [...existingLabels.filter(l => l !== parentLabel), labelA];
@@ -1845,8 +1864,16 @@ export async function addSubUnit(propertyId: number, parentLabel: string): Promi
   return newId;
 }
 
-export async function mergeSubUnitToParent(floorId: number, parentLabel: string): Promise<void> {
+export async function mergeSubUnitToParent(floorId: number, parentLabel: string, propertyId?: number): Promise<void> {
   const now = nowISO();
+  // Get current label before merge so we can cascade
+  if (propertyId) {
+    const floors = await getFloorUnits(propertyId);
+    const floor = floors.find(f => f.id === floorId);
+    if (floor && floor.floor_label !== parentLabel) {
+      await cascadeFloorLabelRename(propertyId, floor.floor_label, parentLabel);
+    }
+  }
   await window.tasklet.sqlExec(`UPDATE vc_floor_units SET floor_label='${escapeSQL(parentLabel)}', updated_at='${now}' WHERE id=${floorId}`);
 }
 
