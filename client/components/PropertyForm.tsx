@@ -753,9 +753,8 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                 const isExpanded = expandedLoanId === loan.id;
                 const isEditing = editingLoan?.id === loan.id;
                 const rateLabel = RATE_TYPE_OPTIONS.find(r => r.value === loan.rate_type);
-                const effectiveRate = loan.rate_type === 'BLR'
-                  ? (Number(loan.base_rate) || 0) - Math.abs(Number(loan.spread) || 0)
-                  : loan.rate_type === 'FIXED' ? (Number(loan.base_rate) || 0)
+                const effectiveRate = loan.rate_type === 'FIXED'
+                  ? (Number(loan.base_rate) || 0)
                   : (Number(loan.base_rate) || 0) + (Number(loan.spread) || 0);
                 const bankLabel = BANK_CODES.find(b => b.value === loan.bank_code)?.label || loan.bank_name || '-';
                 const prepays = loanPrepayMap[loan.id] || [];
@@ -795,7 +794,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                           <span className="text-base-content/60">利率类型</span>
                           <span className="text-right font-medium">
                             {loan.rate_type === 'FIXED' ? `固定 ${Number(loan.base_rate || 0).toFixed(2)}%`
-                              : `${loan.rate_type} ${Number(loan.base_rate || 0).toFixed(2)}% ${loan.rate_type === 'BLR' ? '-' : '+'} ${Math.abs(Number(loan.spread || 0)).toFixed(2)}% = ${effectiveRate.toFixed(2)}%`}
+                              : `${loan.rate_type} ${Number(loan.base_rate || 0).toFixed(2)}% ${Number(loan.spread || 0) >= 0 ? '+' : '-'} ${Math.abs(Number(loan.spread || 0)).toFixed(2)}% = ${effectiveRate.toFixed(2)}%`}
                           </span>
                           {loan.loan_start && <><span className="text-base-content/60">贷款开始</span><span className="text-right">{loan.loan_start}</span></>}
                           {loan.loan_tenure_months > 0 && <><span className="text-base-content/60">贷款期限</span><span className="text-right">{Math.floor(loan.loan_tenure_months / 12)}年{loan.loan_tenure_months % 12}个月</span></>}
@@ -893,16 +892,13 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                                 <input type="number" step="0.01" className="input input-bordered input-xs w-full" value={editingLoan.base_rate || ''} onChange={e => setEditingLoan({...editingLoan, base_rate: Number(e.target.value)})} />
                               </div>
                               <div className="form-control">
-                                <label className="label py-0.5"><span className="label-text text-[10px]">{editingLoan.rate_type === 'BLR' ? '折扣 (-)' : '加息 (+)'} %</span></label>
-                                <input type="number" step="0.01" className="input input-bordered input-xs w-full" value={editingLoan.spread || ''} onChange={e => setEditingLoan({...editingLoan, spread: Number(e.target.value)})} />
+                                <label className="label py-0.5"><span className="label-text text-[10px]">调整 (±) %</span></label>
+                                <input type="number" step="0.01" className="input input-bordered input-xs w-full" value={editingLoan.spread ?? ''} onChange={e => setEditingLoan({...editingLoan, spread: Number(e.target.value)})} />
                               </div>
                               <div className="text-center">
                                 <p className="text-[10px] text-base-content/50">实际利率</p>
                                 <p className="text-sm font-bold text-warning">
-                                  {(editingLoan.rate_type === 'BLR'
-                                    ? (Number(editingLoan.base_rate) || 0) - Math.abs(Number(editingLoan.spread) || 0)
-                                    : (Number(editingLoan.base_rate) || 0) + (Number(editingLoan.spread) || 0)
-                                  ).toFixed(2)}%
+                                  {((Number(editingLoan.base_rate) || 0) + (Number(editingLoan.spread) || 0)).toFixed(2)}%
                                 </p>
                               </div>
                             </div>
@@ -1062,16 +1058,13 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                           <input type="number" step="0.01" className="input input-bordered input-xs w-full" value={editingLoan.base_rate || ''} onChange={e => setEditingLoan({...editingLoan, base_rate: Number(e.target.value)})} />
                         </div>
                         <div className="form-control">
-                          <label className="label py-0.5"><span className="label-text text-[10px]">{editingLoan.rate_type === 'BLR' ? '折扣 (-)' : '加息 (+)'} %</span></label>
-                          <input type="number" step="0.01" className="input input-bordered input-xs w-full" value={editingLoan.spread || ''} onChange={e => setEditingLoan({...editingLoan, spread: Number(e.target.value)})} />
+                          <label className="label py-0.5"><span className="label-text text-[10px]">调整 (±) %</span></label>
+                          <input type="number" step="0.01" className="input input-bordered input-xs w-full" value={editingLoan.spread ?? ''} onChange={e => setEditingLoan({...editingLoan, spread: Number(e.target.value)})} />
                         </div>
                         <div className="text-center">
                           <p className="text-[10px] text-base-content/50">实际利率</p>
                           <p className="text-sm font-bold text-warning">
-                            {(editingLoan.rate_type === 'BLR'
-                              ? (Number(editingLoan.base_rate) || 0) - Math.abs(Number(editingLoan.spread) || 0)
-                              : (Number(editingLoan.base_rate) || 0) + (Number(editingLoan.spread) || 0)
-                            ).toFixed(2)}%
+                            {((Number(editingLoan.base_rate) || 0) + (Number(editingLoan.spread) || 0)).toFixed(2)}%
                           </p>
                         </div>
                       </div>
