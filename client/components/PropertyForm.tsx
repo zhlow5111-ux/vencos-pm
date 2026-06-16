@@ -1286,18 +1286,23 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                     <div className="flex gap-2 justify-end">
                       <button type="button" className="btn btn-xs btn-ghost" onClick={() => setShowMeterForm(false)}>取消</button>
                       <button type="button" className="btn btn-xs btn-primary" onClick={async () => {
-                        if (!meterForm.meter_number.trim()) return;
-                        await saveMeter({
-                          id: editingMeter?.id,
-                          property_id: property!.id,
-                          meter_type: meterForm.meter_type,
-                          meter_number: meterForm.meter_number,
-                          account_holder: meterForm.account_holder,
-                          label: meterForm.label,
-                          notes: meterForm.notes,
-                        });
-                        setMeters(await getMeters(property!.id));
-                        setShowMeterForm(false);
+                        if (!meterForm.meter_number.trim()) { alert('请输入表号'); return; }
+                        try {
+                          await saveMeter({
+                            id: editingMeter?.id,
+                            property_id: property!.id,
+                            meter_type: meterForm.meter_type,
+                            meter_number: meterForm.meter_number,
+                            account_holder: meterForm.account_holder,
+                            label: meterForm.label,
+                            notes: meterForm.notes,
+                          });
+                          setMeters(await getMeters(property!.id));
+                          setShowMeterForm(false);
+                        } catch (err: any) {
+                          console.error('保存表号失败:', err);
+                          alert('保存失败: ' + (err?.message || '未知错误'));
+                        }
                       }}>保存</button>
                     </div>
                   </div>
