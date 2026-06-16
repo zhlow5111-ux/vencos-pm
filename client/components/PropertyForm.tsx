@@ -893,12 +893,12 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                               </div>
                               <div className="form-control">
                                 <label className="label py-0.5"><span className="label-text text-[10px]">调整 (±) %</span></label>
-                                <input type="number" step="0.01" className="input input-bordered input-xs w-full" value={editingLoan.spread ?? ''} onChange={e => setEditingLoan({...editingLoan, spread: Number(e.target.value)})} />
+                                <input type="text" inputMode="decimal" className="input input-bordered input-xs w-full" value={editingLoan.spread ?? ''} onChange={e => { const v = e.target.value; if (v === '' || v === '-' || /^-?\d*\.?\d*$/.test(v)) setEditingLoan({...editingLoan, spread: v as any}); }} onBlur={e => { const n = parseFloat(String(editingLoan.spread)); setEditingLoan({...editingLoan, spread: isNaN(n) ? 0 : n}); }} />
                               </div>
                               <div className="text-center">
                                 <p className="text-[10px] text-base-content/50">实际利率</p>
                                 <p className="text-sm font-bold text-warning">
-                                  {((Number(editingLoan.base_rate) || 0) + (Number(editingLoan.spread) || 0)).toFixed(2)}%
+                                  {((Number(editingLoan.base_rate) || 0) + (parseFloat(String(editingLoan.spread)) || 0)).toFixed(2)}%
                                 </p>
                               </div>
                             </div>
@@ -1059,12 +1059,12 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
                         </div>
                         <div className="form-control">
                           <label className="label py-0.5"><span className="label-text text-[10px]">调整 (±) %</span></label>
-                          <input type="number" step="0.01" className="input input-bordered input-xs w-full" value={editingLoan.spread ?? ''} onChange={e => setEditingLoan({...editingLoan, spread: Number(e.target.value)})} />
+                          <input type="text" inputMode="decimal" className="input input-bordered input-xs w-full" value={editingLoan.spread ?? ''} onChange={e => { const v = e.target.value; if (v === '' || v === '-' || /^-?\d*\.?\d*$/.test(v)) setEditingLoan({...editingLoan, spread: v as any}); }} onBlur={e => { const n = parseFloat(String(editingLoan.spread)); setEditingLoan({...editingLoan, spread: isNaN(n) ? 0 : n}); }} />
                         </div>
                         <div className="text-center">
                           <p className="text-[10px] text-base-content/50">实际利率</p>
                           <p className="text-sm font-bold text-warning">
-                            {((Number(editingLoan.base_rate) || 0) + (Number(editingLoan.spread) || 0)).toFixed(2)}%
+                            {((Number(editingLoan.base_rate) || 0) + (parseFloat(String(editingLoan.spread)) || 0)).toFixed(2)}%
                           </p>
                         </div>
                       </div>
