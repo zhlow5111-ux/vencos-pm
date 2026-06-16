@@ -1711,13 +1711,13 @@ export async function getChangeLogs(entityType?: string, entityId?: number): Pro
 // ========== Floor Units ==========
 export async function getFloorUnits(propertyId: number): Promise<FloorUnit[]> {
   const rows = await window.tasklet.sqlQuery(`
-    SELECT * FROM vc_floor_units WHERE property_id = ${propertyId} ORDER BY CASE WHEN floor_label='G' THEN 0 ELSE CAST(floor_label AS INTEGER) + 1 END ASC
+    SELECT * FROM vc_floor_units WHERE property_id = ${propertyId} ORDER BY CASE WHEN floor_label LIKE 'G%' THEN 0 ELSE CAST(floor_label AS INTEGER) + 1 END ASC, floor_label ASC
   `);
   return rows as unknown as FloorUnit[];
 }
 
 export async function getAllFloorUnits(): Promise<FloorUnit[]> {
-  const rows = await window.tasklet.sqlQuery(`SELECT * FROM vc_floor_units ORDER BY property_id, CASE WHEN floor_label='G' THEN 0 ELSE CAST(floor_label AS INTEGER) + 1 END ASC`);
+  const rows = await window.tasklet.sqlQuery(`SELECT * FROM vc_floor_units ORDER BY property_id, CASE WHEN floor_label LIKE 'G%' THEN 0 ELSE CAST(floor_label AS INTEGER) + 1 END ASC, floor_label ASC`);
   return rows as unknown as FloorUnit[];
 }
 
@@ -1785,8 +1785,75 @@ export async function deleteFloorUnitsForProperty(propertyId: number): Promise<v
   await window.tasklet.sqlExec(`DELETE FROM vc_floor_units WHERE property_id=${propertyId}`);
 }
 
+// ========== Sub-Unit (Split Rental) Helpers ==========
+export function isSubUnitLabel(label: string): boolean {
+  return /^.+-[A-Z]$/.test(label);
+}
+
+export function getParentFloorLabel(label: string): string {
+  const match = label.match(/^(.+)-[A-Z]$/);
+  return match ? match[1] : label;
+}
+
+function getNextSubUnitSuffix(existingLabels: string[], parentLabel: string): string {
+  const existing = existingLabels
+    .filter(l => l.startsWith(parentLabel + '-') && /^.+-[A-Z]$/.test(l))
+    .map(l => l.charAt(l.length - 1));
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+  for (const ch of alphabet) {
+    if (!existing.includes(ch)) return ch;
+  }
+  return 'Z';
+}
+
+export async function splitFloorUnit(floorId: number, propertyId: number): Promise<void> {
+  const floors = await getFloorUnits(propertyId);
+  const floor = floors.find(f => f.id === floorId);
+  if (!floor) return;
+
+  const parentLabel = floor.floor_label;
+  const existingLabels = floors.map(f => f.floor_label);
+  const now = nowISO();
+
+  // Rename existing floor to "-A"
+  const suffixA = getNextSubUnitSuffix(existingLabels, parentLabel);
+  const labelA = parentLabel + '-' + suffixA;
+  await window.tasklet.sqlExec(`UPDATE vc_floor_units SET floor_label='${escapeSQL(labelA)}', updated_at='${now}' WHERE id=${floorId}`);
+
+  // Create new "-B" as vacant
+  const updatedLabels = [...existingLabels.filter(l => l !== parentLabel), labelA];
+  const suffixB = getNextSubUnitSuffix(updatedLabels, parentLabel);
+  const labelB = parentLabel + '-' + suffixB;
+  const newId = Date.now() + Math.floor(Math.random() * 1000);
+  await window.tasklet.sqlExec(`
+    INSERT INTO vc_floor_units (id, property_id, floor_label, tenant_name, tenant_phone, tenant_email, tenant_company_reg, tenant_address, director_name, director_ic, director_phone, director_notes, tenant_bank_name, tenant_bank_account, agent_name, agent_phone, agent_company, linked_lease_ref, rent_amount, deposit, utility_deposit, lease_start, lease_end, status, notes, created_at, updated_at)
+    VALUES (${newId}, ${propertyId}, '${escapeSQL(labelB)}', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 0, 0, 0, '', '', 'vacant', '', '${now}', '${now}')
+  `);
+}
+
+export async function addSubUnit(propertyId: number, parentLabel: string): Promise<number> {
+  const floors = await getFloorUnits(propertyId);
+  const existingLabels = floors.map(f => f.floor_label);
+  const suffix = getNextSubUnitSuffix(existingLabels, parentLabel);
+  const newLabel = parentLabel + '-' + suffix;
+  const now = nowISO();
+  const newId = Date.now() + Math.floor(Math.random() * 1000);
+  await window.tasklet.sqlExec(`
+    INSERT INTO vc_floor_units (id, property_id, floor_label, tenant_name, tenant_phone, tenant_email, tenant_company_reg, tenant_address, director_name, director_ic, director_phone, director_notes, tenant_bank_name, tenant_bank_account, agent_name, agent_phone, agent_company, linked_lease_ref, rent_amount, deposit, utility_deposit, lease_start, lease_end, status, notes, created_at, updated_at)
+    VALUES (${newId}, ${propertyId}, '${escapeSQL(newLabel)}', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 0, 0, 0, '', '', 'vacant', '', '${now}', '${now}')
+  `);
+  return newId;
+}
+
+export async function mergeSubUnitToParent(floorId: number, parentLabel: string): Promise<void> {
+  const now = nowISO();
+  await window.tasklet.sqlExec(`UPDATE vc_floor_units SET floor_label='${escapeSQL(parentLabel)}', updated_at='${now}' WHERE id=${floorId}`);
+}
+
 export async function ensureFloorUnits(propertyId: number, floorCount: number): Promise<void> {
-  const existing = await getFloorUnits(propertyId);
+  const allExisting = await getFloorUnits(propertyId);
+  // Only count primary (non-sub-unit) floors
+  const existing = allExisting.filter(f => !isSubUnitLabel(f.floor_label));
   const now = nowISO();
   // Add missing floors
   for (let i = existing.length + 1; i <= floorCount; i++) {
@@ -1796,7 +1863,7 @@ export async function ensureFloorUnits(propertyId: number, floorCount: number): 
       VALUES (${id}, ${propertyId}, '${i === 1 ? "G" : String(i - 1)}', '', '', '', '', '', '', '', '', '', '', '', '', '', '', 0, 0, 0, '', '', 'vacant', '', '${now}', '${now}')
     `);
   }
-  // Remove excess floors (only if vacant)
+  // Remove excess floors (only primary vacant floors, never sub-units)
   if (existing.length > floorCount) {
     for (let i = floorCount; i < existing.length; i++) {
       if (existing[i].status === 'vacant') {

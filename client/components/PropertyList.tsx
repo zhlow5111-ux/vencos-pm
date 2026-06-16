@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Plus, Search, Edit, Trash2, Landmark, UserCheck, Save, AlertTriangle, Building2, CalendarDays, Phone, X, CheckSquare, DollarSign, Construction, LogOut, Download, ChevronDown } from 'lucide-react';
 import { Property, FloorUnit, RenovationExpense, PROPERTY_TYPES, PROPERTY_STATUSES, RENOVATION_CATEGORIES, RecurringCharge, COMMON_CHARGES } from '../types';
-import { getProperties, deleteProperty, getAllFloorUnits, saveFloorUnit, getFloorUnits, getRenovationExpenses, saveRenovationExpense, deleteRenovationExpense, getTotalPurchaseCosts, archiveTenantToHistory, getRecurringCharges, saveRecurringCharge, deleteRecurringCharge, getTenancyCharges, saveTenancyCharge, deleteTenancyCharge, readFileFromDiskChunked, TenancyCharge, getAllLatestValuations } from '../utils/db';
+import { getProperties, deleteProperty, getAllFloorUnits, saveFloorUnit, getFloorUnits, getRenovationExpenses, saveRenovationExpense, deleteRenovationExpense, getTotalPurchaseCosts, archiveTenantToHistory, getRecurringCharges, saveRecurringCharge, deleteRecurringCharge, getTenancyCharges, saveTenancyCharge, deleteTenancyCharge, readFileFromDiskChunked, TenancyCharge, getAllLatestValuations, isSubUnitLabel, getParentFloorLabel, splitFloorUnit, addSubUnit, mergeSubUnitToParent, deleteFloorUnit } from '../utils/db';
 import { formatCurrency, calculateEstimatedBalance } from '../utils/helpers';
 import { downloadCsv } from '../utils/export';
 import { ConfirmModal } from './ConfirmModal';
@@ -38,6 +38,7 @@ interface TenantFormData {
   lease_start: string;
   lease_end: string;
   notes: string;
+  isSubUnit?: boolean; // editing a sub-unit (no floor checkboxes)
 }
 
 export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userId }) => {
@@ -216,6 +217,75 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
     });
   }
 
+  // Open form for editing a specific sub-unit
+  function openEditSubUnit(propertyId: number, unit: FloorUnit) {
+    setTenantForm({
+      propertyId,
+      selectedFloorIds: [unit.id],
+      editingTenantName: unit.tenant_name || undefined,
+      isSubUnit: true,
+      tenant_name: unit.tenant_name || '',
+      tenant_phone: unit.tenant_phone || '',
+      tenant_email: (unit as any).tenant_email || '',
+      tenant_company_reg: unit.tenant_company_reg || '',
+      tenant_address: unit.tenant_address || '',
+      director_name: unit.director_name || '',
+      director_ic: unit.director_ic || '',
+      director_phone: unit.director_phone || '',
+      director_notes: unit.director_notes || '',
+      tenant_bank_name: unit.tenant_bank_name || '',
+      tenant_bank_account: unit.tenant_bank_account || '',
+      agent_name: unit.agent_name || '',
+      agent_phone: unit.agent_phone || '',
+      agent_company: unit.agent_company || '',
+      linked_lease_ref: unit.linked_lease_ref || '',
+      rent_amount: unit.rent_amount || 0,
+      deposit: unit.deposit || 0,
+      utility_deposit: unit.utility_deposit || 0,
+      lease_start: unit.lease_start || '',
+      lease_end: unit.lease_end || '',
+      notes: unit.notes || '',
+    });
+    setShowAltAddr(!!(unit.tenant_address));
+    getTenancyCharges(propertyId).then(charges => setTcList(charges));
+    setTcForm(null);
+    setTcShowHistory(false);
+    getRecurringCharges(propertyId).then(charges => {
+      setTenantRcList(charges.filter(c => c.floor_label === unit.floor_label || c.floor_label === ''));
+    });
+  }
+
+  // Split a floor into sub-units
+  async function handleSplitFloor(propertyId: number, floorId: number) {
+    if (!confirm('确定要将此楼层分租为多个独立子单位？')) return;
+    await splitFloorUnit(floorId, propertyId);
+    const updatedFloors = await getAllFloorUnits();
+    setFloorUnits(updatedFloors);
+  }
+
+  // Add a new sub-unit to an existing split group
+  async function handleAddSubUnit(propertyId: number, parentLabel: string) {
+    await addSubUnit(propertyId, parentLabel);
+    const updatedFloors = await getAllFloorUnits();
+    setFloorUnits(updatedFloors);
+  }
+
+  // Merge a single remaining sub-unit back to parent floor
+  async function handleMergeSubUnit(floorId: number, parentLabel: string) {
+    if (!confirm(`确定要将分租单位合并回 ${parentLabel} 层？`)) return;
+    await mergeSubUnitToParent(floorId, parentLabel);
+    const updatedFloors = await getAllFloorUnits();
+    setFloorUnits(updatedFloors);
+  }
+
+  // Delete a vacant sub-unit
+  async function handleDeleteSubUnit(floorId: number) {
+    if (!confirm('确定删除此空置的分租单位？')) return;
+    await deleteFloorUnit(floorId);
+    const updatedFloors = await getAllFloorUnits();
+    setFloorUnits(updatedFloors);
+  }
+
   // Toggle floor selection
   function toggleFloor(floorId: number) {
     if (!tenantForm) return;
@@ -231,7 +301,8 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
   // Select / deselect all floors
   function toggleAllFloors() {
     if (!tenantForm) return;
-    const floors = floorUnits.filter((f) => f.property_id === tenantForm.propertyId);
+    // Only toggle normal (non-sub-unit) floors
+    const floors = floorUnits.filter((f) => f.property_id === tenantForm.propertyId && !isSubUnitLabel(f.floor_label));
     const allSelected = floors.every((f) => tenantForm.selectedFloorIds.includes(f.id));
     setTenantForm((prev) => {
       if (!prev) return prev;
@@ -291,8 +362,8 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
         });
       }
 
-      // Clear unchecked floors that previously belonged to this tenant
-      if (tenantForm.editingTenantName) {
+      // Clear unchecked floors that previously belonged to this tenant (skip for sub-unit edits)
+      if (tenantForm.editingTenantName && !tenantForm.isSubUnit) {
         const previousFloors = floors.filter(
           (f) => f.tenant_name === tenantForm.editingTenantName && !tenantForm.selectedFloorIds.includes(f.id)
         );
@@ -665,8 +736,19 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
 
           {/* Form body */}
           <div className="p-4 space-y-4">
-            {/* Floor checkboxes */}
-            {floors.length > 1 && (
+            {/* Sub-unit notice */}
+            {tenantForm.isSubUnit && (() => {
+              const subUnitFloor = floors.find((f) => tenantForm.selectedFloorIds.includes(f.id));
+              return (
+                <div className="bg-info/10 border border-info/20 rounded-lg p-2 text-xs text-base-content text-center">
+                  <span className="badge badge-sm badge-info font-mono mr-1">{subUnitFloor?.floor_label}</span>
+                  分租单位 · 独立租户
+                </div>
+              );
+            })()}
+
+            {/* Floor checkboxes (hidden for sub-unit edits) */}
+            {!tenantForm.isSubUnit && floors.length > 1 && (
               <div>
                 <label className="text-xs font-semibold text-base-content mb-2 block">选择楼层</label>
                 <div className="space-y-1.5">
@@ -681,7 +763,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                     <span className="text-sm font-semibold">全选 · 全栋出租</span>
                   </label>
                   <div className="divider my-0 h-0" />
-                  {floors.slice().reverse().map((f) => {
+                  {floors.filter((f) => !isSubUnitLabel(f.floor_label)).slice().reverse().map((f) => {
                     const isSelected = tenantForm.selectedFloorIds.includes(f.id);
                     const isSameTenant = f.tenant_name === tenantForm.tenant_name || f.tenant_name === tenantForm.editingTenantName;
                     const hasOtherTenant = f.tenant_name && !isSameTenant;
@@ -714,8 +796,8 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
               </div>
             )}
 
-            {/* Single floor notice */}
-            {floors.length === 1 && (
+            {/* Single floor notice (non-sub-unit) */}
+            {!tenantForm.isSubUnit && floors.length === 1 && (
               <div className="bg-base-200 rounded-lg p-2 text-xs text-base-content text-center">
                 单层物业 · {floors[0].floor_label}
               </div>
@@ -1350,27 +1432,139 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
     if (floors.length === 0) return null;
 
     const totalRent = getTotalRent(p.id);
-    const occupiedCount = floors.filter((f) => f.tenant_name).length;
-    const allVacant = occupiedCount === 0;
 
-    // Group floors by tenant
-    const tenantGroups: Record<string, FloorUnit[]> = {};
-    const vacantFloors: FloorUnit[] = [];
+    // Separate sub-units from normal floors
+    const subUnitMap: Record<string, FloorUnit[]> = {};
+    const normalFloors: FloorUnit[] = [];
     floors.forEach((f) => {
+      if (isSubUnitLabel(f.floor_label)) {
+        const parent = getParentFloorLabel(f.floor_label);
+        if (!subUnitMap[parent]) subUnitMap[parent] = [];
+        subUnitMap[parent].push(f);
+      } else {
+        normalFloors.push(f);
+      }
+    });
+
+    // Calculate logical floor count (sub-units count as 1 parent)
+    const parentLabels = new Set([
+      ...normalFloors.map((f) => f.floor_label),
+      ...Object.keys(subUnitMap),
+    ]);
+    const logicalFloorCount = parentLabels.size;
+    const occupiedParents = new Set<string>();
+    normalFloors.forEach((f) => { if (f.tenant_name) occupiedParents.add(f.floor_label); });
+    Object.entries(subUnitMap).forEach(([parent, units]) => {
+      if (units.some((u) => u.tenant_name)) occupiedParents.add(parent);
+    });
+    const occupiedCount = occupiedParents.size;
+    const allVacant = occupiedCount === 0 && Object.keys(subUnitMap).length === 0;
+
+    // Group normal floors by tenant (same as before, but exclude sub-units)
+    const tenantGroups: Record<string, FloorUnit[]> = {};
+    const vacantNormalFloors: FloorUnit[] = [];
+    normalFloors.forEach((f) => {
       if (f.tenant_name) {
         if (!tenantGroups[f.tenant_name]) tenantGroups[f.tenant_name] = [];
         tenantGroups[f.tenant_name].push(f);
       } else {
-        vacantFloors.push(f);
+        vacantNormalFloors.push(f);
       }
     });
+
+    // Helper to render a single sub-unit card
+    function renderSubUnitCard(unit: FloorUnit, parentLabel: string, totalUnits: number) {
+      if (unit.tenant_name) {
+        return (
+          <div
+            key={unit.id}
+            className="bg-success/5 border border-success/15 rounded-lg p-2.5 cursor-pointer hover:bg-success/10 transition-colors"
+            onClick={() => openEditSubUnit(p.id, unit)}
+          >
+            <div className="flex items-start justify-between">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="badge badge-xs badge-primary font-mono">{unit.floor_label}</span>
+                  <span className="font-semibold text-sm truncate">{unit.tenant_name}</span>
+                </div>
+                {unit.tenant_phone && (
+                  <div className="flex items-center gap-1 mt-0.5 text-xs text-base-content">
+                    <Phone size={9} /> {unit.tenant_phone}
+                  </div>
+                )}
+                {unit.tenant_company_reg && (
+                  <div className="text-[10px] text-base-content/60">SSM: {unit.tenant_company_reg}</div>
+                )}
+              </div>
+              <div className="text-right shrink-0 ml-2">
+                <p className="font-bold text-primary text-sm">RM {(unit.rent_amount || 0).toLocaleString()}</p>
+                <p className="text-[10px] text-base-content/50">/月</p>
+              </div>
+            </div>
+            {(unit.lease_start || unit.lease_end) && (
+              <div className="flex items-center gap-1.5 mt-1.5 pt-1.5 border-t border-success/10">
+                <CalendarDays size={11} className="text-primary shrink-0" />
+                <span className="text-xs">
+                  {fmtDate(unit.lease_start)} → {fmtDate(unit.lease_end)}
+                </span>
+                {unit.lease_end && leaseExpiryBadge(unit.lease_end)}
+              </div>
+            )}
+            {((unit.deposit || 0) > 0 || (unit.utility_deposit || 0) > 0) && (
+              <div className="flex gap-2 mt-1 text-[10px] text-base-content/60">
+                {(unit.deposit || 0) > 0 && <span>押金: RM {(unit.deposit || 0).toLocaleString()}</span>}
+                {(unit.utility_deposit || 0) > 0 && <span>水电: RM {(unit.utility_deposit || 0).toLocaleString()}</span>}
+              </div>
+            )}
+            <div className="flex items-center justify-between mt-1.5 pt-1.5 border-t border-success/10">
+              <button
+                className="btn btn-xs btn-ghost text-error gap-0.5"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setVacateTarget({ propertyId: p.id, tenantName: unit.tenant_name, floors: [unit] });
+                }}
+              >
+                <LogOut size={10} /> 退租
+              </button>
+              <span className="text-[10px] text-base-content/40">点击修改 ✏️</span>
+            </div>
+          </div>
+        );
+      } else {
+        // Vacant sub-unit
+        return (
+          <div
+            key={unit.id}
+            className="border border-dashed border-base-300 rounded-lg px-2.5 py-2 flex items-center gap-2 cursor-pointer hover:border-primary/30 hover:bg-primary/5 transition-all"
+            onClick={() => openEditSubUnit(p.id, unit)}
+          >
+            <span className="badge badge-xs badge-outline font-mono">{unit.floor_label}</span>
+            <span className="text-xs text-base-content/50 flex-1">空置 — 点击添加租户</span>
+            {totalUnits > 2 && (
+              <button
+                className="btn btn-xs btn-ghost btn-circle text-error/50 hover:text-error"
+                onClick={(e) => { e.stopPropagation(); handleDeleteSubUnit(unit.id); }}
+                title="删除此子单位"
+              >
+                <Trash2 size={10} />
+              </button>
+            )}
+          </div>
+        );
+      }
+    }
 
     return (
       <div className="mt-3 space-y-2">
         {/* Stats bar */}
         <div className="flex items-center justify-between">
           <span className="text-xs font-semibold text-base-content">
-            楼层 · {occupiedCount}/{floors.length} 层已租
+            楼层 · {occupiedCount}/{logicalFloorCount} 层已租
+            {Object.keys(subUnitMap).length > 0 && (
+              <span className="text-base-content/40 ml-1">
+                (含 {Object.values(subUnitMap).reduce((s, u) => s + u.length, 0)} 个分租单位)
+              </span>
+            )}
           </span>
           {totalRent > 0 && (
             <span className="text-xs font-bold text-primary">
@@ -1381,23 +1575,34 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
 
         {/* All vacant → compact CTA (hidden for 出售 properties) */}
         {allVacant && p.listing_type !== 'sell' ? (
-          <div
-            className="border border-dashed border-primary/20 rounded-lg px-3 py-1.5 flex items-center gap-2 cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all"
-            onClick={() => openNewTenantForm(p.id)}
-          >
-            <Plus size={12} className="text-primary/50 shrink-0" />
-            <span className="text-xs text-primary font-semibold">填写租户资料</span>
-            <span className="text-[10px] text-base-content/40">选择楼层 → 输入租户、租金、押金、租期</span>
+          <div className="space-y-1.5">
+            <div
+              className="border border-dashed border-primary/20 rounded-lg px-3 py-1.5 flex items-center gap-2 cursor-pointer hover:border-primary/40 hover:bg-primary/5 transition-all"
+              onClick={() => openNewTenantForm(p.id)}
+            >
+              <Plus size={12} className="text-primary/50 shrink-0" />
+              <span className="text-xs text-primary font-semibold">填写租户资料</span>
+              <span className="text-[10px] text-base-content/40">选择楼层 → 输入租户、租金、押金、租期</span>
+            </div>
+            {/* Split option for vacant single-floor */}
+            {normalFloors.length === 1 && normalFloors[0] && !normalFloors[0].tenant_name && (
+              <button
+                className="btn btn-xs btn-ghost text-info gap-1 w-full"
+                onClick={() => handleSplitFloor(p.id, normalFloors[0].id)}
+              >
+                🔀 分租此楼层给多个租户
+              </button>
+            )}
           </div>
         ) : (
           <div className="space-y-2">
-            {/* Tenant groups */}
+            {/* Normal tenant groups */}
             {Object.entries(tenantGroups).map(([name, tFloors]) => {
               const first = tFloors[0];
               const groupRent = tFloors.reduce((s, f) => s + (f.rent_amount || 0), 0);
               const groupDeposit = tFloors.reduce((s, f) => s + (f.deposit || 0), 0);
               const groupUtility = tFloors.reduce((s, f) => s + (f.utility_deposit || 0), 0);
-              const isWholeBuilding = tFloors.length === floors.length;
+              const isWholeBuilding = tFloors.length === normalFloors.length && Object.keys(subUnitMap).length === 0;
 
               return (
                 <div
@@ -1468,30 +1673,102 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
 
                   {/* Action buttons */}
                   <div className="flex items-center justify-between mt-2 pt-2 border-t border-success/10">
-                    <button
-                      className="btn btn-xs btn-ghost text-error gap-1"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setVacateTarget({ propertyId: p.id, tenantName: name, floors: tFloors });
-                      }}
-                    >
-                      <LogOut size={12} /> 退租
-                    </button>
+                    <div className="flex items-center gap-1">
+                      <button
+                        className="btn btn-xs btn-ghost text-error gap-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setVacateTarget({ propertyId: p.id, tenantName: name, floors: tFloors });
+                        }}
+                      >
+                        <LogOut size={12} /> 退租
+                      </button>
+                      {tFloors.length === 1 && (
+                        <button
+                          className="btn btn-xs btn-ghost text-info gap-1"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleSplitFloor(p.id, tFloors[0].id);
+                          }}
+                        >
+                          🔀 分租
+                        </button>
+                      )}
+                    </div>
                     <span className="text-[10px] text-base-content">点击卡片修改 ✏️</span>
                   </div>
                 </div>
               );
             })}
 
-            {/* Vacant floors */}
-            {vacantFloors.length > 0 && (
-              <div
-                className="border border-dashed border-base-300 rounded-lg px-3 py-1.5 flex items-center gap-2 cursor-pointer hover:border-primary/30 hover:bg-primary/5 transition-all"
-                onClick={() => openNewTenantForm(p.id)}
-              >
-                <Plus size={12} className="text-primary/50 shrink-0" />
-                <span className="text-xs text-primary font-medium">添加租户</span>
-                <span className="text-[10px] text-base-content/40">{vacantFloors.map((f) => f.floor_label).join(' · ')} 空置</span>
+            {/* Sub-unit groups */}
+            {Object.entries(subUnitMap).map(([parentLabel, subUnits]) => {
+              const groupRent = subUnits.reduce((s, u) => s + (u.rent_amount || 0), 0);
+              const occupiedUnits = subUnits.filter((u) => u.tenant_name);
+
+              return (
+                <div key={parentLabel} className="border border-info/20 rounded-xl overflow-hidden">
+                  {/* Group header */}
+                  <div className="bg-info/5 px-3 py-2 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="badge badge-sm badge-info">{parentLabel}层</span>
+                      <span className="text-xs text-base-content">
+                        分租中 · {occupiedUnits.length}/{subUnits.length} 单位已租
+                      </span>
+                    </div>
+                    {groupRent > 0 && (
+                      <span className="text-xs font-bold text-primary">
+                        小计 RM {groupRent.toLocaleString()}
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Sub-unit cards */}
+                  <div className="p-2 space-y-1.5">
+                    {subUnits.map((unit) => renderSubUnitCard(unit, parentLabel, subUnits.length))}
+
+                    {/* Add sub-unit */}
+                    <button
+                      className="btn btn-xs btn-ghost text-info gap-1 w-full"
+                      onClick={() => handleAddSubUnit(p.id, parentLabel)}
+                    >
+                      <Plus size={10} /> 新增分租单位
+                    </button>
+
+                    {/* Merge back (only if 1 sub-unit left) */}
+                    {subUnits.length === 1 && (
+                      <button
+                        className="btn btn-xs btn-ghost text-warning gap-1 w-full"
+                        onClick={() => handleMergeSubUnit(subUnits[0].id, parentLabel)}
+                      >
+                        📦 合并回 {parentLabel} 层
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Vacant normal floors */}
+            {vacantNormalFloors.length > 0 && (
+              <div className="space-y-1.5">
+                <div
+                  className="border border-dashed border-base-300 rounded-lg px-3 py-1.5 flex items-center gap-2 cursor-pointer hover:border-primary/30 hover:bg-primary/5 transition-all"
+                  onClick={() => openNewTenantForm(p.id)}
+                >
+                  <Plus size={12} className="text-primary/50 shrink-0" />
+                  <span className="text-xs text-primary font-medium">添加租户</span>
+                  <span className="text-[10px] text-base-content/40">{vacantNormalFloors.map((f) => f.floor_label).join(' · ')} 空置</span>
+                </div>
+                {/* Split option for vacant floors (only if single floor vacant) */}
+                {vacantNormalFloors.length === 1 && Object.keys(tenantGroups).length > 0 && (
+                  <button
+                    className="btn btn-xs btn-ghost text-info gap-1 w-full"
+                    onClick={() => handleSplitFloor(p.id, vacantNormalFloors[0].id)}
+                  >
+                    🔀 或分租 {vacantNormalFloors[0].floor_label} 层给多个租户
+                  </button>
+                )}
               </div>
             )}
           </div>
