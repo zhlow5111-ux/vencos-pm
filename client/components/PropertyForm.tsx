@@ -2401,7 +2401,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
 
             {rpgtSellingPrice && Number(rpgtSellingPrice) > 0 && rpgtPurchaseDate && (() => {
               const sellPrice = Number(rpgtSellingPrice);
-              const buyPrice = actualPrice || price;
+              const buyPrice = price || actualPrice;
               const purchaseDt = new Date(rpgtPurchaseDate);
               const today = new Date();
               const holdingYears = (today.getTime() - purchaseDt.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
@@ -2422,7 +2422,7 @@ export const PropertyForm: React.FC<Props> = ({ property, onClose, onSaved }) =>
               return (
                 <div className="bg-base-200 rounded-lg p-3 space-y-2">
                   <div className="grid grid-cols-2 gap-1 text-xs">
-                    <span className="text-base-content/60">购入价:</span><span className="text-right font-medium">RM {buyPrice.toLocaleString()}</span>
+                    <span className="text-base-content/60">SPA价格:</span><span className="text-right font-medium">RM {buyPrice.toLocaleString()}</span>
                     <span className="text-base-content/60">预计售价:</span><span className="text-right font-medium">RM {sellPrice.toLocaleString()}</span>
                     <span className="text-base-content/60">持有年限:</span><span className="text-right">{holdingYears.toFixed(1)} 年 (第{holdingYear}年)</span>
                     <span className="text-base-content/60">适用税率:</span><span className="text-right font-bold">{rate}%</span>
