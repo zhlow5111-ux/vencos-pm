@@ -61,7 +61,7 @@ const BillingLogContent: React.FC = () => {
       });
       const data = await resp.json();
       if (data.ok) {
-        setRunResult(`✅ 完成：生成 ${data.generated} 张账单，标记逾期 ${data.overdueMarked} 张`);
+        setRunResult(`✅ 完成：生成 ${data.generated} 张账单，自动逾期 ${data.overdueMarked} 张`);
         loadLogs(); // Refresh logs
       } else {
         setRunResult(`❌ 失败：${data.error || '未知错误'}`);
@@ -322,11 +322,6 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
       showToast('加载凭证失败');
     }
     setReceiptLoading(false);
-  }
-
-  async function handleMarkOverdue(id: number) {
-    await markInvoiceOverdue(id);
-    await loadData();
   }
 
   async function handleDeleteConfirm() {
@@ -1379,14 +1374,9 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
         {/* Actions */}
         <div className="flex items-center gap-1 pl-6 flex-wrap">
           {inv.status === 'pending' && (
-            <>
               <button className="btn btn-xs btn-success gap-1" onClick={() => handleMarkPaid(inv.id)}>
                 <CheckCircle size={12} /> 确认收款
               </button>
-              <button className="btn btn-xs btn-warning btn-outline gap-1" onClick={() => handleMarkOverdue(inv.id)}>
-                <AlertTriangle size={12} /> 标记逾期
-              </button>
-            </>
           )}
           {inv.status === 'overdue' && (
             <button className="btn btn-xs btn-success gap-1" onClick={() => handleMarkPaid(inv.id)}>
