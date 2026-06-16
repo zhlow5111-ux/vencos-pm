@@ -1584,13 +1584,30 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
               <span className="text-xs text-primary font-semibold">填写租户资料</span>
               <span className="text-[10px] text-base-content/40">选择楼层 → 输入租户、租金、押金、租期</span>
             </div>
-            {/* Split option for vacant single-floor */}
-            {normalFloors.length === 1 && normalFloors[0] && !normalFloors[0].tenant_name && (
+            {/* Split option for vacant floors */}
+            {normalFloors.length > 0 && normalFloors.some(f => !f.tenant_name) && (
               <button
                 className="btn btn-xs btn-ghost text-info gap-1 w-full"
-                onClick={() => handleSplitFloor(p.id, normalFloors[0].id)}
+                onClick={() => {
+                  const vacantFloors = normalFloors.filter(f => !f.tenant_name);
+                  if (vacantFloors.length === 1) {
+                    handleSplitFloor(p.id, vacantFloors[0].id);
+                  } else {
+                    const choice = prompt(
+                      `选择要分租的楼层：\n` +
+                      vacantFloors.map((f, i) => `${i + 1}. ${f.floor_label} 层`).join('\n') +
+                      `\n\n输入编号 (1-${vacantFloors.length})：`
+                    );
+                    if (choice) {
+                      const idx = parseInt(choice) - 1;
+                      if (idx >= 0 && idx < vacantFloors.length) {
+                        handleSplitFloor(p.id, vacantFloors[idx].id);
+                      }
+                    }
+                  }
+                }}
               >
-                🔀 分租此楼层给多个租户
+                🔀 分租楼层给多个租户
               </button>
             )}
           </div>
@@ -1683,17 +1700,29 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                       >
                         <LogOut size={12} /> 退租
                       </button>
-                      {tFloors.length === 1 && (
-                        <button
-                          className="btn btn-xs btn-ghost text-info gap-1"
-                          onClick={(e) => {
-                            e.stopPropagation();
+                      <button
+                        className="btn btn-xs btn-ghost text-info gap-1"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          if (tFloors.length === 1) {
                             handleSplitFloor(p.id, tFloors[0].id);
-                          }}
-                        >
-                          🔀 分租
-                        </button>
-                      )}
+                          } else {
+                            const choice = prompt(
+                              `此租户租用 ${tFloors.length} 层，请选择要分租的楼层：\n` +
+                              tFloors.map((f, i) => `${i + 1}. ${f.floor_label} 层`).join('\n') +
+                              `\n\n输入编号 (1-${tFloors.length})：`
+                            );
+                            if (choice) {
+                              const idx = parseInt(choice) - 1;
+                              if (idx >= 0 && idx < tFloors.length) {
+                                handleSplitFloor(p.id, tFloors[idx].id);
+                              }
+                            }
+                          }
+                        }}
+                      >
+                        🔀 分租
+                      </button>
                     </div>
                     <span className="text-[10px] text-base-content">点击卡片修改 ✏️</span>
                   </div>
@@ -1760,13 +1789,29 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
                   <span className="text-xs text-primary font-medium">添加租户</span>
                   <span className="text-[10px] text-base-content/40">{vacantNormalFloors.map((f) => f.floor_label).join(' · ')} 空置</span>
                 </div>
-                {/* Split option for vacant floors (only if single floor vacant) */}
-                {vacantNormalFloors.length === 1 && Object.keys(tenantGroups).length > 0 && (
+                {/* Split option for vacant floors */}
+                {vacantNormalFloors.length > 0 && Object.keys(tenantGroups).length > 0 && (
                   <button
                     className="btn btn-xs btn-ghost text-info gap-1 w-full"
-                    onClick={() => handleSplitFloor(p.id, vacantNormalFloors[0].id)}
+                    onClick={() => {
+                      if (vacantNormalFloors.length === 1) {
+                        handleSplitFloor(p.id, vacantNormalFloors[0].id);
+                      } else {
+                        const choice = prompt(
+                          `选择要分租的空置楼层：\n` +
+                          vacantNormalFloors.map((f, i) => `${i + 1}. ${f.floor_label} 层`).join('\n') +
+                          `\n\n输入编号 (1-${vacantNormalFloors.length})：`
+                        );
+                        if (choice) {
+                          const idx = parseInt(choice) - 1;
+                          if (idx >= 0 && idx < vacantNormalFloors.length) {
+                            handleSplitFloor(p.id, vacantNormalFloors[idx].id);
+                          }
+                        }
+                      }
+                    }}
                   >
-                    🔀 或分租 {vacantNormalFloors[0].floor_label} 层给多个租户
+                    🔀 或分租空置楼层给多个租户
                   </button>
                 )}
               </div>
