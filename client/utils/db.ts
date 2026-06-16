@@ -556,6 +556,22 @@ export async function initDB(): Promise<void> {
     } catch (migErr) { console.error('Loan migration error:', migErr); }
   }
 
+  // Sync vc_properties loan totals from vc_loans (ensures report accuracy)
+  try {
+    const loanProps = await window.tasklet.sqlQuery(
+      `SELECT DISTINCT property_id FROM vc_loans`
+    ) as any[];
+    const syncNow = nowISO();
+    for (const lp of loanProps) {
+      await window.tasklet.sqlExec(`UPDATE vc_properties SET
+        loan_amount = COALESCE((SELECT SUM(loan_amount) FROM vc_loans WHERE property_id=${lp.property_id}), 0),
+        loan_balance = COALESCE((SELECT SUM(loan_balance) FROM vc_loans WHERE property_id=${lp.property_id}), 0),
+        monthly_repayment = COALESCE((SELECT SUM(monthly_repayment) FROM vc_loans WHERE property_id=${lp.property_id}), 0),
+        updated_at='${syncNow}'
+      WHERE id=${lp.property_id}`);
+    }
+  } catch (syncErr) { console.error('Loan sync error:', syncErr); }
+
   // Mark schema as current version
   await window.tasklet.sqlExec(`INSERT OR REPLACE INTO vc_meta (key, value) VALUES ('schema_version', '${SCHEMA_VERSION}')`);
 }
@@ -1997,8 +2013,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       (SELECT COUNT(*) FROM vc_invoices WHERE status='pending') as pendingInvoices,
       (SELECT COUNT(*) FROM vc_invoices WHERE status='overdue') as overdueInvoices,
       (SELECT COALESCE(SUM(amount),0) FROM vc_invoices WHERE status='paid') as totalCollected,
-      (SELECT COALESCE(SUM(loan_balance),0) FROM vc_properties WHERE loan_balance > 0) as totalLoanBalance,
-      (SELECT COALESCE(SUM(monthly_repayment),0) FROM vc_properties WHERE monthly_repayment > 0) as totalMonthlyRepayment,
+      COALESCE((SELECT SUM(loan_balance) FROM vc_loans WHERE loan_balance > 0), (SELECT SUM(loan_balance) FROM vc_properties WHERE loan_balance > 0)) as totalLoanBalance,
+      COALESCE((SELECT SUM(monthly_repayment) FROM vc_loans WHERE monthly_repayment > 0), (SELECT SUM(monthly_repayment) FROM vc_properties WHERE monthly_repayment > 0)) as totalMonthlyRepayment,
       (SELECT COUNT(*) FROM vc_maintenance_tickets WHERE status IN ('submitted','acknowledged')) as openTickets,
       (SELECT COUNT(*) FROM vc_maintenance_tickets WHERE status='in_progress') as inProgressTickets,
       (SELECT COALESCE(SUM(amount),0) FROM vc_purchase_costs) as totalPurchaseCosts
@@ -2176,7 +2192,10 @@ export interface PropertyFinancial {
 
 export async function getPropertyFinancials(): Promise<PropertyFinancial[]> {
   const props = await window.tasklet.sqlQuery(`
-    SELECT p.id, p.name, p.address, p.floor_count, p.monthly_repayment, p.loan_amount, p.loan_balance,
+    SELECT p.id, p.name, p.address, p.floor_count,
+      COALESCE((SELECT SUM(l.monthly_repayment) FROM vc_loans l WHERE l.property_id = p.id), p.monthly_repayment) as monthly_repayment,
+      COALESCE((SELECT SUM(l.loan_amount) FROM vc_loans l WHERE l.property_id = p.id), p.loan_amount) as loan_amount,
+      COALESCE((SELECT SUM(l.loan_balance) FROM vc_loans l WHERE l.property_id = p.id), p.loan_balance) as loan_balance,
       p.loan_interest_rate, p.loan_start, p.loan_tenure_months, p.loan_account_no,
       p.land_tax, p.assessment_tax, p.indah_water,
       p.mgmt_fee_type, p.mgmt_fee_amount, p.mgmt_fee_pct, p.service_charge,
