@@ -2013,8 +2013,8 @@ export async function getDashboardStats(): Promise<DashboardStats> {
       (SELECT COUNT(*) FROM vc_invoices WHERE status='pending') as pendingInvoices,
       (SELECT COUNT(*) FROM vc_invoices WHERE status='overdue') as overdueInvoices,
       (SELECT COALESCE(SUM(amount),0) FROM vc_invoices WHERE status='paid') as totalCollected,
-      COALESCE((SELECT SUM(loan_balance) FROM vc_loans WHERE loan_balance > 0), (SELECT SUM(loan_balance) FROM vc_properties WHERE loan_balance > 0)) as totalLoanBalance,
-      COALESCE((SELECT SUM(monthly_repayment) FROM vc_loans WHERE monthly_repayment > 0), (SELECT SUM(monthly_repayment) FROM vc_properties WHERE monthly_repayment > 0)) as totalMonthlyRepayment,
+      COALESCE((SELECT SUM(l.loan_balance) FROM vc_loans l JOIN vc_properties p2 ON l.property_id=p2.id WHERE l.loan_balance > 0 AND p2.status != 'sold'), (SELECT SUM(loan_balance) FROM vc_properties WHERE loan_balance > 0 AND status != 'sold')) as totalLoanBalance,
+      COALESCE((SELECT SUM(l.monthly_repayment) FROM vc_loans l JOIN vc_properties p2 ON l.property_id=p2.id WHERE l.monthly_repayment > 0 AND p2.status != 'sold'), (SELECT SUM(monthly_repayment) FROM vc_properties WHERE monthly_repayment > 0 AND status != 'sold')) as totalMonthlyRepayment,
       (SELECT COUNT(*) FROM vc_maintenance_tickets WHERE status IN ('submitted','acknowledged')) as openTickets,
       (SELECT COUNT(*) FROM vc_maintenance_tickets WHERE status='in_progress') as inProgressTickets,
       (SELECT COALESCE(SUM(amount),0) FROM vc_purchase_costs) as totalPurchaseCosts
@@ -2238,20 +2238,22 @@ export async function getPropertyFinancials(): Promise<PropertyFinancial[]> {
   for (const row of props as Record<string, unknown>[]) {
     const id = Number(row.id);
     const rentData = rentMap.get(id) || { rent: 0, occupied: 0, total: 0 };
-    // Use floor-level rent if available; otherwise fallback to property-level rental_price for rented properties
     const propStatus = String(row.status || 'available');
+    const isSold = propStatus === 'sold';
+    // Use floor-level rent if available; otherwise fallback to property-level rental_price for rented properties
     const propRentalPrice = Number(row.rental_price || 0);
     const hasFloorRentData = rentData.rent > 0;
-    const monthlyRent = hasFloorRentData ? rentData.rent : (propStatus === 'rented' && propRentalPrice > 0 ? propRentalPrice : 0);
-    const monthlyRepayment = Number(row.monthly_repayment || 0);
+    const monthlyRent = isSold ? 0 : (hasFloorRentData ? rentData.rent : (propStatus === 'rented' && propRentalPrice > 0 ? propRentalPrice : 0));
+    // Sold properties: no expenses (loan cleared on sale)
+    const monthlyRepayment = isSold ? 0 : Number(row.monthly_repayment || 0);
     const mgmtFeeType = String(row.mgmt_fee_type || 'percentage');
-    const mgmtFee = mgmtFeeType === 'fixed' ? Number(row.mgmt_fee_amount || 0) : (monthlyRent * Number(row.mgmt_fee_pct || 0) / 100);
-    const indahWater = Number(row.indah_water || 0);
-    const recurringChargesTotal = chargeMap.get(id) || 0;
+    const mgmtFee = isSold ? 0 : (mgmtFeeType === 'fixed' ? Number(row.mgmt_fee_amount || 0) : (monthlyRent * Number(row.mgmt_fee_pct || 0) / 100));
+    const indahWater = isSold ? 0 : Number(row.indah_water || 0);
+    const recurringChargesTotal = isSold ? 0 : (chargeMap.get(id) || 0);
     const landTax = Number(row.land_tax || 0);
     const assessmentTax = Number(row.assessment_tax || 0);
-    const landTaxMonthly = landTax / 12;
-    const assessmentTaxMonthly = (assessmentTax * 2) / 12;
+    const landTaxMonthly = isSold ? 0 : landTax / 12;
+    const assessmentTaxMonthly = isSold ? 0 : (assessmentTax * 2) / 12;
 
     const totalMonthlyExpense = monthlyRepayment + mgmtFee + indahWater + recurringChargesTotal + landTaxMonthly + assessmentTaxMonthly;
     const annualRent = monthlyRent * 12;
@@ -2281,8 +2283,8 @@ export async function getPropertyFinancials(): Promise<PropertyFinancial[]> {
       monthlyRepayment, mgmtFee, indahWater, recurringChargesTotal,
       landTaxMonthly, assessmentTaxMonthly, totalMonthlyExpense,
       annualExpense, annualNetIncome,
-      loanAmount: Number(row.loan_amount || 0),
-      loanBalance: Number(row.loan_balance || 0),
+      loanAmount: isSold ? 0 : Number(row.loan_amount || 0),
+      loanBalance: isSold ? 0 : Number(row.loan_balance || 0),
       monthlyPayment: monthlyRepayment,
       interestRate: Number(row.loan_interest_rate || 0),
       loanStart, loanAccountNo: String(row.loan_account_no || ''),
