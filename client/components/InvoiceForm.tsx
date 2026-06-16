@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import { X, Building2, Layers } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { X, Building2, Layers, Search, ChevronDown } from 'lucide-react';
 import { Invoice, Property, FloorUnit, RecurringCharge, INVOICE_STATUSES } from '../types';
 import { saveInvoice, getProperties, getFloorUnits, getRecurringCharges, getFloorUnitsByLeaseRef } from '../utils/db';
 
@@ -15,6 +15,22 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onClose, onSa
   const [floors, setFloors] = useState<FloorUnit[]>([]);
   const [charges, setCharges] = useState<RecurringCharge[]>([]);
   const [selectedFloor, setSelectedFloor] = useState<string>(invoice?.floor_label || '');
+
+  // Property search state
+  const [propSearch, setPropSearch] = useState('');
+  const [propDropdownOpen, setPropDropdownOpen] = useState(false);
+  const propSearchRef = useRef<HTMLDivElement>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (propSearchRef.current && !propSearchRef.current.contains(e.target as Node)) {
+        setPropDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
 
   // Charge toggles & adjustments
   const [chargeToggles, setChargeToggles] = useState<Record<number, boolean>>({});
@@ -246,28 +262,100 @@ export const InvoiceForm: React.FC<InvoiceFormProps> = ({ invoice, onClose, onSa
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="p-4 space-y-3 overflow-y-auto flex-1">
-          {/* Property */}
-          <div className="form-control">
+          {/* Property — searchable dropdown */}
+          <div className="form-control" ref={propSearchRef}>
             <label className="label py-1"><span className="label-text text-xs">物业</span></label>
-            <select
-              className="select select-bordered select-sm w-full"
-              value={form.property_id}
-              onChange={(e) => {
-                const pid = Number(e.target.value);
-                setForm({ ...form, property_id: pid, floor_label: '', rent_amount: 0 });
-                setSelectedFloor('');
-                setChargeToggles({});
-                setAdjustments([]);
-                setLinkedFloors([]);
-                setLinkedLeaseRef('');
-              }}
-              required
-            >
-              <option value={0} disabled>选择物业</option>
-              {properties.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
-              ))}
-            </select>
+            <div className="relative">
+              {/* Selected display / search input */}
+              <div
+                className="input input-bordered input-sm w-full flex items-center gap-1 cursor-pointer pr-7"
+                onClick={() => { setPropDropdownOpen(!propDropdownOpen); }}
+              >
+                {form.property_id > 0 ? (
+                  <span className="truncate text-sm">
+                    {properties.find(p => p.id === form.property_id)?.name || ''}
+                    <span className="text-base-content/40 ml-1 text-xs">
+                      · {properties.find(p => p.id === form.property_id)?.owner_name || ''}
+                    </span>
+                  </span>
+                ) : (
+                  <span className="text-base-content/40 text-sm">选择物业</span>
+                )}
+                <ChevronDown size={14} className="absolute right-2 text-base-content/40" />
+              </div>
+
+              {/* Dropdown */}
+              {propDropdownOpen && (
+                <div className="absolute z-50 mt-1 w-full bg-base-100 border border-base-300 rounded-xl shadow-xl max-h-64 flex flex-col overflow-hidden">
+                  {/* Search input */}
+                  <div className="flex items-center gap-2 px-3 py-2 border-b border-base-200">
+                    <Search size={14} className="text-base-content/40 shrink-0" />
+                    <input
+                      type="text"
+                      className="input input-xs input-ghost w-full focus:outline-none bg-transparent"
+                      placeholder="搜索物业名称或公司..."
+                      value={propSearch}
+                      onChange={(e) => setPropSearch(e.target.value)}
+                      autoFocus
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  </div>
+                  {/* Results grouped by company */}
+                  <div className="overflow-y-auto flex-1">
+                    {(() => {
+                      const q = propSearch.toLowerCase();
+                      const filtered = properties.filter(p =>
+                        !q || p.name.toLowerCase().includes(q) || (p.owner_name || '').toLowerCase().includes(q) || (p.address || '').toLowerCase().includes(q)
+                      );
+                      if (filtered.length === 0) {
+                        return <p className="text-center text-xs text-base-content/40 py-4">无匹配物业</p>;
+                      }
+                      // Group by owner
+                      const grouped = new Map<string, Property[]>();
+                      filtered.forEach(p => {
+                        const key = p.owner_name || '未分类';
+                        if (!grouped.has(key)) grouped.set(key, []);
+                        grouped.get(key)!.push(p);
+                      });
+                      return Array.from(grouped.entries()).map(([owner, props]) => (
+                        <div key={owner}>
+                          <div className="px-3 py-1 text-[10px] font-semibold text-base-content/40 bg-base-200/50 sticky top-0">
+                            🏢 {owner}
+                          </div>
+                          {props.map(p => (
+                            <div
+                              key={p.id}
+                              className={`px-3 py-2 cursor-pointer hover:bg-primary/10 flex items-center gap-2 ${form.property_id === p.id ? 'bg-primary/5 font-medium' : ''}`}
+                              onClick={() => {
+                                setForm({ ...form, property_id: p.id, floor_label: '', rent_amount: 0 });
+                                setSelectedFloor('');
+                                setChargeToggles({});
+                                setAdjustments([]);
+                                setLinkedFloors([]);
+                                setLinkedLeaseRef('');
+                                setPropDropdownOpen(false);
+                                setPropSearch('');
+                              }}
+                            >
+                              <Building2 size={14} className="shrink-0 text-base-content/40" />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm truncate">{p.name}</p>
+                                {p.address && <p className="text-[10px] text-base-content/40 truncate">{p.address}</p>}
+                              </div>
+                              {form.property_id === p.id && (
+                                <span className="badge badge-primary badge-xs">✓</span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                </div>
+              )}
+            </div>
+            {/* Hidden required input for form validation */}
+            <input type="hidden" value={form.property_id || ''} required />
           </div>
 
           {/* Floor Selection */}

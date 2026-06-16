@@ -1368,6 +1368,9 @@ export const BillingPage: React.FC<BillingPageProps> = ({ onAdd, onEdit, refresh
           <div className="text-right shrink-0">
             <p className={`font-bold text-sm ${isPenalty ? 'text-error' : ''}`}>RM {inv.amount.toLocaleString()}</p>
             <p className="text-xs text-base-content">到期 {inv.due_date || '-'}</p>
+            {inv.created_at && (
+              <p className="text-[10px] text-base-content/40 mt-0.5">生成于 {inv.created_at.slice(0, 16).replace('T', ' ')}</p>
+            )}
           </div>
         </div>
 
