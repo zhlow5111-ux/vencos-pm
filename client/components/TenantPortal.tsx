@@ -73,8 +73,12 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
       const saved = localStorage.getItem('vencos_tenant_session');
       if (saved) {
         try {
-          const { phone: p } = JSON.parse(saved);
-          if (p) { setPhone(p); handleAutoLogin(p); }
+          const { phone: p, token: t } = JSON.parse(saved);
+          if (p) {
+            // Restore tenant token before querying DB
+            if (t) setAuthToken(t);
+            setPhone(p); handleAutoLogin(p);
+          }
         } catch {}
       }
     }
@@ -114,7 +118,7 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
       const f = await getFloorUnitsByPhone(phone.trim());
       if (!f || f.length === 0) { setLoginError('未找到租户记录'); setLoading(false); return; }
       setFloors(f); setTenantName(data.user.name); setTenantPhone(phone.trim()); setLoggedIn(true);
-      if (hideHeader) localStorage.setItem('vencos_tenant_session', JSON.stringify({ phone: phone.trim(), name: data.user.name }));
+      if (hideHeader) localStorage.setItem('vencos_tenant_session', JSON.stringify({ phone: phone.trim(), name: data.user.name, token: data.token || '' }));
       await loadData(f, phone.trim());
     } catch (e) { console.error(e); setLoginError('登录失败'); }
     setLoading(false);
@@ -137,7 +141,7 @@ export const TenantPortal: React.FC<TenantPortalProps> = ({ userPhone, hideHeade
       const f = await getFloorUnitsByPhone(ph);
       if (f && f.length > 0) {
         setFloors(f); setLoggedIn(true);
-        if (hideHeader) localStorage.setItem('vencos_tenant_session', JSON.stringify({ phone: ph, name: tenantName }));
+        if (hideHeader) localStorage.setItem('vencos_tenant_session', JSON.stringify({ phone: ph, name: tenantName, token: getAuthToken() || '' }));
         await loadData(f, ph);
       }
     } catch (e) { console.error(e); setPinError('修改失败，请重试'); }

@@ -154,9 +154,25 @@ const App: React.FC = () => {
     localStorage.setItem('vencos_currentPage', currentPage);
   }, [currentPage]);
 
-  // Persist portal mode
+  // Persist portal mode & swap tokens between admin/tenant
   useEffect(() => {
     localStorage.setItem('vencos_portal_mode', portalMode);
+    if (portalMode === 'tenant') {
+      // Switching TO tenant: backup admin token, restore tenant token
+      const currentToken = getAuthToken();
+      if (currentToken) localStorage.setItem('vencos_admin_token_backup', currentToken);
+      const tenantSession = localStorage.getItem('vencos_tenant_session');
+      if (tenantSession) {
+        try {
+          const { token: t } = JSON.parse(tenantSession);
+          if (t) setAuthToken(t);
+        } catch {}
+      }
+    } else {
+      // Switching AWAY from tenant: restore admin token
+      const adminToken = localStorage.getItem('vencos_admin_token_backup');
+      if (adminToken) setAuthToken(adminToken);
+    }
   }, [portalMode]);
 
   // Apply theme on mount and change
@@ -260,6 +276,8 @@ const App: React.FC = () => {
     setUser(null);
     clearAuthToken();
     localStorage.removeItem('vencos_user');
+    localStorage.removeItem('vencos_admin_token_backup');
+    localStorage.removeItem('vencos_tenant_session');
     setPortalMode('admin');
     setCurrentPage('dashboard');
     setModal(null);
