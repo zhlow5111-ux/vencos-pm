@@ -687,7 +687,7 @@ export const PropertyList: React.FC<Props> = ({ onAdd, onEdit, refreshKey, userI
   const statusBadge = (status: string) => {
     const s = PROPERTY_STATUSES.find((st) => st.value === status);
     const colors: Record<string, string> = {
-      available: 'badge-success', rented: 'badge-info', sold: 'badge-secondary', pending: 'badge-warning',
+      available: 'badge-success', rented: 'badge-info', self_use: 'badge-primary', sold: 'badge-secondary', pending: 'badge-warning',
     };
     return <span className={`badge badge-sm ${colors[status] || 'badge-ghost'}`}>{s?.label || status}</span>;
   };

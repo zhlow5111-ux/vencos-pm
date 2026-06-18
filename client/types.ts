@@ -493,6 +493,7 @@ export const PROPERTY_TYPES: SelectOption[] = [
 export const PROPERTY_STATUSES: SelectOption[] = [
   { value: 'available', label: '空置' },
   { value: 'rented', label: '已出租' },
+  { value: 'self_use', label: '自用' },
   { value: 'sold', label: '已售出' },
   { value: 'pending', label: '处理中' },
 ];
